@@ -1,68 +1,57 @@
 export interface FaqItem {
   question: string;
   answer: string;
-  category: "General" | "Billing" | "Activations" | "API" | "Account";
 }
 
 export const faqs: FaqItem[] = [
   {
-    category: "General",
     question: "What is Xencodes?",
     answer:
-      "Xencodes is a platform that provides temporary and rentable virtual phone numbers so you can receive SMS verification codes for supported online services, for legitimate account verification, testing, and development purposes.",
+      "Xencodes lets you purchase a virtual phone number to receive SMS verification codes for supported online services, for legitimate account verification and testing.",
   },
   {
-    category: "General",
-    question: "Is Xencodes intended for fraudulent use?",
+    question: "How does a virtual number work?",
     answer:
-      "No. Xencodes is built strictly for legitimate verification and testing. It must not be used for fraud, impersonation, unauthorized account access, or circumventing a platform's bans or security controls. Accounts found violating our acceptable use policy are suspended.",
+      "You choose a service and country, then purchase an available number. That number is temporarily assigned to you so it can receive the verification SMS sent by the service you're signing up for.",
   },
   {
-    category: "Activations",
-    question: "How does an activation work?",
+    question: "How do I receive my verification code?",
     answer:
-      "Select a service and country, purchase an available number, and enter it where the target service asks for phone verification. The SMS and its code appear in your Xencodes dashboard in real time once it arrives.",
+      "Once your number is purchased, enter it on the service you're verifying. When the SMS arrives, the code appears automatically on your Xencodes activation page — no refreshing needed.",
   },
   {
-    category: "Activations",
-    question: "What happens if I don't receive an SMS?",
+    question: "How long does it take?",
     answer:
-      "If a code doesn't arrive within the activation window, you can retry where permitted or cancel the activation. Eligible failed activations are refunded automatically to your wallet.",
+      "Most codes arrive within seconds to a couple of minutes, depending on the service, country, and current carrier conditions.",
   },
   {
-    category: "Activations",
-    question: "Can I keep a number for longer than one activation?",
+    question: "What happens if I don't receive a code?",
     answer:
-      "Yes. Supported countries and services allow number rentals, letting you hold a number for a defined period such as 7, 14, or 30 days instead of a single short activation.",
+      "If your number doesn't receive a code within the session period, you can cancel the activation and the amount is refunded to your wallet in full — no code, no charge.",
   },
   {
-    category: "Billing",
-    question: "How does pricing work?",
+    question: "Can I use the number more than once?",
     answer:
-      "Xencodes uses pay-as-you-go wallet billing. Prices vary by country, service, provider, and current inventory, and are always shown before you confirm a purchase.",
+      "A standard purchase is for a single verification session. If a service you're using may send more than one code over time, look for rental availability for that service and country.",
   },
   {
-    category: "Billing",
+    question: "Which services are supported?",
+    answer:
+      "Xencodes supports a growing list of services including Facebook, Instagram, WhatsApp, Telegram, TikTok, Google, Fiverr, Upwork, and others. Search the full list on the Services page.",
+  },
+  {
+    question: "Which countries are available?",
+    answer:
+      "Available countries vary by service based on live carrier and inventory conditions. Country options are shown when you select a service in the buying flow.",
+  },
+  {
     question: "How do refunds work?",
     answer:
-      "Activations that fail to deliver a valid code within the allowed time, or numbers that a provider marks unusable before delivery, are automatically refunded to your wallet balance.",
+      "Activations that don't receive a valid code within the allowed session are refunded automatically to your wallet balance when cancelled or expired. See our Refund Policy for details.",
   },
   {
-    category: "API",
-    question: "Does Xencodes offer a developer API?",
+    question: "Is Xencodes an official service of Facebook, Instagram, Fiverr, etc.?",
     answer:
-      "Yes. The Xencodes API gives developers programmatic access to countries, services, pricing, activations, SMS retrieval, and account balance, along with webhook notifications for activation events.",
-  },
-  {
-    category: "API",
-    question: "Are there rate limits on the API?",
-    answer:
-      "Yes, rate limits depend on your plan. Developer accounts get standard limits suitable for low-volume integrations, while Business and Enterprise plans unlock higher throughput.",
-  },
-  {
-    category: "Account",
-    question: "Is two-factor authentication supported?",
-    answer:
-      "Yes. You can enable two-factor authentication from your account security settings for additional protection on your Xencodes account and wallet.",
+      "No. Xencodes is an independent service and is not affiliated with, endorsed by, or officially connected to any of the platforms whose verification services may be supported.",
   },
 ];

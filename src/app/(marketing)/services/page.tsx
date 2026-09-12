@@ -6,8 +6,7 @@ import { services } from "@/data/services";
 
 export const metadata: Metadata = {
   title: "Services",
-  description:
-    "Browse the full Xencodes catalog of supported verification services, including social platforms, marketplaces, and developer tools.",
+  description: "Search supported verification services and get a number in seconds.",
 };
 
 export default function ServicesPage() {
@@ -16,8 +15,8 @@ export default function ServicesPage() {
       <Container>
         <SectionHeading
           eyebrow="Services"
-          title="Supported verification services"
-          description="Only services that are actually supported and available are shown here. Availability by country is confirmed on each service page."
+          title="Find your service"
+          description="Search for a service, then get a number in seconds."
         />
         <div className="mt-10">
           <ServicesDirectory services={services} />

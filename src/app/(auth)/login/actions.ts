@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { signIn } from "@/auth";
 import { loginSchema } from "@/lib/validation/auth";
 import { createTwoFactorTicket } from "@/lib/two-factor-ticket";
-import { TWO_FACTOR_COOKIE } from "@/lib/two-factor-cookie";
+import { TWO_FACTOR_COOKIE, TWO_FACTOR_CALLBACK_COOKIE } from "@/lib/two-factor-cookie";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 export interface LoginState {
   error?: string;
@@ -27,6 +28,7 @@ export async function loginAction(
   }
 
   const { email, password } = parsed.data;
+  const callbackUrl = safeRedirectPath(formData.get("callbackUrl"));
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
@@ -41,23 +43,25 @@ export async function loginAction(
   if (user.twoFactorEnabled) {
     const ticket = await createTwoFactorTicket(user.id);
     const cookieStore = await cookies();
-    cookieStore.set(TWO_FACTOR_COOKIE, ticket, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: "lax" as const,
       maxAge: 5 * 60,
       path: "/",
-    });
+    };
+    cookieStore.set(TWO_FACTOR_COOKIE, ticket, cookieOptions);
+    cookieStore.set(TWO_FACTOR_CALLBACK_COOKIE, callbackUrl, cookieOptions);
     return { requiresTwoFactor: true };
   }
 
   // Credentials are already verified above; this call always succeeds and
-  // redirects to /dashboard, so nothing after it will run.
+  // redirects to the callback URL, so nothing after it will run.
   await signIn("credentials", {
     mode: "password",
     email,
     password,
-    redirectTo: "/dashboard",
+    redirectTo: callbackUrl,
   });
 
   return {};

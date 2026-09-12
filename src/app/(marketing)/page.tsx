@@ -1,53 +1,74 @@
 import {
   ArrowRight,
-  Banknote,
-  CalendarClock,
-  Code2,
-  MessageSquareText,
-  ShieldCheck,
-  Smartphone,
+  Lock,
+  Sparkles,
+  Wallet,
   Zap,
+  ShieldCheck,
+  Globe2,
 } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { StatCard } from "@/components/ui/stat-card";
-import { InboxPreview } from "@/components/marketing/inbox-preview";
+import { HeroVisual } from "@/components/marketing/hero-visual";
+import { QuickSelector } from "@/components/marketing/quick-selector";
 import { ServiceChip } from "@/components/marketing/service-chip";
-import { CountryCard } from "@/components/marketing/country-card";
-import { AvailabilityDot } from "@/components/marketing/availability-badge";
 import { services, getServiceBySlug } from "@/data/services";
 import { countries } from "@/data/countries";
 
+const trustBullets = [
+  { icon: Zap, label: "Instant reservation" },
+  { icon: Globe2, label: "Multiple countries" },
+  { icon: Lock, label: "Private & secure" },
+];
+
 const steps = [
   {
-    icon: Smartphone,
-    title: "Select service",
-    description: "Choose the platform you need to verify, from social apps to marketplaces.",
+    number: "1",
+    title: "Choose a service",
+    description: "Select the service you need to verify.",
   },
   {
-    icon: ShieldCheck,
-    title: "Select country",
-    description: "Pick a supported country based on live availability and pricing.",
+    number: "2",
+    title: "Get your number",
+    description: "Choose a country and purchase an available number.",
   },
   {
-    icon: Banknote,
-    title: "Purchase number",
-    description: "Buy an available number instantly using your wallet balance.",
+    number: "3",
+    title: "Receive your code",
+    description: "Your SMS appears automatically — no refreshing needed.",
+  },
+];
+
+const whyXencodes = [
+  {
+    icon: Zap,
+    title: "Fast delivery",
+    description: "Receive verification messages in real time.",
   },
   {
-    icon: MessageSquareText,
-    title: "Receive SMS",
-    description: "Watch the code land in your real-time dashboard inbox, ready to copy.",
+    icon: Wallet,
+    title: "Simple pricing",
+    description: "Pay only for what you need.",
+  },
+  {
+    icon: Globe2,
+    title: "Multiple countries",
+    description: "Choose from available numbers across supported countries.",
+  },
+  {
+    icon: Lock,
+    title: "Private",
+    description: "Your number is used only for your verification session.",
   },
 ];
 
 const highlightedServiceSlugs = [
   "facebook",
   "instagram",
-  "telegram",
   "whatsapp",
+  "telegram",
   "tiktok",
   "google",
   "fiverr",
@@ -56,91 +77,94 @@ const highlightedServiceSlugs = [
   "linkedin",
 ];
 
-const sampleAvailability = [
-  { serviceSlug: "telegram", countrySlug: "usa" },
-  { serviceSlug: "instagram", countrySlug: "uk" },
-  { serviceSlug: "whatsapp", countrySlug: "nigeria" },
-  { serviceSlug: "google", countrySlug: "germany" },
-  { serviceSlug: "tiktok", countrySlug: "philippines" },
-];
+const startingPrice = Math.min(...services.map((s) => s.priceFrom));
 
 export default function HomePage() {
-  const totalAvailability = services.flatMap((s) => s.availability);
-  const activeEntries = totalAvailability.filter((a) => a.status !== "unavailable");
-  const avgSuccessRate = Math.round(
-    activeEntries.reduce((sum, a) => sum + a.successRate, 0) / activeEntries.length,
-  );
-  const avgDelivery = Math.round(
-    activeEntries.reduce((sum, a) => sum + a.avgDeliverySeconds, 0) / activeEntries.length,
-  );
-
   return (
     <>
-      <div className="relative overflow-hidden border-b border-border bg-grid [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black_40%,transparent_100%)]">
-        <Container className="relative pt-24 pb-20 sm:pt-32 sm:pb-28">
-          <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-8">
+      <div className="relative overflow-hidden border-b border-border bg-warm-glow">
+        <Container className="relative pt-20 pb-16 sm:pt-28 sm:pb-20">
+          <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-10">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-                <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                {countries.length} countries &middot; {services.length}+ services live
-              </span>
-              <h1 className="mt-5 text-4xl sm:text-5xl lg:text-[3.25rem] font-semibold tracking-tight leading-[1.1] text-balance">
-                Virtual numbers.
-                <br /> Real-time SMS verification.
+              <h1 className="text-4xl sm:text-5xl lg:text-[3.25rem] font-semibold tracking-tight leading-[1.1] text-balance">
+                Get verification codes{" "}
+                <span className="text-primary">without the wait.</span>
               </h1>
               <p className="mt-5 max-w-lg text-lg text-muted-foreground text-balance">
-                Xencodes gives developers and teams instant access to virtual
-                phone numbers for legitimate account verification and testing
-                — with live availability, transparent pricing, and codes
-                delivered to your dashboard in seconds.
+                Buy a virtual number, receive your SMS code, and complete
+                your verification in minutes.
               </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Button href="/register" size="lg">
-                  Get started free
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <Button href="/buy" size="lg">
+                  Get a Number
                   <ArrowRight className="h-4 w-4" />
                 </Button>
                 <Button href="/how-it-works" variant="outline" size="lg">
-                  See how it works
+                  How It Works
                 </Button>
               </div>
-              <p className="mt-6 text-xs text-muted-foreground">
-                For legitimate verification and testing only. Not for fraud,
-                impersonation, or bypassing platform security controls.
-              </p>
+              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2">
+                {trustBullets.map((item) => (
+                  <span
+                    key={item.label}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground"
+                  >
+                    <item.icon className="h-3.5 w-3.5 text-primary" />
+                    {item.label}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="flex justify-center lg:justify-end">
-              <InboxPreview />
-            </div>
+            <HeroVisual />
           </div>
         </Container>
       </div>
 
       <Section className="py-12 sm:py-16">
         <Container>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Countries" value={countries.length} />
-            <StatCard label="Supported services" value={`${services.length}+`} />
-            <StatCard label="Avg. delivery time" value={`${avgDelivery}s`} />
-            <StatCard label="Avg. success rate" value={`${avgSuccessRate}%`} />
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-xl font-semibold">
+              Choose a service and country to get started
+            </h2>
           </div>
+          <div className="mx-auto mt-6 max-w-xl">
+            <QuickSelector services={services} countries={countries} />
+          </div>
+        </Container>
+      </Section>
+
+      <Section className="bg-secondary/30">
+        <Container>
+          <p className="text-center text-sm font-medium text-muted-foreground">
+            Works with the services you already use
+          </p>
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {highlightedServiceSlugs.map((slug) => {
+              const service = getServiceBySlug(slug);
+              if (!service) return null;
+              return <ServiceChip key={slug} service={service} />;
+            })}
+          </div>
+          <p className="mt-6 text-center">
+            <Button href="/services" variant="ghost" size="sm">
+              Browse all services
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          </p>
         </Container>
       </Section>
 
       <Section>
         <Container>
           <SectionHeading
-            eyebrow="How it works"
-            title="From service to code in four steps"
-            description="The core Xencodes flow is designed to stay fast and obvious, always within a click or two."
+            title="Three steps, about a minute"
+            align="center"
           />
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {steps.map((step, index) => (
-              <Card key={step.title} className="relative p-6">
-                <span className="absolute right-5 top-5 text-3xl font-semibold text-border">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-muted text-primary">
-                  <step.icon className="h-5 w-5" />
+          <div className="mt-10 grid gap-6 sm:grid-cols-3">
+            {steps.map((step) => (
+              <Card key={step.number} className="p-6 text-center sm:text-left">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                  {step.number}
                 </span>
                 <p className="mt-4 font-semibold">{step.title}</p>
                 <p className="mt-1.5 text-sm text-muted-foreground">
@@ -154,150 +178,69 @@ export default function HomePage() {
 
       <Section className="bg-secondary/30">
         <Container>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <SectionHeading
-              eyebrow="Services"
-              title="A growing catalog of supported services"
-              description="Social platforms, marketplaces, developer tools, and more — with new services added continuously."
-            />
-            <Button href="/services" variant="outline">
-              View all services
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {highlightedServiceSlugs.map((slug) => {
-              const service = getServiceBySlug(slug);
-              if (!service) return null;
-              return <ServiceChip key={slug} service={service} />;
-            })}
-          </div>
-        </Container>
-      </Section>
-
-      <Section>
-        <Container>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <SectionHeading
-              eyebrow="Countries"
-              title="Choose from multiple countries"
-              description="Availability, pricing, and delivery speed vary by country based on live carrier and inventory conditions."
-            />
-            <Button href="/countries" variant="outline">
-              View all countries
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {countries.slice(0, 4).map((country) => (
-              <CountryCard key={country.slug} country={country} />
+          <SectionHeading eyebrow="Why Xencodes" title="Built to be simple" align="center" />
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {whyXencodes.map((item) => (
+              <div key={item.title} className="text-center sm:text-left">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <p className="mt-3 font-semibold">{item.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
             ))}
           </div>
-        </Container>
-      </Section>
 
-      <Section className="bg-secondary/30">
-        <Container>
-          <SectionHeading
-            eyebrow="Reliability"
-            title="Live availability, never a false promise"
-            description="Xencodes never guarantees that every number works with every service. Availability depends on country, provider, carrier, and current inventory — shown live before you buy."
-          />
-          <Card className="mt-10 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-5 py-3 font-medium">Service</th>
-                  <th className="px-5 py-3 font-medium">Country</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Price</th>
-                  <th className="px-5 py-3 font-medium">Avg. delivery</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sampleAvailability.map(({ serviceSlug, countrySlug }) => {
-                  const service = getServiceBySlug(serviceSlug);
-                  const country = countries.find((c) => c.slug === countrySlug);
-                  const availability = service?.availability.find(
-                    (a) => a.countrySlug === countrySlug,
-                  );
-                  if (!service || !country || !availability) return null;
-                  return (
-                    <tr
-                      key={`${serviceSlug}-${countrySlug}`}
-                      className="border-b border-border last:border-0"
-                    >
-                      <td className="px-5 py-3.5 font-medium">{service.name}</td>
-                      <td className="px-5 py-3.5 text-muted-foreground">
-                        {country.flag} {country.name}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <AvailabilityDot status={availability.status} />
-                      </td>
-                      <td className="px-5 py-3.5">${availability.price.toFixed(2)}</td>
-                      <td className="px-5 py-3.5 text-muted-foreground">
-                        ~{availability.avgDeliverySeconds}s
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <Card className="mt-10 flex flex-col items-center gap-3 border-primary/20 bg-primary-muted/40 px-8 py-12 text-center">
+            <ShieldCheck className="h-8 w-8 text-primary" />
+            <h3 className="text-xl font-semibold">No code, no charge</h3>
+            <p className="max-w-md text-sm text-muted-foreground">
+              If your number doesn&apos;t receive a code within the session
+              period, cancel it and your payment is refunded to your wallet.
+            </p>
+            <Button href="/refund-policy" variant="outline" className="mt-1">
+              Read the refund policy
+            </Button>
           </Card>
         </Container>
       </Section>
 
       <Section>
         <Container>
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card className="p-8">
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary-muted text-primary">
-                <CalendarClock className="h-5 w-5" />
-              </span>
-              <h3 className="mt-5 text-xl font-semibold">Number rentals</h3>
-              <p className="mt-2 text-muted-foreground">
-                Need more than one code? Rent a number for a defined period —
-                7, 14, or 30 days — instead of running separate short
-                activations.
-              </p>
-              <Button href="/pricing" variant="outline" className="mt-6">
-                See rental pricing
-              </Button>
-            </Card>
-            <Card className="p-8">
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary-muted text-primary">
-                <Code2 className="h-5 w-5" />
-              </span>
-              <h3 className="mt-5 text-xl font-semibold">Developer API</h3>
-              <p className="mt-2 text-muted-foreground">
-                Automate number purchases, poll or receive webhooks for
-                incoming SMS, and manage activations programmatically.
-              </p>
-              <Button href="/api" variant="outline" className="mt-6">
-                Explore the API
-              </Button>
-            </Card>
-          </div>
+          <Card className="flex flex-col items-center gap-3 p-10 text-center">
+            <Sparkles className="h-7 w-7 text-primary" />
+            <h2 className="text-2xl font-semibold">Simple, upfront pricing</h2>
+            <p className="text-muted-foreground">
+              Starting from{" "}
+              <span className="font-semibold text-foreground">
+                ${startingPrice.toFixed(2)}
+              </span>{" "}
+              per code. Price varies by service and country.
+            </p>
+            <Button href="/pricing" variant="outline" className="mt-1">
+              See Pricing
+            </Button>
+          </Card>
         </Container>
       </Section>
 
       <Section className="pb-24 sm:pb-32">
         <Container>
           <Card className="flex flex-col items-center gap-6 bg-primary px-8 py-14 text-center text-primary-foreground sm:px-16">
-            <Zap className="h-8 w-8" />
             <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-balance">
-              Ready to verify your first number?
+              Need a verification number?
             </h2>
             <p className="max-w-lg text-primary-foreground/80">
-              Create a free account, fund your wallet, and complete your
-              first activation in minutes.
+              Get your number and receive your code in minutes.
             </p>
             <Button
-              href="/register"
+              href="/buy"
               size="lg"
               className="bg-primary-foreground text-primary hover:opacity-90"
             >
-              Create free account
+              Get Started
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Card>
@@ -306,4 +249,3 @@ export default function HomePage() {
     </>
   );
 }
-

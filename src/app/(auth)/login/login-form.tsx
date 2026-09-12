@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,8 @@ const initialState: LoginState = {};
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
   useEffect(() => {
@@ -28,6 +30,7 @@ export function LoginForm() {
       </p>
 
       <form action={formAction} className="mt-6 space-y-4">
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <div>
           <label htmlFor="email" className="text-sm font-medium">
             Email

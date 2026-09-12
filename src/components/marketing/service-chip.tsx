@@ -4,7 +4,7 @@ import type { Service } from "@/data/types";
 export function ServiceChip({ service }: { service: Service }) {
   return (
     <Link
-      href={`/services/${service.slug}`}
+      href={`/buy?service=${service.slug}`}
       className="group flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40 hover:bg-secondary"
     >
       <span

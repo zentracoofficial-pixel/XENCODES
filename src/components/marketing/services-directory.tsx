@@ -6,7 +6,14 @@ import { ArrowUpRight, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { countAvailableCountries } from "@/data/services";
+import { AvailabilityBadge } from "@/components/marketing/availability-badge";
 import type { Service, ServiceCategory } from "@/data/types";
+
+function overallAvailability(service: Service) {
+  if (service.availability.some((a) => a.status === "available")) return "available" as const;
+  if (service.availability.some((a) => a.status === "limited")) return "limited" as const;
+  return "unavailable" as const;
+}
 
 const categories: (ServiceCategory | "All")[] = [
   "All",
@@ -70,7 +77,7 @@ export function ServicesDirectory({ services }: { services: Service[] }) {
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((service) => (
-            <Link key={service.slug} href={`/services/${service.slug}`} className="group block">
+            <Link key={service.slug} href={`/buy?service=${service.slug}`} className="group block">
               <Card className="h-full p-6 transition-colors group-hover:border-primary/40 group-hover:bg-secondary">
                 <div className="flex items-start justify-between">
                   <span
@@ -82,14 +89,11 @@ export function ServicesDirectory({ services }: { services: Service[] }) {
                   <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>
                 <p className="mt-4 font-semibold">{service.name}</p>
-                <p className="text-xs text-muted-foreground">{service.category}</p>
-                <p className="mt-3 text-sm text-muted-foreground line-clamp-2">
-                  {service.description}
+                <p className="text-xs text-muted-foreground">
+                  {countAvailableCountries(service)} countries available
                 </p>
                 <div className="mt-4 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {countAvailableCountries(service)} countries
-                  </span>
+                  <AvailabilityBadge status={overallAvailability(service)} />
                   <span className="font-semibold">
                     from ${service.priceFrom.toFixed(2)}
                   </span>

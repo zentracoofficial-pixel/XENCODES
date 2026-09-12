@@ -24,6 +24,8 @@ model User {
 
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  activations             Activation[]
+  walletTransactions      WalletTransaction[]
 
   @@map("users")
 }
@@ -51,4 +53,52 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+enum ActivationStatus {
+  WAITING
+  RECEIVED
+  EXPIRED
+  CANCELLED
+}
+
+model Activation {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceSlug String
+  serviceName String
+  countrySlug String
+  countryName String
+  phoneNumber String
+  priceCents  Int
+  status      ActivationStatus @default(WAITING)
+  code        String?
+  deliverAt   DateTime
+  expiresAt   DateTime
+  receivedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([userId])
+  @@map("activations")
+}
+
+enum WalletTransactionType {
+  TOPUP
+  PURCHASE
+  REFUND
+}
+
+model WalletTransaction {
+  id          String                @id @default(cuid())
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        WalletTransactionType
+  amountCents Int
+  description String
+  createdAt   DateTime              @default(now())
+
+  @@index([userId])
+  @@map("wallet_transactions")
 }

@@ -6,31 +6,25 @@ const columns = [
   {
     title: "Product",
     links: [
-      { href: "/numbers", label: "Virtual Numbers" },
       { href: "/services", label: "Services" },
-      { href: "/countries", label: "Countries" },
       { href: "/pricing", label: "Pricing" },
       { href: "/how-it-works", label: "How It Works" },
     ],
   },
   {
-    title: "Developers",
+    title: "Support",
     links: [
-      { href: "/api", label: "API Overview" },
-      { href: "/api/features", label: "API Features" },
-      { href: "/api/pricing", label: "API Pricing" },
-      { href: "/developers/docs", label: "Documentation" },
-      { href: "/developers/changelog", label: "Changelog" },
+      { href: "/faq", label: "FAQ" },
+      { href: "/support", label: "Contact Support" },
     ],
   },
   {
-    title: "Company",
+    title: "Legal",
     links: [
-      { href: "/about", label: "About" },
-      { href: "/blog", label: "Blog" },
-      { href: "/faq", label: "FAQ" },
-      { href: "/contact", label: "Contact" },
-      { href: "/status", label: "System Status" },
+      { href: "/terms", label: "Terms" },
+      { href: "/privacy", label: "Privacy" },
+      { href: "/refund-policy", label: "Refund Policy" },
+      { href: "/acceptable-use", label: "Acceptable Use" },
     ],
   },
 ];
@@ -39,7 +33,7 @@ export function Footer() {
   return (
     <footer className="mt-auto border-t border-border">
       <Container className="py-12">
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-10 sm:grid-cols-4">
           <div className="col-span-2">
             <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -48,8 +42,7 @@ export function Footer() {
               Xencodes
             </Link>
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
-              Virtual numbers and real-time SMS verification for legitimate
-              account activation, testing, and developer workflows.
+              Virtual numbers for SMS verification.
             </p>
           </div>
           {columns.map((column) => (
@@ -73,13 +66,9 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-12 flex flex-col gap-4 border-t border-border pt-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-10 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>&copy; {new Date().getFullYear()} Xencodes. All rights reserved.</p>
-          <p className="max-w-xl sm:text-right">
-            Xencodes is built for legitimate verification and testing only. It
-            must not be used for fraud, impersonation, unauthorized access, or
-            to bypass a platform&apos;s security controls or restrictions.
-          </p>
+          <p>Xencodes is an independent service and is not affiliated with the platforms it supports.</p>
         </div>
       </Container>
     </footer>

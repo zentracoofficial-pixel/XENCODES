@@ -5,8 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { signIn } from "@/auth";
 import { verifyTwoFactorTicket } from "@/lib/two-factor-ticket";
 import { verifyTotpCode } from "@/lib/totp";
-import { TWO_FACTOR_COOKIE } from "@/lib/two-factor-cookie";
+import { TWO_FACTOR_COOKIE, TWO_FACTOR_CALLBACK_COOKIE } from "@/lib/two-factor-cookie";
 import { twoFactorCodeSchema } from "@/lib/validation/auth";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 export interface TwoFactorState {
   error?: string;
@@ -42,14 +43,16 @@ export async function verifyTwoFactorAction(
     return { error: "That code is incorrect or has expired." };
   }
 
+  const callbackUrl = safeRedirectPath(cookieStore.get(TWO_FACTOR_CALLBACK_COOKIE)?.value);
   cookieStore.delete(TWO_FACTOR_COOKIE);
+  cookieStore.delete(TWO_FACTOR_CALLBACK_COOKIE);
 
   // Ticket and TOTP code are already verified above; this call always
-  // succeeds and redirects to /dashboard.
+  // succeeds and redirects to the callback URL.
   await signIn("credentials", {
     mode: "ticket",
     ticket,
-    redirectTo: "/dashboard",
+    redirectTo: callbackUrl,
   });
 
   return {};
