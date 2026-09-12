@@ -14,7 +14,7 @@ export function TwoFactorForm() {
   return (
     <Card className="p-7 sm:p-8">
       <div className="flex flex-col items-center text-center">
-        <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary-muted text-primary">
+        <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-mint-soft text-forest">
           <ShieldCheck className="h-5 w-5" />
         </span>
         <h1 className="mt-4 text-xl font-semibold">Two-factor verification</h1>
@@ -31,7 +31,7 @@ export function TwoFactorForm() {
           autoComplete="one-time-code"
           maxLength={6}
           required
-          className="h-12 w-full rounded-md border border-border bg-background text-center text-lg tracking-[0.5em] outline-none ring-ring transition-shadow focus:ring-2"
+          className="h-12 w-full rounded-lg border border-border bg-surface text-center text-lg tracking-[0.5em] outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           placeholder="------"
         />
 

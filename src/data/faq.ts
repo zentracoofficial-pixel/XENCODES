@@ -7,51 +7,46 @@ export const faqs: FaqItem[] = [
   {
     question: "What is Xencodes?",
     answer:
-      "Xencodes lets you purchase a virtual phone number to receive SMS verification codes for supported online services, for legitimate account verification and testing.",
+      "Xencodes gives you a virtual phone number for receiving SMS verification codes. You pick the service you are verifying, choose a country, and the code appears on screen when it arrives.",
   },
   {
-    question: "How does a virtual number work?",
+    question: "How does Xencodes work?",
     answer:
-      "You choose a service and country, then purchase an available number. That number is temporarily assigned to you so it can receive the verification SMS sent by the service you're signing up for.",
+      "Search for the service you need a number for, choose from the countries that have numbers in stock, and pay from your wallet. The number is yours for the session, and any code sent to it shows up in your activation page.",
   },
   {
-    question: "How do I receive my verification code?",
+    question: "How do I get a number?",
     answer:
-      "Once your number is purchased, enter it on the service you're verifying. When the SMS arrives, the code appears automatically on your Xencodes activation page — no refreshing needed.",
+      "Create an account, add funds to your wallet, then search for your service on the homepage. Choosing a country buys the number straight away, so there is no long checkout to fill in.",
   },
   {
-    question: "How long does it take?",
+    question: "How long does it take to receive an SMS?",
     answer:
-      "Most codes arrive within seconds to a couple of minutes, depending on the service, country, and current carrier conditions.",
+      "Most codes arrive within a few seconds. Delivery depends on the service and the country, and each country shows its typical delivery time before you buy.",
   },
   {
-    question: "What happens if I don't receive a code?",
+    question: "What happens if I do not receive a code?",
     answer:
-      "If your number doesn't receive a code within the session period, you can cancel the activation and the amount is refunded to your wallet in full — no code, no charge.",
-  },
-  {
-    question: "Can I use the number more than once?",
-    answer:
-      "A standard purchase is for a single verification session. If a service you're using may send more than one code over time, look for rental availability for that service and country.",
-  },
-  {
-    question: "Which services are supported?",
-    answer:
-      "Xencodes supports a growing list of services including Facebook, Instagram, WhatsApp, Telegram, TikTok, Google, Fiverr, Upwork, and others. Search the full list on the Services page.",
-  },
-  {
-    question: "Which countries are available?",
-    answer:
-      "Available countries vary by service based on live carrier and inventory conditions. Country options are shown when you select a service in the buying flow.",
+      "You are refunded in full. If the session runs out with no code, the refund is automatic, and you can cancel earlier yourself for the same result. No code means no charge.",
   },
   {
     question: "How do refunds work?",
     answer:
-      "Activations that don't receive a valid code within the allowed session are refunded automatically to your wallet balance when cancelled or expired. See our Refund Policy for details.",
+      "Refunds go back to your Xencodes wallet immediately, not to your card, so you can try another country or service right away. Every refund is listed in your wallet history.",
   },
   {
-    question: "Is Xencodes an official service of Facebook, Instagram, Fiverr, etc.?",
+    question: "Which services are supported?",
     answer:
-      "No. Xencodes is an independent service and is not affiliated with, endorsed by, or officially connected to any of the platforms whose verification services may be supported.",
+      "Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr, Upwork and many more. The Services page lists everything currently available with live prices.",
+  },
+  {
+    question: "Which countries are available?",
+    answer:
+      "Availability changes with stock, so each service shows only the countries that can receive its codes right now. Nigeria, the United States, the United Kingdom and several others are covered.",
+  },
+  {
+    question: "Can I use one number more than once?",
+    answer:
+      "A purchase covers one verification session. If you need a second code later, buy another number for that service.",
   },
 ];

@@ -52,7 +52,7 @@ export default function RefundPolicyPage() {
           <LegalSection title="Questions about a specific activation">
             <p>
               If you believe an activation was charged incorrectly, contact{" "}
-              <a href="/support" className="text-primary hover:underline">
+              <a href="/support" className="text-forest hover:underline">
                 Support
               </a>{" "}
               with the phone number or approximate purchase time.

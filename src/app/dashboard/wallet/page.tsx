@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
-import { ArrowDownLeft, ArrowUpRight, RotateCcw, Sparkles, Wallet as WalletIcon } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  RotateCcw,
+  Sparkles,
+  Wallet as WalletIcon,
+} from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
@@ -9,10 +14,10 @@ import { AddFunds } from "./add-funds";
 export const metadata: Metadata = { title: "Wallet" };
 
 const typeMeta = {
-  TOPUP: { label: "Top-up", icon: ArrowDownLeft, tone: "text-success" },
-  PURCHASE: { label: "Number purchase", icon: ArrowUpRight, tone: "text-foreground" },
-  REFUND: { label: "Refund", icon: RotateCcw, tone: "text-success" },
-  ADJUSTMENT: { label: "Account adjustment", icon: Sparkles, tone: "text-primary" },
+  TOPUP: { label: "Top-up", icon: ArrowDownLeft },
+  PURCHASE: { label: "Number purchase", icon: ArrowUpRight },
+  REFUND: { label: "Refund", icon: RotateCcw },
+  ADJUSTMENT: { label: "Account adjustment", icon: Sparkles },
 } as const;
 
 const dateFormat: Intl.DateTimeFormatOptions = {
@@ -26,20 +31,12 @@ export default async function WalletPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [user, transactions, toppedUp, refunded] = await Promise.all([
+  const [user, transactions] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.walletTransaction.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 50,
-    }),
-    prisma.walletTransaction.aggregate({
-      where: { userId, type: "TOPUP" },
-      _sum: { amountKobo: true },
-    }),
-    prisma.walletTransaction.aggregate({
-      where: { userId, type: "REFUND" },
-      _sum: { amountKobo: true },
     }),
   ]);
 
@@ -48,71 +45,47 @@ export default async function WalletPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Wallet</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Fund your balance, then spend it on numbers.
+          Add funds, then spend them on numbers. Refunds come straight back here.
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="relative overflow-hidden border-transparent bg-foreground p-6 text-background">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-primary/30 blur-3xl"
-          />
-          <div className="relative">
-            <p className="text-xs font-medium uppercase tracking-wide text-background/60">
-              Available balance
-            </p>
-            <p className="mt-2 text-4xl font-semibold tracking-tight tabular-nums">
-              {formatNaira(user.walletBalanceKobo)}
-            </p>
-            <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-background/15 pt-4 text-xs">
-              <div>
-                <dt className="text-background/60">Topped up</dt>
-                <dd className="mt-0.5 font-semibold tabular-nums">
-                  {formatNaira(toppedUp._sum.amountKobo ?? 0)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-background/60">Refunded</dt>
-                <dd className="mt-0.5 font-semibold tabular-nums">
-                  {formatNaira(refunded._sum.amountKobo ?? 0)}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </Card>
-
-        <div className="lg:col-span-2">
-          <AddFunds />
-        </div>
+      <div className="rounded-2xl bg-forest px-6 py-5">
+        <p className="text-xs uppercase tracking-[0.14em] text-white/50">
+          Current balance
+        </p>
+        <p className="mt-1.5 text-4xl font-semibold tabular-nums text-white">
+          {formatNaira(user.walletBalanceKobo)}
+        </p>
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="font-semibold">Transactions</h2>
-        </div>
+      <AddFunds />
+
+      <section>
+        <h2 className="text-sm font-semibold">Recent transactions</h2>
 
         {transactions.length === 0 ? (
-          <div className="flex flex-col items-center px-6 py-14 text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
+          <div className="mt-3 rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-center">
+            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-mint-soft text-forest">
               <WalletIcon className="h-5 w-5" />
             </span>
-            <p className="mt-4 font-semibold">No transactions yet</p>
-            <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-              Top-ups, purchases and refunds will all be listed here.
+            <p className="mt-3 font-medium">No transactions yet</p>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+              Top-ups, purchases and refunds all show up here.
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {transactions.map((tx) => {
               const meta = typeMeta[tx.type];
               const credit = tx.amountKobo >= 0;
               return (
-                <li key={tx.id} className="flex items-center gap-4 px-5 py-3.5">
+                <li key={tx.id} className="flex items-center gap-3.5 px-4 py-3">
                   <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                      credit ? "bg-success-muted text-success" : "bg-secondary text-muted-foreground"
-                    }`}
+                    className={
+                      credit
+                        ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-mint-soft text-forest"
+                        : "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground"
+                    }
                   >
                     <meta.icon className="h-4 w-4" />
                   </span>
@@ -132,11 +105,13 @@ export default async function WalletPage() {
                   </time>
 
                   <span
-                    className={`shrink-0 text-sm font-semibold tabular-nums ${
-                      credit ? "text-success" : "text-foreground"
-                    }`}
+                    className={
+                      credit
+                        ? "shrink-0 text-sm font-semibold tabular-nums text-success"
+                        : "shrink-0 text-sm font-semibold tabular-nums"
+                    }
                   >
-                    {credit ? "+" : "−"}
+                    {credit ? "+" : "-"}
                     {formatNaira(Math.abs(tx.amountKobo))}
                   </span>
                 </li>
@@ -144,7 +119,7 @@ export default async function WalletPage() {
             })}
           </ul>
         )}
-      </Card>
+      </section>
     </div>
   );
 }

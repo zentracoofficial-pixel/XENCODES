@@ -42,7 +42,7 @@ export function ForgotPasswordForm() {
             name="email"
             type="email"
             required
-            className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
             placeholder="you@company.com"
           />
         </div>

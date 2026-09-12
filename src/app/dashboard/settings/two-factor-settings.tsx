@@ -47,7 +47,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
             type="password"
             required
             placeholder="Confirm your password to disable"
-            className="h-10 w-full max-w-xs rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            className="h-10 w-full max-w-xs rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
           {disableState.error ? (
             <p className="text-sm text-danger">{disableState.error}</p>
@@ -121,7 +121,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
               maxLength={6}
               required
               placeholder="123456"
-              className="h-10 w-32 rounded-md border border-border bg-background px-3 text-sm tracking-widest outline-none ring-ring transition-shadow focus:ring-2"
+              className="h-10 w-32 rounded-lg border border-border bg-surface px-3 text-sm tracking-widest outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
             />
             <Button type="submit" disabled={confirmPending}>
               {confirmPending ? "Verifying..." : "Confirm"}

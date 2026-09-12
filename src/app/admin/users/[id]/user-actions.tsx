@@ -110,7 +110,7 @@ export function UserActions({
               step="1"
               placeholder="Amount in ₦, e.g. 500 or -200"
               required
-              className="h-10 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+              className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
             />
           </div>
           <input
@@ -118,7 +118,7 @@ export function UserActions({
             type="text"
             placeholder="Reason (required, shown to the user)"
             required
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
           {creditState.error ? (
             <p className="text-sm text-danger">{creditState.error}</p>

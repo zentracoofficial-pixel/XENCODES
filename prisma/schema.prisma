@@ -86,7 +86,8 @@ model Activation {
   priceKobo  Int
   status      ActivationStatus @default(WAITING)
   code        String?
-  deliverAt   DateTime
+  /// The provider's own id for this activation, used to poll for the SMS.
+  externalId  String?
   expiresAt   DateTime
   receivedAt  DateTime?
   createdAt   DateTime         @default(now())

@@ -1,9 +1,10 @@
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import { getServiceBySlug } from "@/data/services";
+import { services } from "@/data/services";
 
 /**
- * Activations store their own service slug/name, so a service later removed
- * from the catalog still renders — it just falls back to a neutral lettermark.
+ * Activations store their own service slug and name, so one that is later
+ * removed from the catalog still renders. It falls back to a neutral
+ * lettermark rather than breaking.
  */
 export function ActivationLogo({
   serviceSlug,
@@ -14,13 +15,14 @@ export function ActivationLogo({
   serviceName: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const service = getServiceBySlug(serviceSlug);
+  const known = services.find((service) => service.slug === serviceSlug);
+
   return (
     <ServiceLogo
+      slug={serviceSlug}
+      name={serviceName}
+      color={known?.color ?? "#63756F"}
       size={size}
-      service={
-        service ?? { slug: serviceSlug, name: serviceName, color: "#6B6480" }
-      }
     />
   );
 }

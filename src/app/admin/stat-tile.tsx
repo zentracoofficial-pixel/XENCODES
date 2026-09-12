@@ -16,10 +16,10 @@ export function StatTile({
 }) {
   const toneClass =
     tone === "success"
-      ? "bg-success-muted text-success"
+      ? "bg-success-soft text-success"
       : tone === "danger"
-        ? "bg-danger-muted text-danger"
-        : "bg-primary-muted text-primary";
+        ? "bg-danger-soft text-danger"
+        : "bg-mint-soft text-forest";
 
   return (
     <Card className="p-5">

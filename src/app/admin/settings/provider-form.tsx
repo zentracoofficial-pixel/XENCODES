@@ -7,7 +7,7 @@ import { saveProviderSettingsAction, type ProviderSettingsState } from "./action
 const initial: ProviderSettingsState = {};
 
 const inputClass =
-  "h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2";
+  "h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25";
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 export function ProviderForm({
@@ -80,7 +80,7 @@ export function ProviderForm({
           onChange={(e) => setEnabled(e.target.checked)}
           className="h-4 w-4 rounded border-border accent-primary"
         />
-        Connection enabled — numbers are purchased live from this provider
+        Connection enabled, so numbers are purchased live from this provider
       </label>
 
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}

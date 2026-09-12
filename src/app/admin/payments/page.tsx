@@ -14,13 +14,13 @@ import { formatNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 import type { WalletTransactionType } from "@/generated/prisma/client";
 
-export const metadata: Metadata = { title: "Admin — Payments" };
+export const metadata: Metadata = { title: "Admin: Payments" };
 
 const typeMeta = {
-  TOPUP: { label: "Top-up", icon: ArrowDownLeft, tone: "bg-success-muted text-success" },
-  PURCHASE: { label: "Purchase", icon: ShoppingBag, tone: "bg-secondary text-foreground" },
-  REFUND: { label: "Refund", icon: RotateCcw, tone: "bg-warning-muted text-warning" },
-  ADJUSTMENT: { label: "Adjustment", icon: Sparkles, tone: "bg-primary-muted text-primary" },
+  TOPUP: { label: "Top-up", icon: ArrowDownLeft, tone: "bg-success-soft text-success" },
+  PURCHASE: { label: "Purchase", icon: ShoppingBag, tone: "bg-background text-foreground" },
+  REFUND: { label: "Refund", icon: RotateCcw, tone: "bg-warning-soft text-warning" },
+  ADJUSTMENT: { label: "Adjustment", icon: Sparkles, tone: "bg-mint-soft text-forest" },
 } as const;
 
 const filters: { label: string; value: WalletTransactionType | "ALL" }[] = [
@@ -80,8 +80,8 @@ export default async function AdminPaymentsPage({
             className={cn(
               "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
               activeFilter === f.value
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border text-muted-foreground hover:bg-secondary",
+                ? "border-forest bg-primary text-white"
+                : "border-border text-muted-foreground hover:bg-mint-soft",
             )}
           >
             {f.label}
@@ -105,7 +105,7 @@ export default async function AdminPaymentsPage({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{meta.label}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      <Link href={`/admin/users/${tx.userId}`} className="hover:text-primary hover:underline">
+                      <Link href={`/admin/users/${tx.userId}`} className="hover:text-forest hover:underline">
                         {tx.user.email}
                       </Link>
                       {" "}· {tx.description}
@@ -115,7 +115,7 @@ export default async function AdminPaymentsPage({
                     {tx.createdAt.toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                   </time>
                   <span className={cn("shrink-0 text-sm font-semibold tabular-nums", credit ? "text-success" : "text-foreground")}>
-                    {credit ? "+" : "−"}
+                    {credit ? "+" : "-"}
                     {formatNaira(Math.abs(tx.amountKobo))}
                   </span>
                 </li>

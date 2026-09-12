@@ -4,17 +4,17 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import type { ActivationStatus } from "@/generated/prisma/client";
 
-export const metadata: Metadata = { title: "Admin — Orders" };
+export const metadata: Metadata = { title: "Admin: Orders" };
 
 const statusVariant = {
   WAITING: "warning",
   RECEIVED: "success",
   EXPIRED: "danger",
-  CANCELLED: "outline",
+  CANCELLED: "neutral",
 } as const;
 
 const filters: { label: string; value: ActivationStatus | "ALL" }[] = [
@@ -57,8 +57,8 @@ export default async function AdminOrdersPage({
             className={cn(
               "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
               activeFilter === f.value
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border text-muted-foreground hover:bg-secondary",
+                ? "border-forest bg-primary text-white"
+                : "border-border text-muted-foreground hover:bg-mint-soft",
             )}
           >
             {f.label}
@@ -81,14 +81,14 @@ export default async function AdminOrdersPage({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{order.serviceName}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    <Link href={`/admin/users/${order.userId}`} className="hover:text-primary hover:underline">
+                    <Link href={`/admin/users/${order.userId}`} className="hover:text-forest hover:underline">
                       {order.user.email}
                     </Link>{" "}
                     · {order.countryName}
                   </p>
                 </div>
                 <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-                  {order.phoneNumber}
+                  {formatPhoneNumber(order.phoneNumber)}
                 </span>
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                   {formatNaira(order.priceKobo)}

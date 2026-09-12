@@ -4,25 +4,23 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CreditCard,
-  Globe2,
   LayoutDashboard,
   LifeBuoy,
   Package,
   RotateCcw,
   Settings,
-  ShieldHalf,
   ShoppingBag,
   Tag,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { XenMark } from "@/components/layout/wordmark";
 
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
   { href: "/admin/services", label: "Services", icon: Package },
-  { href: "/admin/countries", label: "Countries", icon: Globe2 },
   { href: "/admin/pricing", label: "Pricing", icon: Tag },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
   { href: "/admin/refunds", label: "Refunds", icon: RotateCcw },
@@ -61,13 +59,11 @@ function NavItems() {
 
 export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
   return (
-    <aside className="hidden w-60 shrink-0 flex-col bg-[#0b0a10] lg:flex">
+    <aside className="hidden w-60 shrink-0 flex-col bg-forest-dark lg:flex">
       <div className="flex h-16 items-center gap-2 px-5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <ShieldHalf className="h-4 w-4" />
-        </span>
+        <XenMark className="h-[22px] w-[22px] text-white" />
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">Xencodes</p>
+          <p className="text-sm font-semibold tracking-[-0.02em] text-white">Xencodes</p>
           <p className="text-[11px] text-white/40">Admin</p>
         </div>
       </div>
@@ -82,7 +78,7 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
           href="/dashboard"
           className="mt-1.5 inline-block text-xs font-medium text-white/60 hover:text-white"
         >
-          Back to customer app →
+          Back to customer app
         </Link>
       </div>
     </aside>
@@ -91,10 +87,8 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
 
 export function AdminTopBar() {
   return (
-    <header className="flex h-14 items-center gap-2 bg-[#0b0a10] px-4 lg:hidden">
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <ShieldHalf className="h-3.5 w-3.5" />
-      </span>
+    <header className="flex h-14 items-center gap-2 bg-forest-dark px-4 lg:hidden">
+      <XenMark className="h-5 w-5 text-white" />
       <p className="text-sm font-semibold text-white">Admin</p>
       <nav className="ml-auto flex gap-1 overflow-x-auto">
         <NavItems />

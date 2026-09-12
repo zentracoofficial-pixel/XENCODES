@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { addFundsAction } from "./actions";
@@ -15,15 +14,13 @@ export function AddFunds() {
   const [done, setDone] = useState(false);
 
   return (
-    <Card className="flex h-full flex-col p-6">
-      <div>
-        <h2 className="font-semibold">Add funds</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Choose an amount to credit your wallet.
-        </p>
-      </div>
+    <section className="rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold">Add funds</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Choose an amount to credit your wallet.
+      </p>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {TOP_UP_AMOUNTS_NAIRA.map((amount) => {
           const active = selected === amount;
           return (
@@ -32,10 +29,10 @@ export function AddFunds() {
               type="button"
               onClick={() => setSelected(amount)}
               className={cn(
-                "rounded-xl border px-3 py-3 text-sm font-semibold tabular-nums transition-colors",
+                "rounded-lg border px-3 py-2.5 text-sm font-semibold tabular-nums transition-colors",
                 active
-                  ? "border-primary bg-primary-muted text-primary"
-                  : "border-border hover:bg-secondary",
+                  ? "border-forest bg-forest text-white"
+                  : "border-border hover:border-mint hover:bg-mint-soft",
               )}
             >
               {formatNairaFromNaira(amount)}
@@ -44,7 +41,7 @@ export function AddFunds() {
         })}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button
           disabled={isPending}
           onClick={() =>
@@ -56,7 +53,7 @@ export function AddFunds() {
           }
         >
           {isPending ? (
-            "Adding…"
+            "Adding funds"
           ) : done ? (
             <>
               <Check className="h-4 w-4" />
@@ -73,6 +70,6 @@ export function AddFunds() {
           Balance updates immediately and never expires.
         </p>
       </div>
-    </Card>
+    </section>
   );
 }

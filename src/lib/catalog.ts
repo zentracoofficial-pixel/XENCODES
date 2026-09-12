@@ -1,9 +1,8 @@
-import { unstable_cache, revalidateTag } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { services as baseServices, catalogFloorNaira as baseFloor } from "@/data/services";
-import { countries as baseCountries } from "@/data/countries";
 import { SETTING_KEYS } from "@/lib/settings";
-import type { Country, Service } from "@/data/types";
+import { getProvider } from "@/lib/provider";
+import type { ProviderCountry, StockLevel } from "@/lib/provider";
 
 export const CATALOG_TAG = "catalog";
 
@@ -12,78 +11,141 @@ export function revalidateCatalog() {
   revalidateTag(CATALOG_TAG, "max");
 }
 
-export interface ResolvedCatalog {
-  services: Service[];
-  countries: Country[];
-  floorNaira: number;
-  globalMarkupPercent: number;
+/** One buyable option, after admin pricing and availability are applied. */
+export interface CatalogOffer {
+  countrySlug: string;
+  countryName: string;
+  flag: string;
+  dialCode: string;
+  /** Digits after the dial code, used to show the number format. */
+  nationalDigits: number;
+  priceNaira: number;
+  stock: StockLevel;
+  stockCount?: number;
+  avgDeliverySeconds: number;
+  successRate: number;
 }
 
-/** Exported so admin previews (services/countries/pricing) can mirror the live math. */
+export interface CatalogService {
+  slug: string;
+  name: string;
+  color: string;
+  category: string;
+  /** Cheapest live country for this service, whole Naira. */
+  priceFromNaira: number;
+  offers: CatalogOffer[];
+}
+
+export interface Catalog {
+  services: CatalogService[];
+  countries: (ProviderCountry & { serviceCount: number; priceFromNaira: number })[];
+  categories: string[];
+  /** Cheapest price anywhere in the catalog. */
+  floorNaira: number;
+  globalMarkupPercent: number;
+  /** False while the development adapter is serving the catalog. */
+  isLive: boolean;
+  providerLabel: string;
+}
+
+/** Keeps marked up prices on tidy 5 Naira steps. */
 export function applyMarkup(priceNaira: number, percent: number) {
   if (!percent) return priceNaira;
-  // Keep prices on tidy ₦5 steps after marking up.
   return Math.round((priceNaira * (100 + percent)) / 100 / 5) * 5;
 }
 
-async function resolveCatalog(): Promise<ResolvedCatalog> {
-  const [serviceSettings, countrySettings, settingRows] = await Promise.all([
+async function resolveCatalog(): Promise<Catalog> {
+  const provider = await getProvider();
+
+  const [
+    providerServices,
+    providerCountries,
+    providerOffers,
+    serviceSettings,
+    countrySettings,
+    markupRow,
+  ] = await Promise.all([
+    provider.listServices(),
+    provider.listCountries(),
+    provider.listOffers(),
     prisma.serviceSetting.findMany(),
     prisma.countrySetting.findMany(),
-    prisma.setting.findMany({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
+    prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
   ]);
 
-  const serviceBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
-  const countryBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
-  const globalMarkupPercent = Number(settingRows[0]?.value ?? 0) || 0;
+  const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
+  const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
+  const globalMarkupPercent = Number(markupRow?.value ?? 0) || 0;
 
+  const countryBySlug = new Map(providerCountries.map((c) => [c.slug, c]));
   const disabledCountries = new Set(
-    baseCountries
-      .filter((c) => countryBySlug.get(c.slug)?.enabled === false)
+    providerCountries
+      .filter((c) => countrySettingBySlug.get(c.slug)?.enabled === false)
       .map((c) => c.slug),
   );
 
-  const services = baseServices
-    .filter((service) => serviceBySlug.get(service.slug)?.enabled !== false)
+  const offersByService = new Map<string, typeof providerOffers>();
+  for (const offer of providerOffers) {
+    if (disabledCountries.has(offer.countrySlug)) continue;
+    if (offer.stock === "out_of_stock") continue;
+    const list = offersByService.get(offer.serviceSlug) ?? [];
+    list.push(offer);
+    offersByService.set(offer.serviceSlug, list);
+  }
+
+  const services: CatalogService[] = providerServices
+    .filter((service) => serviceSettingBySlug.get(service.slug)?.enabled !== false)
     .map((service) => {
       const markup =
-        globalMarkupPercent + (serviceBySlug.get(service.slug)?.markupPercent ?? 0);
+        globalMarkupPercent +
+        (serviceSettingBySlug.get(service.slug)?.markupPercent ?? 0);
 
-      const availability = service.availability.map((entry) =>
-        disabledCountries.has(entry.countrySlug)
-          ? { ...entry, status: "unavailable" as const, priceNaira: 0 }
-          : { ...entry, priceNaira: applyMarkup(entry.priceNaira, markup) },
-      );
-
-      const livePrices = availability
-        .filter((a) => a.status !== "unavailable")
-        .map((a) => a.priceNaira);
+      const offers: CatalogOffer[] = (offersByService.get(service.slug) ?? [])
+        .flatMap((offer) => {
+          const country = countryBySlug.get(offer.countrySlug);
+          if (!country) return [];
+          return [
+            {
+              countrySlug: country.slug,
+              countryName: country.name,
+              flag: country.flag,
+              dialCode: country.dialCode,
+              nationalDigits: country.nationalDigits,
+              priceNaira: applyMarkup(offer.priceNaira, markup),
+              stock: offer.stock,
+              stockCount: offer.stockCount,
+              avgDeliverySeconds: offer.avgDeliverySeconds,
+              successRate: offer.successRate,
+            },
+          ];
+        })
+        .sort((a, b) => a.priceNaira - b.priceNaira);
 
       return {
-        ...service,
-        availability,
-        priceFromNaira: livePrices.length ? Math.min(...livePrices) : 0,
+        slug: service.slug,
+        name: service.name,
+        color: service.color,
+        category: service.category,
+        priceFromNaira: offers.length ? offers[0].priceNaira : 0,
+        offers,
       };
     })
-    // A service with every country switched off shouldn't be listed at all.
-    .filter((service) => service.priceFromNaira > 0);
+    // A service with nothing left to sell should not be listed at all.
+    .filter((service) => service.offers.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  const countries = baseCountries
+  const countries = providerCountries
     .filter((country) => !disabledCountries.has(country.slug))
     .map((country) => {
       const prices = services
-        .flatMap((s) => s.availability)
-        .filter((a) => a.countrySlug === country.slug && a.status !== "unavailable")
-        .map((a) => a.priceNaira);
+        .flatMap((s) => s.offers)
+        .filter((o) => o.countrySlug === country.slug)
+        .map((o) => o.priceNaira);
 
       return {
         ...country,
-        priceFromNaira: prices.length ? Math.min(...prices) : country.priceFromNaira,
-        serviceCount: services.filter((s) =>
-          s.availability.some(
-            (a) => a.countrySlug === country.slug && a.status !== "unavailable",
-          ),
-        ).length,
+        serviceCount: prices.length,
+        priceFromNaira: prices.length ? Math.min(...prices) : 0,
       };
     })
     .filter((country) => country.serviceCount > 0);
@@ -93,26 +155,32 @@ async function resolveCatalog(): Promise<ResolvedCatalog> {
   return {
     services,
     countries,
-    floorNaira: floors.length ? Math.min(...floors) : baseFloor,
+    categories: Array.from(new Set(services.map((s) => s.category))).sort(),
+    floorNaira: floors.length ? Math.min(...floors) : 0,
     globalMarkupPercent,
+    isLive: provider.isLive,
+    providerLabel: provider.label,
   };
 }
 
 /**
- * Customer-facing catalog: static definitions merged with admin overrides.
- * Cached so marketing pages stay fast, and invalidated by revalidateCatalog()
- * whenever an admin changes availability or pricing.
+ * Customer facing catalog: provider inventory with admin overrides applied.
+ * Cached so pages stay fast, and cleared by revalidateCatalog() whenever an
+ * admin changes availability or pricing.
  */
-export const getCatalog = unstable_cache(resolveCatalog, ["catalog-v1"], {
+export const getCatalog = unstable_cache(resolveCatalog, ["catalog-v2"], {
   tags: [CATALOG_TAG],
+  revalidate: 60,
 });
 
-export async function getServiceBySlugResolved(slug: string) {
+export async function getServiceBySlug(slug: string) {
   const { services } = await getCatalog();
   return services.find((service) => service.slug === slug);
 }
 
-export async function getCountryBySlugResolved(slug: string) {
-  const { countries } = await getCatalog();
-  return countries.find((country) => country.slug === slug);
+export async function getOffer(serviceSlug: string, countrySlug: string) {
+  const service = await getServiceBySlug(serviceSlug);
+  if (!service) return null;
+  const offer = service.offers.find((o) => o.countrySlug === countrySlug);
+  return offer ? { service, offer } : null;
 }

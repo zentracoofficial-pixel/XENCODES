@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 
-export const metadata: Metadata = { title: "Admin — Refunds" };
+export const metadata: Metadata = { title: "Admin: Refunds" };
 
 export default async function AdminRefundsPage() {
   const [refunds, refundAgg, totalActivations, failedActivations] = await Promise.all([
@@ -29,7 +29,7 @@ export default async function AdminRefundsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Refunds</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Automatic refunds — issued when a number expires with no code, or a customer cancels.
+          Automatic refunds, issued when a number expires with no code or a customer cancels.
         </p>
       </div>
 
@@ -52,13 +52,13 @@ export default async function AdminRefundsPage() {
           <ul className="divide-y divide-border">
             {refunds.map((refund) => (
               <li key={refund.id} className="flex items-center gap-3 px-5 py-3.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning-muted text-warning">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning-soft text-warning">
                   <RotateCcw className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{refund.description}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    <Link href={`/admin/users/${refund.userId}`} className="hover:text-primary hover:underline">
+                    <Link href={`/admin/users/${refund.userId}`} className="hover:text-forest hover:underline">
                       {refund.user.email}
                     </Link>
                   </p>

@@ -1,21 +1,36 @@
 import type { Metadata } from "next";
 import { Banknote, Globe2, Percent, ShoppingBag } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { services as baseServices } from "@/data/services";
 import { getCatalog } from "@/lib/catalog";
+import { getProvider } from "@/lib/provider";
 import { readSettings, readNumber, SETTING_KEYS } from "@/lib/settings";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 import { GlobalMarkupForm } from "./markup-form";
 
-export const metadata: Metadata = { title: "Admin — Pricing" };
+export const metadata: Metadata = { title: "Admin: Pricing" };
 
 export default async function AdminPricingPage() {
-  const [catalog, settings] = await Promise.all([getCatalog(), readSettings()]);
+  const [catalog, settings, provider] = await Promise.all([
+    getCatalog(),
+    readSettings(),
+    getProvider(),
+  ]);
   const globalMarkupPercent = readNumber(settings, SETTING_KEYS.globalMarkupPercent, 0);
-  const basePriceBySlug = new Map(baseServices.map((s) => [s.slug, s.priceFromNaira]));
 
-  const rows = [...catalog.services].sort((a, b) => a.priceFromNaira - b.priceFromNaira);
+  // The provider's own quote, so the admin can see the margin on each line.
+  const offers = await provider.listOffers();
+  const basePriceBySlug = new Map<string, number>();
+  for (const offer of offers) {
+    const current = basePriceBySlug.get(offer.serviceSlug);
+    if (current === undefined || offer.priceNaira < current) {
+      basePriceBySlug.set(offer.serviceSlug, offer.priceNaira);
+    }
+  }
+
+  const rows = [...catalog.services].sort(
+    (a, b) => a.priceFromNaira - b.priceFromNaira,
+  );
 
   return (
     <div className="space-y-6">
@@ -27,7 +42,11 @@ export default async function AdminPricingPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatTile label="Starting price" value={formatNairaFromNaira(catalog.floorNaira)} icon={Banknote} />
+        <StatTile
+          label="Starting price"
+          value={formatNairaFromNaira(catalog.floorNaira)}
+          icon={Banknote}
+        />
         <StatTile label="Live services" value={catalog.services.length} icon={ShoppingBag} />
         <StatTile label="Live countries" value={catalog.countries.length} icon={Globe2} />
       </div>
@@ -38,7 +57,8 @@ export default async function AdminPricingPage() {
           Global markup
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Applied to every service before its own per-service markup, set on the Services page.
+          Applied to every service before its own per-service markup, which is
+          set on the Services page.
         </p>
         <div className="mt-4">
           <GlobalMarkupForm currentPercent={globalMarkupPercent} />
@@ -49,8 +69,9 @@ export default async function AdminPricingPage() {
         <div className="border-b border-border px-5 py-4">
           <h2 className="font-semibold">Resolved prices</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Cheapest live country per service, lowest first. Disabled services and countries are
-            excluded — manage those on the Services and Countries pages.
+            Cheapest live country per service, lowest first. Services and
+            countries you switched off are excluded, and you manage those on the
+            Services page.
           </p>
         </div>
         {rows.length === 0 ? (
@@ -60,27 +81,33 @@ export default async function AdminPricingPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-secondary/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Service</th>
-                <th className="px-5 py-3 font-medium">Category</th>
-                <th className="px-5 py-3 text-right font-medium">Base price</th>
-                <th className="px-5 py-3 text-right font-medium">Live price</th>
+                <th className="px-5 py-3 font-medium">Cheapest country</th>
+                <th className="px-5 py-3 text-right font-medium">Provider price</th>
+                <th className="px-5 py-3 text-right font-medium">Customer pays</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((service) => {
-                const basePriceNaira = basePriceBySlug.get(service.slug) ?? service.priceFromNaira;
-                const changed = basePriceNaira !== service.priceFromNaira;
+                const base = basePriceBySlug.get(service.slug) ?? service.priceFromNaira;
+                const marked = base !== service.priceFromNaira;
                 return (
-                  <tr key={service.slug} className="border-b border-border last:border-0 hover:bg-secondary/40">
+                  <tr
+                    key={service.slug}
+                    className="border-b border-border last:border-0 hover:bg-background"
+                  >
                     <td className="px-5 py-3 font-medium">{service.name}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{service.category}</td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      <span aria-hidden>{service.offers[0]?.flag}</span>{" "}
+                      {service.offers[0]?.countryName}
+                    </td>
                     <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
-                      {formatNairaFromNaira(basePriceNaira)}
+                      {formatNairaFromNaira(base)}
                     </td>
                     <td
                       className={`px-5 py-3 text-right font-semibold tabular-nums ${
-                        changed ? "text-primary" : ""
+                        marked ? "text-forest" : ""
                       }`}
                     >
                       {formatNairaFromNaira(service.priceFromNaira)}

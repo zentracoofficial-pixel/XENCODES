@@ -5,7 +5,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const admin = await requireAdmin();
 
   return (
-    <div className="flex min-h-screen bg-secondary/30">
+    <div className="flex min-h-screen bg-background">
       <AdminSidebar adminEmail={admin.email} />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminTopBar />

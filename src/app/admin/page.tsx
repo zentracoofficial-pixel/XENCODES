@@ -14,11 +14,11 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
-import { readSettings, SETTING_KEYS } from "@/lib/settings";
+import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { getProvider } from "@/lib/provider";
 import { StatTile } from "./stat-tile";
 
-export const metadata: Metadata = { title: "Admin — Dashboard" };
+export const metadata: Metadata = { title: "Admin: Dashboard" };
 
 export default async function AdminDashboardPage() {
   const startOfToday = new Date();
@@ -33,7 +33,6 @@ export default async function AdminDashboardPage() {
     activeNumbers,
     purchaseAgg,
     refundAgg,
-    settings,
     recentActivations,
   ] = await Promise.all([
     prisma.user.count(),
@@ -50,7 +49,6 @@ export default async function AdminDashboardPage() {
       where: { type: "REFUND" },
       _sum: { amountKobo: true },
     }),
-    readSettings(),
     prisma.activation.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
   ]);
 
@@ -61,8 +59,11 @@ export default async function AdminDashboardPage() {
     ? Math.round((successful / totalActivations) * 100)
     : 0;
 
-  const providerEnabled = settings[SETTING_KEYS.providerEnabled] === "true";
-  const providerName = settings[SETTING_KEYS.providerName] || "Not configured";
+  const provider = await getProvider();
+  const providerEnabled = provider.isLive;
+  const providerName = provider.isLive
+    ? provider.label
+    : "Development data";
 
   return (
     <div className="space-y-6">
@@ -103,7 +104,7 @@ export default async function AdminDashboardPage() {
             </p>
             <span
               className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                providerEnabled ? "bg-success-muted text-success" : "bg-secondary text-muted-foreground"
+                providerEnabled ? "bg-success-soft text-success" : "bg-background text-muted-foreground"
               }`}
             >
               <Radio className="h-4 w-4" />
@@ -112,7 +113,7 @@ export default async function AdminDashboardPage() {
           <p className="mt-2 truncate text-2xl font-semibold">{providerName}</p>
           <Link
             href="/admin/settings"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-forest hover:underline"
           >
             {providerEnabled ? "Manage connection" : "Connect a provider"}
             <ArrowRight className="h-3 w-3" />
@@ -123,7 +124,7 @@ export default async function AdminDashboardPage() {
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="font-semibold">Recent orders</h2>
-          <Link href="/admin/orders" className="text-sm font-medium text-primary hover:underline">
+          <Link href="/admin/orders" className="text-sm font-medium text-forest hover:underline">
             View all
           </Link>
         </div>
@@ -138,7 +139,7 @@ export default async function AdminDashboardPage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{a.serviceName}</p>
                   <p className="truncate font-mono text-xs text-muted-foreground">
-                    {a.phoneNumber} · {a.countryName}
+                    {formatPhoneNumber(a.phoneNumber)} · {a.countryName}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-4">
@@ -153,7 +154,7 @@ export default async function AdminDashboardPage() {
                           ? "warning"
                           : a.status === "EXPIRED"
                             ? "danger"
-                            : "outline"
+                            : "neutral"
                     }
                   >
                     {a.status}

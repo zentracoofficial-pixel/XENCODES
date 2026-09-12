@@ -37,7 +37,7 @@ export async function saveProviderSettingsAction(
     writeSetting(SETTING_KEYS.providerName, name ?? ""),
     writeSetting(SETTING_KEYS.providerBaseUrl, baseUrl ?? ""),
     writeSetting(SETTING_KEYS.providerEnabled, String(enabled)),
-    // A blank key field means "leave the stored key alone" — never overwrite it with "".
+    // A blank key field means "leave the stored key alone", never overwrite it with "".
     apiKey ? writeSetting(SETTING_KEYS.providerApiKey, apiKey) : Promise.resolve(),
   ]);
 

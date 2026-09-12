@@ -8,13 +8,13 @@ import { formatNaira } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { UserActions } from "./user-actions";
 
-export const metadata: Metadata = { title: "Admin — User" };
+export const metadata: Metadata = { title: "Admin: User" };
 
 const statusVariant = {
   WAITING: "warning",
   RECEIVED: "success",
   EXPIRED: "danger",
-  CANCELLED: "outline",
+  CANCELLED: "neutral",
 } as const;
 
 export default async function AdminUserDetailPage({
@@ -50,7 +50,7 @@ export default async function AdminUserDetailPage({
             <Badge variant={user.status === "ACTIVE" ? "success" : "danger"}>
               {user.status}
             </Badge>
-            {user.role === "ADMIN" ? <Badge variant="primary">Admin</Badge> : null}
+            {user.role === "ADMIN" ? <Badge variant="default">Admin</Badge> : null}
           </p>
         </div>
         <Card className="px-5 py-3 text-right">
@@ -113,7 +113,7 @@ export default async function AdminUserDetailPage({
                         tx.amountKobo >= 0 ? "text-success" : "text-foreground"
                       }`}
                     >
-                      {tx.amountKobo >= 0 ? "+" : "−"}
+                      {tx.amountKobo >= 0 ? "+" : "-"}
                       {formatNaira(Math.abs(tx.amountKobo))}
                     </span>
                   </li>

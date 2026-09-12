@@ -21,6 +21,16 @@ export async function setServiceEnabledAction(slug: string, enabled: boolean) {
   refresh();
 }
 
+export async function setCountryEnabledAction(slug: string, enabled: boolean) {
+  await requireAdmin();
+  await prisma.countrySetting.upsert({
+    where: { slug },
+    create: { slug, enabled },
+    update: { enabled },
+  });
+  refresh();
+}
+
 export interface MarkupState {
   error?: string;
   success?: boolean;

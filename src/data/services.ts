@@ -5,7 +5,7 @@ import type { CountryAvailability, Service, ServiceCategory } from "./types";
  *
  * Each service is declared compactly and per-country availability is derived
  * below, so when the real number provider is wired up only `deriveAvailability`
- * needs to be swapped for a live inventory call — the shape consumers read
+ * needs to be swapped for a live inventory call. The shape consumers read
  * (`Service.availability`) stays identical.
  */
 interface ServiceDef {

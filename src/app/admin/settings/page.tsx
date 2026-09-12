@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { readSettings, maskSecret, SETTING_KEYS } from "@/lib/settings";
 import { ProviderForm } from "./provider-form";
 
-export const metadata: Metadata = { title: "Admin — Settings" };
+export const metadata: Metadata = { title: "Admin: Settings" };
 
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
@@ -36,7 +36,7 @@ export default async function AdminSettingsPage() {
           Provider connection
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Xencodes buys numbers from an external SMS provider. Configure the connection here —
+          Xencodes buys numbers from an external SMS provider. Configure the connection here.
           this doesn&apos;t change anything else about how the site works.
         </p>
         <div className="mt-4">
@@ -65,12 +65,12 @@ export default async function AdminSettingsPage() {
             <li key={user.id} className="flex items-center justify-between gap-4 px-5 py-3.5">
               <Link
                 href={`/admin/users/${user.id}`}
-                className="truncate text-sm font-medium hover:text-primary hover:underline"
+                className="truncate text-sm font-medium hover:text-forest hover:underline"
               >
                 {user.email}
               </Link>
               <div className="flex shrink-0 items-center gap-2">
-                {user.id === admin.id ? <Badge variant="primary">You</Badge> : null}
+                {user.id === admin.id ? <Badge variant="default">You</Badge> : null}
                 <span className="text-xs text-muted-foreground">
                   Since{" "}
                   {user.createdAt.toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}
@@ -82,7 +82,7 @@ export default async function AdminSettingsPage() {
         {pendingBootstrap.length > 0 ? (
           <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
             Also configured to auto-promote on next sign-in: {pendingBootstrap.join(", ")} (via the{" "}
-            <code className="rounded bg-secondary px-1 py-0.5">ADMIN_EMAILS</code> environment variable).
+            <code className="rounded bg-background px-1 py-0.5">ADMIN_EMAILS</code> environment variable).
           </p>
         ) : null}
       </Card>

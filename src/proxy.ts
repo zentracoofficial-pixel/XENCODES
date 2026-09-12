@@ -15,7 +15,7 @@ export const proxy = auth((req) => {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // First line of defence only — every admin page and action also
+    // First line of defence only. Every admin page and action also
     // re-checks the role against the database via requireAdmin().
     if (!isAdmin) {
       return NextResponse.redirect(new URL("/dashboard", origin));

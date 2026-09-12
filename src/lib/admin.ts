@@ -21,7 +21,7 @@ export function isBootstrapAdmin(email: string) {
 
 /**
  * Server-side guard for every admin page and action. Never rely on the proxy
- * alone — it only sees the session token, not the current role in the
+ * alone: it only sees the session token, not the current role in the
  * database, so a demoted admin would keep access until their token expired.
  */
 export async function requireAdmin(): Promise<User> {

@@ -22,7 +22,7 @@ export function GlobalMarkupForm({ currentPercent }: { currentPercent: number })
             type="number"
             step="1"
             defaultValue={currentPercent}
-            className="h-10 w-24 rounded-md border border-border bg-background px-3 text-sm tabular-nums outline-none ring-ring transition-shadow focus:ring-2"
+            className="h-10 w-24 rounded-lg border border-border bg-surface px-3 text-sm tabular-nums outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
           <span className="text-sm text-muted-foreground">%</span>
         </div>
@@ -31,7 +31,7 @@ export function GlobalMarkupForm({ currentPercent }: { currentPercent: number })
         {pending ? "Saving…" : "Save markup"}
       </Button>
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-success">Saved — live everywhere now.</p> : null}
+      {state.success ? <p className="text-sm text-success">Saved. Live everywhere now.</p> : null}
     </form>
   );
 }

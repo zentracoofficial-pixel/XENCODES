@@ -2,88 +2,87 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Smartphone, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { Wordmark } from "@/components/layout/wordmark";
 
 const navLinks = [
   { href: "/services", label: "Services" },
   { href: "/pricing", label: "Pricing" },
-  { href: "/how-it-works", label: "How It Works" },
   { href: "/faq", label: "FAQ" },
 ];
 
-export function Header() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+export function Header({ signedIn = false }: { signedIn?: boolean }) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-lg tracking-tight">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Smartphone className="h-4 w-4" />
-          </span>
-          Xencodes
+    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
+      <div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between gap-4 px-5 sm:px-6">
+        <Link href="/" aria-label="Xencodes home">
+          <Wordmark />
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               {link.label}
             </Link>
           ))}
         </nav>
 
-        <div className="hidden md:flex items-center gap-2">
-          <ThemeToggle />
-          <Button href="/login" variant="ghost" size="sm">
-            Log in
+        <div className="hidden items-center gap-2 md:flex">
+          <Button href={signedIn ? "/dashboard" : "/login"} variant="ghost" size="sm">
+            {signedIn ? "Dashboard" : "Log in"}
           </Button>
           <Button href="/buy" size="sm">
             Get a Number
           </Button>
         </div>
 
-        <div className="flex items-center gap-1 md:hidden">
-          <ThemeToggle />
-          <button
-            type="button"
-            aria-label="Toggle menu"
-            onClick={() => setMobileOpen((v) => !v)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-secondary"
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        </div>
+        <button
+          type="button"
+          aria-label={open ? "Close menu" : "Open menu"}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="-mr-2 inline-flex h-10 w-10 items-center justify-center rounded-lg text-foreground hover:bg-mint-soft md:hidden"
+        >
+          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
       </div>
 
       <div
         className={cn(
-          "md:hidden overflow-hidden border-t border-border transition-[max-height] duration-200 ease-in-out",
-          mobileOpen ? "max-h-96" : "max-h-0 border-t-0",
+          "overflow-hidden border-border transition-[max-height] duration-200 ease-out md:hidden",
+          open ? "max-h-80 border-t" : "max-h-0",
         )}
       >
-        <div className="flex flex-col gap-1 px-6 py-4">
+        <div className="flex flex-col gap-1 px-5 py-4">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              onClick={() => setMobileOpen(false)}
-              className="rounded-md px-3 py-2 text-sm font-medium text-foreground/90 hover:bg-secondary"
+              onClick={() => setOpen(false)}
+              className="rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-mint-soft"
             >
               {link.label}
             </Link>
           ))}
-          <div className="mt-3 flex flex-col gap-2 border-t border-border pt-4">
-            <Button href="/login" variant="outline">
-              Log in
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button
+              href={signedIn ? "/dashboard" : "/login"}
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              {signedIn ? "Dashboard" : "Log in"}
             </Button>
-            <Button href="/buy">Get a Number</Button>
+            <Button href="/buy" onClick={() => setOpen(false)}>
+              Get a Number
+            </Button>
           </div>
         </div>
       </div>

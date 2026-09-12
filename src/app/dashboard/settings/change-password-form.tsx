@@ -23,7 +23,7 @@ export function ChangePasswordForm() {
             name="currentPassword"
             type="password"
             required
-            className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            className="mt-1.5 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
         </div>
         <div>
@@ -36,7 +36,7 @@ export function ChangePasswordForm() {
             type="password"
             required
             minLength={8}
-            className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            className="mt-1.5 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
         </div>
 

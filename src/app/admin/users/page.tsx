@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 
-export const metadata: Metadata = { title: "Admin — Users" };
+export const metadata: Metadata = { title: "Admin: Users" };
 
 export default async function AdminUsersPage({
   searchParams,
@@ -41,7 +41,7 @@ export default async function AdminUsersPage({
           name="q"
           defaultValue={query}
           placeholder="Search by email…"
-          className="h-11 w-full rounded-lg border border-border bg-card pl-10 pr-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+          className="h-11 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
         />
       </form>
 
@@ -51,7 +51,7 @@ export default async function AdminUsersPage({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-secondary/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Email</th>
                 <th className="px-5 py-3 font-medium">Balance</th>
                 <th className="px-5 py-3 font-medium">Activations</th>
@@ -61,16 +61,16 @@ export default async function AdminUsersPage({
             </thead>
             <tbody>
               {users.map((user) => (
-                <tr key={user.id} className="border-b border-border last:border-0 hover:bg-secondary/40">
+                <tr key={user.id} className="border-b border-border last:border-0 hover:bg-background">
                   <td className="px-5 py-3.5">
                     <Link
                       href={`/admin/users/${user.id}`}
-                      className="font-medium text-foreground hover:text-primary hover:underline"
+                      className="font-medium text-foreground hover:text-forest hover:underline"
                     >
                       {user.email}
                     </Link>
                     {user.role === "ADMIN" ? (
-                      <ShieldCheck className="ml-1.5 inline h-3.5 w-3.5 text-primary" />
+                      <ShieldCheck className="ml-1.5 inline h-3.5 w-3.5 text-forest" />
                     ) : null}
                   </td>
                   <td className="px-5 py-3.5 tabular-nums">

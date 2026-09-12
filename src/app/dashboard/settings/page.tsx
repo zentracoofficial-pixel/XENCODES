@@ -17,7 +17,7 @@ export default async function SettingsPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 
       <div className="mt-6 max-w-xl space-y-6">
-        <div className="rounded-xl border border-border bg-card p-6">
+        <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="font-semibold">Profile</h2>
           <p className="mt-2 text-sm text-muted-foreground">{user.email}</p>
         </div>

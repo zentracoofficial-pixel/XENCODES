@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 
 const dotColors = {
+  live: "bg-mint",
   success: "bg-success",
   warning: "bg-warning",
   danger: "bg-danger",
@@ -8,6 +9,7 @@ const dotColors = {
 } as const;
 
 const textColors = {
+  live: "text-forest",
   success: "text-success",
   warning: "text-warning",
   danger: "text-danger",
@@ -27,26 +29,15 @@ export function StatusDot({
 }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
-      <span className="relative flex h-2 w-2">
-        {pulse ? (
-          <span
-            className={cn(
-              "absolute inline-flex h-full w-full animate-ping rounded-full opacity-60",
-              dotColors[tone],
-            )}
-          />
-        ) : null}
-        <span
-          className={cn(
-            "relative inline-flex h-2 w-2 rounded-full",
-            dotColors[tone],
-          )}
-        />
-      </span>
+      <span
+        className={cn(
+          "h-1.5 w-1.5 shrink-0 rounded-full",
+          dotColors[tone],
+          pulse && "animate-live",
+        )}
+      />
       {label ? (
-        <span className={cn("text-sm font-medium", textColors[tone])}>
-          {label}
-        </span>
+        <span className={cn("text-sm font-medium", textColors[tone])}>{label}</span>
       ) : null}
     </span>
   );

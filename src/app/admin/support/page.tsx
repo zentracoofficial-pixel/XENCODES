@@ -8,11 +8,11 @@ import { formatNaira } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { StatTile } from "../stat-tile";
 
-export const metadata: Metadata = { title: "Admin — Support" };
+export const metadata: Metadata = { title: "Admin: Support" };
 
 const reasonMeta = {
   EXPIRED: { label: "No code received", variant: "danger" },
-  CANCELLED: { label: "Customer cancelled", variant: "outline" },
+  CANCELLED: { label: "Customer cancelled", variant: "neutral" },
 } as const;
 
 export default async function AdminSupportPage() {
@@ -50,7 +50,7 @@ export default async function AdminSupportPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Failed orders worth following up — each was already refunded automatically.
+          Failed orders worth following up. Each one was already refunded automatically.
         </p>
       </div>
 
@@ -79,7 +79,7 @@ export default async function AdminSupportPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{order.serviceName}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      <Link href={`/admin/users/${order.userId}`} className="hover:text-primary hover:underline">
+                      <Link href={`/admin/users/${order.userId}`} className="hover:text-forest hover:underline">
                         {order.user.email}
                       </Link>
                       {" "}· {order.countryName}
@@ -94,7 +94,7 @@ export default async function AdminSupportPage() {
                   </time>
                   <a
                     href={`mailto:${order.user.email}?subject=${encodeURIComponent(`Your Xencodes order for ${order.serviceName}`)}`}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-mint-soft hover:text-foreground"
                     title={`Email ${order.user.email}`}
                   >
                     <Mail className="h-3.5 w-3.5" />

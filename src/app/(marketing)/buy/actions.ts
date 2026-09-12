@@ -2,13 +2,20 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getServiceBySlugResolved, getCountryBySlugResolved } from "@/lib/catalog";
-import { assignNumber, generateVerificationCode } from "@/lib/provider";
+import { getOffer } from "@/lib/catalog";
+import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
 
+export type PurchaseError =
+  | "login_required"
+  | "unavailable"
+  | "insufficient_balance"
+  | "provider_unavailable"
+  | "unknown";
+
 export interface PurchaseResult {
-  error?: "login_required" | "unavailable" | "insufficient_balance" | "unknown";
+  error?: PurchaseError;
   activationId?: string;
 }
 
@@ -17,65 +24,85 @@ export async function purchaseNumberAction(
   countrySlug: string,
 ): Promise<PurchaseResult> {
   const session = await auth();
-  if (!session?.user?.id) {
-    return { error: "login_required" };
+  if (!session?.user?.id) return { error: "login_required" };
+
+  // Read through the resolved catalog so the customer is charged the
+  // admin-set price and a disabled item cannot be bought via a stale link.
+  const match = await getOffer(serviceSlug, countrySlug);
+  if (!match) return { error: "unavailable" };
+
+  const { service, offer } = match;
+  const priceKobo = nairaToKobo(offer.priceNaira);
+
+  // Check funds before asking the provider for a number, so a customer who
+  // cannot pay never consumes inventory.
+  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!user) return { error: "unknown" };
+  if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
+
+  let assigned;
+  try {
+    const provider = await getProvider();
+    assigned = await provider.requestNumber(serviceSlug, countrySlug);
+  } catch (error) {
+    if (error instanceof ProviderError && error.code === "out_of_stock") {
+      return { error: "unavailable" };
+    }
+    return { error: "provider_unavailable" };
   }
 
-  // Resolved catalog, so the customer is charged the admin-set price and
-  // disabled services or countries can't be bought via a stale link.
-  const [service, country] = await Promise.all([
-    getServiceBySlugResolved(serviceSlug),
-    getCountryBySlugResolved(countrySlug),
-  ]);
-  const availability = service?.availability.find((a) => a.countrySlug === countrySlug);
-
-  if (!service || !country || !availability || availability.status === "unavailable") {
-    return { error: "unavailable" };
-  }
-
-  const priceKobo = nairaToKobo(availability.priceNaira);
-  const assigned = assignNumber(country.dialCode);
-  const now = new Date();
+  const expiresAt = new Date(Date.now() + assigned.sessionSeconds * 1000);
 
   try {
     const activation = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUniqueOrThrow({ where: { id: session.user.id } });
-      if (user.walletBalanceKobo < priceKobo) {
+      // Re-read inside the transaction so two purchases at once cannot both
+      // pass the balance check above.
+      const current = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
+      if (current.walletBalanceKobo < priceKobo) {
         throw new Error("insufficient_balance");
       }
 
       await tx.user.update({
-        where: { id: user.id },
+        where: { id: current.id },
         data: { walletBalanceKobo: { decrement: priceKobo } },
       });
 
       await tx.walletTransaction.create({
         data: {
-          userId: user.id,
+          userId: current.id,
           amountKobo: -priceKobo,
           type: "PURCHASE",
-          description: `${service.name} number — ${country.name}`,
+          description: `${service.name} number, ${offer.countryName}`,
         },
       });
 
       return tx.activation.create({
         data: {
-          userId: user.id,
+          userId: current.id,
           serviceSlug: service.slug,
           serviceName: service.name,
-          countrySlug: country.slug,
-          countryName: country.name,
+          countrySlug: offer.countrySlug,
+          countryName: offer.countryName,
           phoneNumber: assigned.phoneNumber,
+          externalId: assigned.externalId,
           priceKobo,
-          deliverAt: new Date(now.getTime() + assigned.deliverInSeconds * 1000),
-          expiresAt: new Date(now.getTime() + assigned.sessionSeconds * 1000),
+          expiresAt,
         },
       });
     });
 
     return { activationId: activation.id };
-  } catch (err) {
-    if (err instanceof Error && err.message === "insufficient_balance") {
+  } catch (error) {
+    // The number was already reserved, so hand it back rather than leaving it
+    // held for a purchase that did not complete.
+    try {
+      const provider = await getProvider();
+      await provider.cancelNumber(assigned.externalId);
+    } catch {
+      // Nothing more we can do here; the hold lapses on the provider side.
+    }
+
+    if (error instanceof Error && error.message === "insufficient_balance") {
       return { error: "insufficient_balance" };
     }
     return { error: "unknown" };
@@ -84,8 +111,10 @@ export async function purchaseNumberAction(
 
 export interface ActivationState {
   id: string;
+  serviceSlug: string;
   serviceName: string;
   countryName: string;
+  flag: string;
   phoneNumber: string;
   priceKobo: number;
   status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED";
@@ -93,20 +122,26 @@ export interface ActivationState {
   expiresAt: string;
 }
 
-function toState(activation: {
+interface ActivationRow {
   id: string;
+  serviceSlug: string;
   serviceName: string;
+  countrySlug: string;
   countryName: string;
   phoneNumber: string;
   priceKobo: number;
   status: string;
   code: string | null;
   expiresAt: Date;
-}): ActivationState {
+}
+
+async function toState(activation: ActivationRow): Promise<ActivationState> {
   return {
     id: activation.id,
+    serviceSlug: activation.serviceSlug,
     serviceName: activation.serviceName,
     countryName: activation.countryName,
+    flag: await flagFor(activation.countrySlug),
     phoneNumber: activation.phoneNumber,
     priceKobo: activation.priceKobo,
     status: activation.status as ActivationState["status"],
@@ -115,6 +150,16 @@ function toState(activation: {
   };
 }
 
+async function flagFor(countrySlug: string) {
+  const provider = await getProvider();
+  const countries = await provider.listCountries();
+  return countries.find((c) => c.slug === countrySlug)?.flag ?? "";
+}
+
+/**
+ * Polled by the activation view. Asks the provider whether the code has
+ * landed, and settles the activation when it has, or when time runs out.
+ */
 export async function getActivationStateAction(
   activationId: string,
 ): Promise<ActivationState | null> {
@@ -125,10 +170,31 @@ export async function getActivationStateAction(
     where: { id: activationId, userId: session.user.id },
   });
   if (!activation) return null;
+  if (activation.status !== "WAITING") return toState(activation);
 
   const now = new Date();
+  const provider = await getProvider();
 
-  if (activation.status === "WAITING" && now >= activation.expiresAt) {
+  let sms;
+  try {
+    sms = activation.externalId
+      ? await provider.checkSms(activation.externalId)
+      : ({ state: "waiting" } as const);
+  } catch {
+    // A provider hiccup should not settle the activation. Keep waiting and
+    // let the next poll try again.
+    return toState(activation);
+  }
+
+  if (sms.state === "received") {
+    const received = await prisma.activation.update({
+      where: { id: activation.id },
+      data: { status: "RECEIVED", code: sms.code, receivedAt: now },
+    });
+    return toState(received);
+  }
+
+  if (sms.state === "expired" || now >= activation.expiresAt) {
     const expired = await prisma.activation.update({
       where: { id: activation.id },
       data: { status: "EXPIRED" },
@@ -137,27 +203,17 @@ export async function getActivationStateAction(
       session.user.id,
       activation.priceKobo,
       "REFUND",
-      `Refund — no code received for ${activation.serviceName}`,
+      `Refund, no code received for ${activation.serviceName}`,
     );
     return toState(expired);
-  }
-
-  if (activation.status === "WAITING" && now >= activation.deliverAt) {
-    const received = await prisma.activation.update({
-      where: { id: activation.id },
-      data: {
-        status: "RECEIVED",
-        code: generateVerificationCode(),
-        receivedAt: now,
-      },
-    });
-    return toState(received);
   }
 
   return toState(activation);
 }
 
-export async function cancelActivationAction(activationId: string): Promise<ActivationState | null> {
+export async function cancelActivationAction(
+  activationId: string,
+): Promise<ActivationState | null> {
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -165,6 +221,16 @@ export async function cancelActivationAction(activationId: string): Promise<Acti
     where: { id: activationId, userId: session.user.id },
   });
   if (!activation || activation.status !== "WAITING") return null;
+
+  if (activation.externalId) {
+    try {
+      const provider = await getProvider();
+      await provider.cancelNumber(activation.externalId);
+    } catch {
+      // Release failed on the provider side. The hold lapses on its own, and
+      // the customer should still get their money back.
+    }
+  }
 
   const cancelled = await prisma.activation.update({
     where: { id: activation.id },
@@ -175,7 +241,7 @@ export async function cancelActivationAction(activationId: string): Promise<Acti
     session.user.id,
     activation.priceKobo,
     "REFUND",
-    `Refund — cancelled ${activation.serviceName} activation`,
+    `Refund, cancelled ${activation.serviceName} activation`,
   );
 
   return toState(cancelled);

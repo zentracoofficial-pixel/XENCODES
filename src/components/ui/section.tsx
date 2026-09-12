@@ -4,48 +4,50 @@ export function Section({
   className,
   ...props
 }: React.HTMLAttributes<HTMLElement>) {
-  return (
-    <section
-      className={cn("py-16 sm:py-24 first:pt-24 sm:first:pt-32", className)}
-      {...props}
-    />
-  );
+  return <section className={cn("py-14 sm:py-20", className)} {...props} />;
 }
 
 export function SectionHeading({
   eyebrow,
   title,
   description,
-  align = "left",
+  action,
   className,
 }: {
   eyebrow?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
-  align?: "left" | "center";
+  action?: React.ReactNode;
   className?: string;
 }) {
   return (
     <div
       className={cn(
-        "max-w-2xl",
-        align === "center" && "mx-auto text-center",
+        "flex flex-wrap items-end justify-between gap-x-8 gap-y-4",
         className,
       )}
     >
-      {eyebrow ? (
-        <p className="text-sm font-semibold tracking-wide text-primary uppercase">
-          {eyebrow}
-        </p>
-      ) : null}
-      <h2 className="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-balance">
-        {title}
-      </h2>
-      {description ? (
-        <p className="mt-4 text-base sm:text-lg text-muted-foreground text-balance">
-          {description}
-        </p>
-      ) : null}
+      <div className="max-w-xl">
+        {eyebrow ? (
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h2
+          className={cn(
+            "text-2xl font-semibold tracking-tight text-balance sm:text-[28px]",
+            eyebrow && "mt-2.5",
+          )}
+        >
+          {title}
+        </h2>
+        {description ? (
+          <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground text-pretty">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
