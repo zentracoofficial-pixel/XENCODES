@@ -6,8 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "How It Works",
-  description: "Choose a service, get a number, and receive your SMS code — the complete Xencodes flow.",
+  title: "How to Receive an SMS Verification Code Online",
+  description:
+    "Step by step: choose a service, pick a country, buy the number, and read your SMS verification code in your Xencodes dashboard.",
+  keywords: [
+    "how to receive SMS online",
+    "how virtual numbers work",
+    "receive OTP without SIM",
+  ],
+  alternates: { canonical: "/how-it-works" },
 };
 
 const steps = [

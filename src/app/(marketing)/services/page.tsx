@@ -5,8 +5,16 @@ import { ServicesDirectory } from "@/components/marketing/services-directory";
 import { services } from "@/data/services";
 
 export const metadata: Metadata = {
-  title: "Services",
-  description: "Search supported verification services and get a number in seconds.",
+  title: "Supported Services — WhatsApp, Telegram, Instagram & More",
+  description:
+    "Every service you can verify with a Xencodes virtual number, with live availability and Naira prices. WhatsApp, Telegram, Instagram, Facebook, TikTok, Fiverr, Upwork and more.",
+  keywords: [
+    "WhatsApp verification number Nigeria",
+    "Telegram virtual number",
+    "Instagram SMS verification",
+    "Fiverr phone verification Nigeria",
+  ],
+  alternates: { canonical: "/services" },
 };
 
 export default function ServicesPage() {

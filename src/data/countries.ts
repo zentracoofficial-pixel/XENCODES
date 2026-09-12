@@ -9,7 +9,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+234",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 80,
+    priceFromNaira: 150,
   },
   {
     slug: "usa",
@@ -18,7 +18,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+1",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 110,
+    priceFromNaira: 190,
   },
   {
     slug: "uk",
@@ -27,7 +27,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+44",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 120,
+    priceFromNaira: 200,
   },
   {
     slug: "canada",
@@ -36,7 +36,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+1",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 115,
+    priceFromNaira: 195,
   },
   {
     slug: "germany",
@@ -45,7 +45,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+49",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 130,
+    priceFromNaira: 210,
   },
   {
     slug: "indonesia",
@@ -54,7 +54,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+62",
     availability: "limited",
     numberTypes: ["activation"],
-    priceFromNaira: 90,
+    priceFromNaira: 165,
   },
   {
     slug: "poland",
@@ -63,7 +63,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+48",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFromNaira: 100,
+    priceFromNaira: 180,
   },
   {
     slug: "philippines",
@@ -72,7 +72,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+63",
     availability: "limited",
     numberTypes: ["activation"],
-    priceFromNaira: 95,
+    priceFromNaira: 170,
   },
 ];
 

@@ -10,8 +10,15 @@ import { services } from "@/data/services";
 import { countries } from "@/data/countries";
 
 export const metadata: Metadata = {
-  title: "Pricing",
-  description: "Simple, pay-as-you-go pricing for Xencodes virtual numbers.",
+  title: "Pricing — Virtual Numbers in Naira",
+  description:
+    "Pay per code with no subscription. Virtual number prices in Naira, starting from ₦150, varying by service, country and availability.",
+  keywords: [
+    "virtual number price Nigeria",
+    "cheap SMS verification Naira",
+    "OTP number cost Nigeria",
+  ],
+  alternates: { canonical: "/pricing" },
 };
 
 export default function PricingPage() {
