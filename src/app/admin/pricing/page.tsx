@@ -79,7 +79,8 @@ export default async function AdminPricingPage() {
             Nothing is live. Enable services and countries to see prices here.
           </p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[38rem] text-sm">
             <thead>
               <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Service</th>
@@ -117,6 +118,7 @@ export default async function AdminPricingPage() {
               })}
             </tbody>
           </table>
+            </div>
         )}
       </Card>
     </div>

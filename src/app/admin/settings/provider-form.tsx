@@ -78,7 +78,7 @@ export function ProviderForm({
           type="checkbox"
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
-          className="h-4 w-4 rounded border-border accent-primary"
+          className="h-5 w-5 rounded border-border accent-primary"
         />
         Connection enabled, so numbers are purchased live from this provider
       </label>

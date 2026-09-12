@@ -85,7 +85,7 @@ export default async function PricingPage() {
           </div>
           <Link
             href="/services"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-forest hover:underline"
+            className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
           >
             All {services.length} services
             <ArrowRight className="h-4 w-4" />
@@ -93,7 +93,8 @@ export default async function PricingPage() {
         </div>
 
         <div className="mt-4 overflow-hidden rounded-xl border border-border bg-surface">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[30rem] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Service</th>
@@ -112,7 +113,7 @@ export default async function PricingPage() {
                   <td className="px-4 py-3">
                     <Link
                       href={`/buy?service=${service.slug}`}
-                      className="flex items-center gap-3 font-medium hover:text-forest"
+                      className="flex min-h-10 items-center gap-3 font-medium hover:text-forest"
                     >
                       <ServiceLogo
                         slug={service.slug}
@@ -134,6 +135,7 @@ export default async function PricingPage() {
               ))}
             </tbody>
           </table>
+            </div>
         </div>
       </div>
 

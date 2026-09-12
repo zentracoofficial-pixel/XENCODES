@@ -40,7 +40,7 @@ export function Wordmark({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 text-[17px] font-semibold tracking-[-0.02em]",
+        "inline-flex min-h-11 items-center gap-2 text-[17px] font-semibold tracking-[-0.02em]",
         tone === "light" ? "text-white" : "text-forest",
         className,
       )}

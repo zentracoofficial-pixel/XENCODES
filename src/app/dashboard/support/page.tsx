@@ -79,7 +79,7 @@ export default async function SupportPage() {
           </div>
           <a
             href={`mailto:${SUPPORT_EMAIL}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:border-mint hover:bg-mint-soft"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-3.5 text-sm font-medium transition-colors hover:border-mint hover:bg-mint-soft"
           >
             Send an email
             <ArrowUpRight className="h-4 w-4" />

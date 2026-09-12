@@ -113,7 +113,7 @@ export default async function AdminDashboardPage() {
           <p className="mt-2 truncate text-2xl font-semibold">{providerName}</p>
           <Link
             href="/admin/settings"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-forest hover:underline"
+            className="-mb-2 mt-1 inline-flex items-center gap-1 py-2 text-xs font-medium text-forest hover:underline"
           >
             {providerEnabled ? "Manage connection" : "Connect a provider"}
             <ArrowRight className="h-3 w-3" />
@@ -124,7 +124,7 @@ export default async function AdminDashboardPage() {
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="font-semibold">Recent orders</h2>
-          <Link href="/admin/orders" className="text-sm font-medium text-forest hover:underline">
+          <Link href="/admin/orders" className="-my-2 py-2 text-sm font-medium text-forest hover:underline">
             View all
           </Link>
         </div>

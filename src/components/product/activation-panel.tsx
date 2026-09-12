@@ -125,7 +125,7 @@ export function ActivationPanel({
         </div>
         <CopyButton
           value={phoneNumber}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium transition-colors hover:border-mint hover:bg-mint-soft"
+          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3.5 text-xs font-medium transition-colors hover:border-mint hover:bg-mint-soft"
         >
           Copy
         </CopyButton>
@@ -147,7 +147,7 @@ export function ActivationPanel({
             </p>
             <CopyButton
               value={code}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-mint px-3.5 py-2.5 text-sm font-semibold text-forest-dark transition-[filter] hover:brightness-[0.96]"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-mint px-4 text-sm font-semibold text-forest-dark transition-[filter] hover:brightness-[0.96]"
             >
               Copy code
             </CopyButton>

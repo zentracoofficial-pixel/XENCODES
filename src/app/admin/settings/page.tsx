@@ -65,7 +65,7 @@ export default async function AdminSettingsPage() {
             <li key={user.id} className="flex items-center justify-between gap-4 px-5 py-3.5">
               <Link
                 href={`/admin/users/${user.id}`}
-                className="truncate text-sm font-medium hover:text-forest hover:underline"
+                className="-my-2 block truncate py-2 text-sm font-medium hover:text-forest hover:underline"
               >
                 {user.email}
               </Link>

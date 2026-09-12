@@ -68,7 +68,7 @@ export default function PrivacyPage() {
           <LegalSection title="8. Contact">
             <p>
               Questions about this policy can be sent through our{" "}
-              <a href="/support" className="text-forest hover:underline">
+              <a href="/support" className="inline-block -my-2.5 py-2.5 text-forest hover:underline">
                 Support
               </a>{" "}
               page.

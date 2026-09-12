@@ -16,7 +16,7 @@ const variants = {
 } as const;
 
 const sizes = {
-  sm: "h-9 px-3.5 text-sm gap-1.5",
+  sm: "h-10 px-3.5 text-sm gap-1.5",
   md: "h-11 px-5 text-sm gap-2",
   lg: "h-13 px-6 text-base gap-2",
 } as const;

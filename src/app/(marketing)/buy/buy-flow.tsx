@@ -181,14 +181,14 @@ export function BuyFlow({
                     type="button"
                     onClick={cancel}
                     disabled={pending}
-                    className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-danger hover:underline disabled:opacity-50"
+                    className="-my-2 py-2 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-danger hover:underline disabled:opacity-50"
                   >
                     Cancel and refund
                   </button>
                 ) : (
                   <Link
                     href="/buy"
-                    className="text-xs font-medium text-forest underline-offset-4 hover:underline"
+                    className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
                   >
                     Buy another number
                   </Link>
@@ -231,7 +231,7 @@ export function BuyFlow({
             </span>
             <Link
               href="/dashboard/wallet"
-              className="text-xs font-medium text-forest underline-offset-4 hover:underline"
+              className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
             >
               Add funds
             </Link>

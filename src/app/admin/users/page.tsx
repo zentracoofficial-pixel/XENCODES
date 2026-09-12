@@ -49,7 +49,8 @@ export default async function AdminUsersPage({
         {users.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">No users found.</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-sm">
             <thead>
               <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Email</th>
@@ -65,7 +66,7 @@ export default async function AdminUsersPage({
                   <td className="px-5 py-3.5">
                     <Link
                       href={`/admin/users/${user.id}`}
-                      className="font-medium text-foreground hover:text-forest hover:underline"
+                      className="inline-flex min-h-10 items-center font-medium text-foreground hover:text-forest hover:underline"
                     >
                       {user.email}
                     </Link>
@@ -95,6 +96,7 @@ export default async function AdminUsersPage({
               ))}
             </tbody>
           </table>
+            </div>
         )}
       </Card>
     </div>

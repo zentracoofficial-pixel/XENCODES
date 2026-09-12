@@ -79,7 +79,8 @@ export default async function AdminServicesPage() {
             Switching a country off hides it from checkout across the whole site.
           </p>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+            <table className="w-full min-w-[38rem] text-sm">
           <tbody>
             {providerCountries.map((country) => (
               <CountryRow
@@ -94,6 +95,7 @@ export default async function AdminServicesPage() {
             ))}
           </tbody>
         </table>
+            </div>
       </Card>
 
       {categories.map((category) => {
@@ -103,7 +105,8 @@ export default async function AdminServicesPage() {
             <div className="border-b border-border bg-background px-5 py-3">
               <h2 className="text-sm font-semibold">{category}</h2>
             </div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[38rem] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-5 py-2 font-medium">Service</th>
@@ -137,6 +140,7 @@ export default async function AdminServicesPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </Card>
         );
       })}

@@ -36,7 +36,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
             href={link.href}
             onClick={onNavigate}
             className={cn(
-              "flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "flex shrink-0 items-center gap-2.5 min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               active
                 ? "bg-mint-soft text-forest"
                 : "text-muted-foreground hover:bg-mint-soft hover:text-forest",
@@ -67,7 +67,7 @@ export function DashboardSidebar() {
       <div className="border-t border-border p-3">
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-mint-soft hover:text-forest"
+          className="flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-mint-soft hover:text-forest"
         >
           <Settings className="h-4 w-4" />
           Account
@@ -75,7 +75,7 @@ export function DashboardSidebar() {
         <form action={logoutAction}>
           <button
             type="submit"
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-mint-soft hover:text-forest"
+            className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-mint-soft hover:text-forest"
           >
             <LogOut className="h-4 w-4" />
             Log out
@@ -97,7 +97,7 @@ export function DashboardTopBar() {
           <Link
             href="/dashboard/settings"
             aria-label="Account settings"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
           >
             <Settings className="h-4 w-4" />
           </Link>
@@ -105,7 +105,7 @@ export function DashboardTopBar() {
             <button
               type="submit"
               aria-label="Log out"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
             >
               <LogOut className="h-4 w-4" />
             </button>

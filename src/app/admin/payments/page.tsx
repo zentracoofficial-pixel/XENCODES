@@ -78,7 +78,7 @@ export default async function AdminPaymentsPage({
             key={f.value}
             href={f.value === "ALL" ? "/admin/payments" : `/admin/payments?type=${f.value}`}
             className={cn(
-              "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+              "inline-flex min-h-10 items-center rounded-full border px-4 text-xs font-medium transition-colors",
               activeFilter === f.value
                 ? "border-forest bg-primary text-white"
                 : "border-border text-muted-foreground hover:bg-mint-soft",

@@ -49,7 +49,7 @@ export function LoginForm() {
             <label htmlFor="password" className="text-sm font-medium">
               Password
             </label>
-            <Link href="/forgot-password" className="text-xs text-forest hover:underline">
+            <Link href="/forgot-password" className="-my-3 py-3 text-xs text-forest hover:underline">
               Forgot password?
             </Link>
           </div>
@@ -73,7 +73,7 @@ export function LoginForm() {
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
-        <Link href="/register" className="font-medium text-forest hover:underline">
+        <Link href="/register" className="inline-block -my-3 py-3 font-medium text-forest hover:underline">
           Create one
         </Link>
       </p>

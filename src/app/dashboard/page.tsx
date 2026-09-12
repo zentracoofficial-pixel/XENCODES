@@ -120,7 +120,7 @@ export default async function DashboardPage() {
           {recent.length > 0 ? (
             <Link
               href="/dashboard/history"
-              className="text-xs font-medium text-forest underline-offset-4 hover:underline"
+              className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
             >
               View all
             </Link>

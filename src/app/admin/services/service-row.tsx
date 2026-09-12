@@ -52,7 +52,7 @@ export function ServiceRow({
             step="1"
             defaultValue={markupPercent}
             aria-label={`${name} markup percent`}
-            className="h-9 w-16 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+            className="h-10 w-16 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
           <span className="text-xs text-muted-foreground">%</span>
           <Button type="submit" variant="outline" size="sm" disabled={formPending}>

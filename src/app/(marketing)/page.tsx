@@ -132,7 +132,7 @@ export default async function HomePage() {
             action={
               <Link
                 href="/services"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-forest hover:underline"
+                className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
               >
                 View all services
                 <ArrowRight className="h-4 w-4" />
@@ -195,7 +195,7 @@ export default async function HomePage() {
             action={
               <Link
                 href="/pricing"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-forest hover:underline"
+                className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
               >
                 View pricing
                 <ArrowRight className="h-4 w-4" />
@@ -240,7 +240,7 @@ export default async function HomePage() {
             action={
               <Link
                 href="/faq"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-forest hover:underline"
+                className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
               >
                 All questions
                 <ArrowRight className="h-4 w-4" />

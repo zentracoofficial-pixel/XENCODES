@@ -94,7 +94,7 @@ export default async function AdminSupportPage() {
                   </time>
                   <a
                     href={`mailto:${order.user.email}?subject=${encodeURIComponent(`Your Xencodes order for ${order.serviceName}`)}`}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-mint-soft hover:text-foreground"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-mint-soft hover:text-foreground"
                     title={`Email ${order.user.email}`}
                   >
                     <Mail className="h-3.5 w-3.5" />
