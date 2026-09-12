@@ -17,13 +17,17 @@ import { PricePicker } from "@/components/marketing/price-picker";
 import { CodeArrival } from "@/components/marketing/code-arrival";
 import { ServiceChip } from "@/components/marketing/service-chip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
-import { services, catalogFloorNaira } from "@/data/services";
-import { countries } from "@/data/countries";
+import { catalogFloorNaira } from "@/data/services";
+import { getCatalog } from "@/lib/catalog";
 import { faqs } from "@/data/faq";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { SITE_URL, SITE_NAME } from "@/lib/site";
 
 const floorPrice = formatNairaFromNaira(catalogFloorNaira);
+
+// Prices and availability here come from the admin-controlled catalog, so this
+// page always renders fresh rather than relying on tag-based ISR to catch up.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Virtual Numbers for SMS Verification in Nigeria",
@@ -78,7 +82,9 @@ const steps = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const { services, countries, floorNaira } = await getCatalog();
+  const livePrice = formatNairaFromNaira(floorNaira);
   const liveServices = services.length;
   const liveCountries = countries.length;
   const activeEntries = services
@@ -118,7 +124,7 @@ export default function HomePage() {
     offers: {
       "@type": "AggregateOffer",
       priceCurrency: "NGN",
-      lowPrice: catalogFloorNaira,
+      lowPrice: floorNaira,
       offerCount: services.length,
     },
   };
@@ -148,7 +154,7 @@ export default function HomePage() {
 
             <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground text-balance">
               Pick a service, pick a country, and read your code off the
-              screen. Paid in Naira from {floorPrice} — and if the code never
+              screen. Paid in Naira from {livePrice} — and if the code never
               lands, you don&apos;t pay for it.
             </p>
           </div>
@@ -320,7 +326,7 @@ export default function HomePage() {
                   What it costs
                 </h3>
                 <p>
-                  Prices start at {floorPrice} and move with the service and
+                  Prices start at {livePrice} and move with the service and
                   country you choose, because carrier fees and number supply
                   differ in each market. The exact price is always on screen
                   before you confirm — there is no subscription and no minimum

@@ -1,0 +1,102 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Search, ShieldCheck } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { prisma } from "@/lib/prisma";
+import { formatNaira } from "@/lib/currency";
+
+export const metadata: Metadata = { title: "Admin — Users" };
+
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
+  const query = q?.trim();
+
+  const users = await prisma.user.findMany({
+    where: query
+      ? { email: { contains: query, mode: "insensitive" } }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    include: { _count: { select: { activations: true } } },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {users.length} shown{query ? ` matching "${query}"` : ""}.
+        </p>
+      </div>
+
+      <form className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          name="q"
+          defaultValue={query}
+          placeholder="Search by email…"
+          className="h-11 w-full rounded-lg border border-border bg-card pl-10 pr-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+        />
+      </form>
+
+      <Card className="overflow-hidden">
+        {users.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">No users found.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-secondary/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-5 py-3 font-medium">Email</th>
+                <th className="px-5 py-3 font-medium">Balance</th>
+                <th className="px-5 py-3 font-medium">Activations</th>
+                <th className="px-5 py-3 font-medium">Joined</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id} className="border-b border-border last:border-0 hover:bg-secondary/40">
+                  <td className="px-5 py-3.5">
+                    <Link
+                      href={`/admin/users/${user.id}`}
+                      className="font-medium text-foreground hover:text-primary hover:underline"
+                    >
+                      {user.email}
+                    </Link>
+                    {user.role === "ADMIN" ? (
+                      <ShieldCheck className="ml-1.5 inline h-3.5 w-3.5 text-primary" />
+                    ) : null}
+                  </td>
+                  <td className="px-5 py-3.5 tabular-nums">
+                    {formatNaira(user.walletBalanceKobo)}
+                  </td>
+                  <td className="px-5 py-3.5 tabular-nums text-muted-foreground">
+                    {user._count.activations}
+                  </td>
+                  <td className="px-5 py-3.5 text-muted-foreground">
+                    {user.createdAt.toLocaleDateString("en-NG", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge variant={user.status === "ACTIVE" ? "success" : "danger"}>
+                      {user.status}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  );
+}

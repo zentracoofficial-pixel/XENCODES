@@ -2,8 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getServiceBySlug } from "@/data/services";
-import { getCountryBySlug } from "@/data/countries";
+import { getServiceBySlugResolved, getCountryBySlugResolved } from "@/lib/catalog";
 import { assignNumber, generateVerificationCode } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
@@ -22,8 +21,12 @@ export async function purchaseNumberAction(
     return { error: "login_required" };
   }
 
-  const service = getServiceBySlug(serviceSlug);
-  const country = getCountryBySlug(countrySlug);
+  // Resolved catalog, so the customer is charged the admin-set price and
+  // disabled services or countries can't be bought via a stale link.
+  const [service, country] = await Promise.all([
+    getServiceBySlugResolved(serviceSlug),
+    getCountryBySlugResolved(countrySlug),
+  ]);
   const availability = service?.availability.find((a) => a.countrySlug === countrySlug);
 
   if (!service || !country || !availability || availability.status === "unavailable") {

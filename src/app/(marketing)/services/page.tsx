@@ -2,8 +2,14 @@ import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
 import { Section } from "@/components/ui/section";
 import { ServicesDirectory } from "@/components/marketing/services-directory";
-import { services, serviceCategories, catalogFloorNaira } from "@/data/services";
+import { getCatalog } from "@/lib/catalog";
+import { catalogFloorNaira } from "@/data/services";
 import { formatNairaFromNaira } from "@/lib/currency";
+import type { ServiceCategory } from "@/data/types";
+
+// Availability and pricing come from the admin-controlled catalog, so this
+// page always renders fresh rather than relying on tag-based ISR to catch up.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Supported Services — WhatsApp, Telegram, Instagram & More",
@@ -17,7 +23,12 @@ export const metadata: Metadata = {
   alternates: { canonical: "/services" },
 };
 
-export default function ServicesPage() {
+export default async function ServicesPage() {
+  const { services } = await getCatalog();
+  const categories = Array.from(
+    new Set(services.map((s) => s.category)),
+  ) as ServiceCategory[];
+
   return (
     <Section>
       <Container>
@@ -35,7 +46,7 @@ export default function ServicesPage() {
         </div>
 
         <div className="mt-10">
-          <ServicesDirectory services={services} categories={serviceCategories} />
+          <ServicesDirectory services={services} categories={categories} />
         </div>
       </Container>
     </Section>

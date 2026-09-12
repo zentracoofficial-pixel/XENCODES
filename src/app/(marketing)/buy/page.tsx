@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
 import { Section } from "@/components/ui/section";
-import { services } from "@/data/services";
-import { countries } from "@/data/countries";
+import { getCatalog } from "@/lib/catalog";
 import { BuyFlow } from "./buy-flow";
 import { ActivationView } from "./activation-view";
 import { getActivationStateAction } from "./actions";
@@ -18,6 +17,7 @@ export default async function BuyPage({
   searchParams: Promise<{ service?: string; country?: string; activation?: string }>;
 }) {
   const { service, country, activation: activationId } = await searchParams;
+  const { services, countries } = await getCatalog();
 
   if (activationId) {
     const activation = await getActivationStateAction(activationId);

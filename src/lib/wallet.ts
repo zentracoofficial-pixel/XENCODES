@@ -4,7 +4,7 @@ import { WalletTransactionType } from "@/generated/prisma/client";
 export async function creditWallet(
   userId: string,
   amountKobo: number,
-  type: Extract<WalletTransactionType, "TOPUP" | "REFUND">,
+  type: Extract<WalletTransactionType, "TOPUP" | "REFUND" | "ADJUSTMENT">,
   description: string,
 ) {
   return prisma.$transaction(async (tx) => {

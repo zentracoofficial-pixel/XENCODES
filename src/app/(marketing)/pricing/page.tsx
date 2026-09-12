@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { pricingFactors, pricingExamples } from "@/data/pricing";
 import { formatNairaFromNaira } from "@/lib/currency";
-import { services } from "@/data/services";
-import { countries } from "@/data/countries";
+import { getCatalog } from "@/lib/catalog";
+
+// Prices here come from the admin-controlled catalog, so this page always
+// renders fresh rather than relying on tag-based ISR to catch up.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Pricing — Virtual Numbers in Naira",
@@ -21,7 +24,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/pricing" },
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const { services, countries } = await getCatalog();
   return (
     <>
       <Section>

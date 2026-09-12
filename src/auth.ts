@@ -3,7 +3,29 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { verifyTwoFactorTicket } from "@/lib/two-factor-ticket";
+import { isBootstrapAdmin } from "@/lib/admin";
 import { authConfig } from "@/auth.config";
+import type { User } from "@/generated/prisma/client";
+
+/**
+ * Runs once a user has proven who they are. Suspended accounts are refused,
+ * and any email listed in ADMIN_EMAILS is promoted so a fresh deployment can
+ * get its first admin without shell access.
+ */
+async function completeSignIn(user: User) {
+  if (user.status === "SUSPENDED") return null;
+
+  let role = user.role;
+  if (role !== "ADMIN" && isBootstrapAdmin(user.email)) {
+    const promoted = await prisma.user.update({
+      where: { id: user.id },
+      data: { role: "ADMIN" },
+    });
+    role = promoted.role;
+  }
+
+  return { id: user.id, email: user.email, name: user.name, role };
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
@@ -33,7 +55,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           // Accounts with 2FA enabled must go through the "ticket" mode below.
           if (user.twoFactorEnabled) return null;
 
-          return { id: user.id, email: user.email, name: user.name };
+          return completeSignIn(user);
         }
 
         if (mode === "ticket") {
@@ -46,7 +68,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const user = await prisma.user.findUnique({ where: { id: userId } });
           if (!user || !user.twoFactorEnabled) return null;
 
-          return { id: user.id, email: user.email, name: user.name };
+          return completeSignIn(user);
         }
 
         return null;

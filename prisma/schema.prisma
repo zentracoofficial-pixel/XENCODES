@@ -10,12 +10,24 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 model User {
   id                 String    @id @default(cuid())
   name               String?
   email              String    @unique
   passwordHash       String
   emailVerified      DateTime?
+  role               UserRole   @default(USER)
+  status             UserStatus @default(ACTIVE)
   walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
   twoFactorEnabled   Boolean   @default(false)
@@ -88,6 +100,8 @@ enum WalletTransactionType {
   TOPUP
   PURCHASE
   REFUND
+  /// Manual correction made by an admin, credit or debit.
+  ADJUSTMENT
 }
 
 model WalletTransaction {
@@ -101,4 +115,32 @@ model WalletTransaction {
 
   @@index([userId])
   @@map("wallet_transactions")
+}
+
+/// Admin override for a catalog service. Absent row means default (enabled, no markup).
+model ServiceSetting {
+  slug          String   @id
+  enabled       Boolean  @default(true)
+  markupPercent Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@map("service_settings")
+}
+
+/// Admin override for a catalog country.
+model CountrySetting {
+  slug      String   @id
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("country_settings")
+}
+
+/// Small key/value store for platform settings (global markup, provider config).
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
 }

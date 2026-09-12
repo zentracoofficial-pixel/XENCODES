@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ArrowDownLeft, ArrowUpRight, RotateCcw, Wallet as WalletIcon } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, RotateCcw, Sparkles, Wallet as WalletIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +12,7 @@ const typeMeta = {
   TOPUP: { label: "Top-up", icon: ArrowDownLeft, tone: "text-success" },
   PURCHASE: { label: "Number purchase", icon: ArrowUpRight, tone: "text-foreground" },
   REFUND: { label: "Refund", icon: RotateCcw, tone: "text-success" },
+  ADJUSTMENT: { label: "Account adjustment", icon: Sparkles, tone: "text-primary" },
 } as const;
 
 const dateFormat: Intl.DateTimeFormatOptions = {
