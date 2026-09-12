@@ -165,12 +165,14 @@ async function resolveCatalog(): Promise<Catalog> {
 
 /**
  * Customer facing catalog: provider inventory with admin overrides applied.
- * Cached so pages stay fast, and cleared by revalidateCatalog() whenever an
- * admin changes availability or pricing.
+ * Cached so pages stay fast, and cleared immediately by revalidateCatalog()
+ * whenever an admin changes availability or pricing. The window is 5 minutes
+ * rather than something tighter because a live provider can mean dozens of
+ * outbound requests to resolve the full catalog, not just a database read.
  */
 export const getCatalog = unstable_cache(resolveCatalog, ["catalog-v2"], {
   tags: [CATALOG_TAG],
-  revalidate: 60,
+  revalidate: 300,
 });
 
 export async function getServiceBySlug(slug: string) {

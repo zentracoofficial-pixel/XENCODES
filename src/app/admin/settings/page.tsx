@@ -5,7 +5,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { readSettings, maskSecret, SETTING_KEYS } from "@/lib/settings";
+import {
+  readSettings,
+  readNumber,
+  maskSecret,
+  SETTING_KEYS,
+  DEFAULT_USD_TO_NGN_RATE,
+} from "@/lib/settings";
 import { ProviderForm } from "./provider-form";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
@@ -45,6 +51,12 @@ export default async function AdminSettingsPage() {
             providerBaseUrl={settings[SETTING_KEYS.providerBaseUrl] ?? ""}
             maskedApiKey={maskSecret(settings[SETTING_KEYS.providerApiKey])}
             providerEnabled={settings[SETTING_KEYS.providerEnabled] === "true"}
+            usingSmsPool={Boolean(process.env.SMSPOOL_API_KEY)}
+            usdToNgnRate={readNumber(
+              settings,
+              SETTING_KEYS.usdToNgnRate,
+              DEFAULT_USD_TO_NGN_RATE,
+            )}
           />
         </div>
       </Card>

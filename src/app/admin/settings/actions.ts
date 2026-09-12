@@ -20,6 +20,8 @@ export async function saveProviderSettingsAction(
   const baseUrl = (formData.get("providerBaseUrl") as string)?.trim();
   const apiKey = (formData.get("providerApiKey") as string)?.trim();
   const enabled = formData.get("providerEnabled") === "on";
+  const usdToNgnRaw = formData.get("usdToNgnRate") as string;
+  const usingSmsPool = Boolean(process.env.SMSPOOL_API_KEY);
 
   if (baseUrl) {
     try {
@@ -29,8 +31,15 @@ export async function saveProviderSettingsAction(
     }
   }
 
-  if (enabled && (!name || !baseUrl)) {
+  // SMSPool's own key comes from the environment, so enabling it only needs
+  // the master switch, not a name and base URL typed in here.
+  if (enabled && !usingSmsPool && (!name || !baseUrl)) {
     return { error: "Add a provider name and base URL before enabling the connection." };
+  }
+
+  const usdToNgnRate = Number(usdToNgnRaw);
+  if (usingSmsPool && (!Number.isFinite(usdToNgnRate) || usdToNgnRate <= 0)) {
+    return { error: "Enter a valid Naira per US dollar rate, greater than zero." };
   }
 
   await Promise.all([
@@ -39,6 +48,9 @@ export async function saveProviderSettingsAction(
     writeSetting(SETTING_KEYS.providerEnabled, String(enabled)),
     // A blank key field means "leave the stored key alone", never overwrite it with "".
     apiKey ? writeSetting(SETTING_KEYS.providerApiKey, apiKey) : Promise.resolve(),
+    usingSmsPool
+      ? writeSetting(SETTING_KEYS.usdToNgnRate, String(usdToNgnRate))
+      : Promise.resolve(),
   ]);
 
   revalidateCatalog();

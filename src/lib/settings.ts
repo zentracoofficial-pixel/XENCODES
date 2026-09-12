@@ -6,7 +6,14 @@ export const SETTING_KEYS = {
   providerBaseUrl: "provider_base_url",
   providerApiKey: "provider_api_key",
   providerEnabled: "provider_enabled",
+  /** Naira per one US dollar, used to convert a USD-priced provider like
+   *  SMSPool into the Naira prices this site charges in. */
+  usdToNgnRate: "usd_to_ngn_rate",
 } as const;
+
+/** A clearly-labelled placeholder, not a live rate. An admin must set the
+ *  real one in Settings before going live with a USD-priced provider. */
+export const DEFAULT_USD_TO_NGN_RATE = 1600;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
