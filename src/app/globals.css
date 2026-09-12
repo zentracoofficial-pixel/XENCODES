@@ -150,10 +150,73 @@
     animation: xen-rise 0.28s ease-out both;
   }
 
+  /* Service marquee. The track holds two identical copies of the row, so
+     shifting it by exactly half its width loops with no visible seam. */
+  @keyframes xen-marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-marquee {
+    animation: xen-marquee var(--marquee-duration, 60s) linear infinite;
+  }
+
+  .animate-marquee-reverse {
+    animation: xen-marquee var(--marquee-duration, 60s) linear infinite reverse;
+  }
+
+  /* Let people stop the row to read or click something. */
+  .marquee-row:hover .animate-marquee,
+  .marquee-row:hover .animate-marquee-reverse,
+  .marquee-row:focus-within .animate-marquee,
+  .marquee-row:focus-within .animate-marquee-reverse {
+    animation-play-state: paused;
+  }
+
+  /* Fade the ends so items enter and leave rather than being cut off. The
+     fade stays narrow on a phone, where a wide one would eat the row. */
+  .marquee-mask {
+    --marquee-fade: 2rem;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--marquee-fade),
+      #000 calc(100% - var(--marquee-fade)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--marquee-fade),
+      #000 calc(100% - var(--marquee-fade)),
+      transparent
+    );
+  }
+
+  @media (min-width: 640px) {
+    .marquee-mask {
+      --marquee-fade: 5rem;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-live,
     .animate-rise {
       animation: none;
+    }
+
+    /* Hold the rows still and let them scroll by hand instead. */
+    .animate-marquee,
+    .animate-marquee-reverse {
+      animation: none;
+    }
+
+    .marquee-row {
+      overflow-x: auto;
     }
   }
 }

@@ -9,6 +9,7 @@ import { ServiceLogo } from "@/components/marketing/service-logo";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { NumberSearch } from "@/components/product/number-search";
 import { ActivationDemo } from "@/components/product/activation-demo";
+import { ServiceMarquee } from "@/components/product/service-marquee";
 import { DevelopmentDataNotice } from "@/components/product/development-notice";
 import { getCatalog } from "@/lib/catalog";
 import { formatNairaFromNaira } from "@/lib/currency";
@@ -31,17 +32,6 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-const POPULAR_SLUGS = [
-  "instagram",
-  "facebook",
-  "whatsapp",
-  "telegram",
-  "tiktok",
-  "google",
-  "fiverr",
-  "upwork",
-];
-
 const STEPS = [
   { n: "01", title: "Search", body: "Find the service you need." },
   { n: "02", title: "Choose", body: "Select an available country and number." },
@@ -50,10 +40,6 @@ const STEPS = [
 
 export default async function HomePage() {
   const { services, countries, floorNaira, isLive } = await getCatalog();
-
-  const popular = POPULAR_SLUGS.map((slug) =>
-    services.find((service) => service.slug === slug),
-  ).filter((service) => service !== undefined);
 
   // Three real examples straight from the catalog, never invented.
   const priceExamples = ["instagram", "telegram", "facebook"]
@@ -136,11 +122,13 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      {/* Popular services. */}
+      {/* Everything you can verify, drifting past. Full width on purpose,
+          so the rows run past the edges of the page rather than stopping. */}
       <Section className="py-12 sm:py-14">
         <Container>
           <SectionHeading
-            title="Popular services"
+            title="Services we cover"
+            description={`${services.length} services and counting. Tap any one to pick a country.`}
             action={
               <Link
                 href="/services"
@@ -151,33 +139,11 @@ export default async function HomePage() {
               </Link>
             }
           />
-
-          <ul className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            {popular.map((service) => (
-              <li key={service.slug}>
-                <Link
-                  href={`/buy?service=${service.slug}`}
-                  className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3.5 py-3 transition-colors hover:border-mint hover:bg-mint-soft"
-                >
-                  <ServiceLogo
-                    slug={service.slug}
-                    name={service.name}
-                    color={service.color}
-                    size="sm"
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">
-                      {service.name}
-                    </span>
-                    <span className="block text-xs tabular-nums text-muted-foreground">
-                      from {formatNairaFromNaira(service.priceFromNaira)}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
         </Container>
+
+        <div className="mt-6">
+          <ServiceMarquee services={services} />
+        </div>
       </Section>
 
       {/* How it works, and what receiving a code looks like. */}
