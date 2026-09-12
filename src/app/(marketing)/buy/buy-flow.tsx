@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AvailabilityDot } from "@/components/marketing/availability-badge";
+import { formatNairaFromNaira } from "@/lib/currency";
 import { purchaseNumberAction } from "./actions";
 import type { Service, Country } from "@/data/types";
 
@@ -154,7 +155,9 @@ export function BuyFlow({
                 </span>
                 <span className="flex items-center gap-3">
                   <AvailabilityDot status={availability!.status} />
-                  <span className="text-sm font-semibold">${availability!.price.toFixed(2)}</span>
+                  <span className="text-sm font-semibold">
+                    {formatNairaFromNaira(availability!.priceNaira)}
+                  </span>
                 </span>
               </button>
             ))}
@@ -191,7 +194,9 @@ export function BuyFlow({
             </div>
             <div className="flex items-center justify-between border-t border-border pt-3">
               <span className="text-muted-foreground">Price</span>
-              <span className="text-lg font-semibold">${selectedAvailability.price.toFixed(2)}</span>
+              <span className="text-lg font-semibold">
+                {formatNairaFromNaira(selectedAvailability.priceNaira)}
+              </span>
             </div>
           </div>
 

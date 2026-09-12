@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { formatNaira } from "@/lib/currency";
 import { AddFunds } from "./add-funds";
 
 export const metadata: Metadata = {
@@ -34,7 +35,7 @@ export default async function WalletPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[280px_1fr]">
         <div className="space-y-6">
-          <StatCard label="Current balance" value={`$${(user.walletBalanceCents / 100).toFixed(2)}`} />
+          <StatCard label="Current balance" value={formatNaira(user.walletBalanceKobo)} />
           <AddFunds />
         </div>
 
@@ -64,10 +65,11 @@ export default async function WalletPage() {
                     </td>
                     <td
                       className={`px-5 py-3.5 text-right font-semibold ${
-                        tx.amountCents >= 0 ? "text-success" : "text-foreground"
+                        tx.amountKobo >= 0 ? "text-success" : "text-foreground"
                       }`}
                     >
-                      {tx.amountCents >= 0 ? "+" : "-"}${(Math.abs(tx.amountCents) / 100).toFixed(2)}
+                      {tx.amountKobo >= 0 ? "+" : "-"}
+                      {formatNaira(Math.abs(tx.amountKobo))}
                     </td>
                   </tr>
                 ))}

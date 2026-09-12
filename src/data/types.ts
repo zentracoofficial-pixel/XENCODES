@@ -12,7 +12,8 @@ export type ServiceCategory =
 export interface CountryAvailability {
   countrySlug: string;
   status: AvailabilityLevel;
-  price: number;
+  /** Whole Naira. Converted to kobo at purchase time. */
+  priceNaira: number;
   avgDeliverySeconds: number;
   successRate: number;
 }
@@ -24,7 +25,7 @@ export interface Service {
   description: string;
   color: string;
   rentalSupported: boolean;
-  priceFrom: number;
+  priceFromNaira: number;
   availability: CountryAvailability[];
 }
 
@@ -35,6 +36,6 @@ export interface Country {
   dialCode: string;
   availability: AvailabilityLevel;
   numberTypes: NumberType[];
-  priceFrom: number;
+  priceFromNaira: number;
   serviceCount: number;
 }

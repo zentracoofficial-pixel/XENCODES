@@ -19,8 +19,10 @@ export interface PricingExample {
 }
 
 export const pricingExamples: PricingExample[] = [
+  { serviceSlug: "discord", countrySlug: "nigeria" },
+  { serviceSlug: "telegram", countrySlug: "nigeria" },
+  { serviceSlug: "instagram", countrySlug: "nigeria" },
+  { serviceSlug: "whatsapp", countrySlug: "nigeria" },
   { serviceSlug: "telegram", countrySlug: "usa" },
   { serviceSlug: "instagram", countrySlug: "uk" },
-  { serviceSlug: "whatsapp", countrySlug: "nigeria" },
-  { serviceSlug: "google", countrySlug: "germany" },
 ];

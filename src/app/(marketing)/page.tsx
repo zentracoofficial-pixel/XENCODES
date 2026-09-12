@@ -16,6 +16,7 @@ import { QuickSelector } from "@/components/marketing/quick-selector";
 import { ServiceChip } from "@/components/marketing/service-chip";
 import { services, getServiceBySlug } from "@/data/services";
 import { countries } from "@/data/countries";
+import { formatNairaFromNaira } from "@/lib/currency";
 
 const trustBullets = [
   { icon: Zap, label: "Instant reservation" },
@@ -77,12 +78,12 @@ const highlightedServiceSlugs = [
   "linkedin",
 ];
 
-const startingPrice = Math.min(...services.map((s) => s.priceFrom));
+const startingPriceNaira = Math.min(...services.map((s) => s.priceFromNaira));
 
 export default function HomePage() {
   return (
     <>
-      <div className="relative overflow-hidden border-b border-border bg-warm-glow">
+      <div className="relative overflow-hidden border-b border-border bg-brand-glow">
         <Container className="relative pt-20 pb-16 sm:pt-28 sm:pb-20">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-10">
             <div>
@@ -215,7 +216,7 @@ export default function HomePage() {
             <p className="text-muted-foreground">
               Starting from{" "}
               <span className="font-semibold text-foreground">
-                ${startingPrice.toFixed(2)}
+                {formatNairaFromNaira(startingPriceNaira)}
               </span>{" "}
               per code. Price varies by service and country.
             </p>
@@ -228,18 +229,14 @@ export default function HomePage() {
 
       <Section className="pb-24 sm:pb-32">
         <Container>
-          <Card className="flex flex-col items-center gap-6 bg-primary px-8 py-14 text-center text-primary-foreground sm:px-16">
+          <Card className="flex flex-col items-center gap-6 border-transparent bg-foreground px-8 py-14 text-center text-background sm:px-16">
             <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-balance">
               Need a verification number?
             </h2>
-            <p className="max-w-lg text-primary-foreground/80">
+            <p className="max-w-lg text-background/70">
               Get your number and receive your code in minutes.
             </p>
-            <Button
-              href="/buy"
-              size="lg"
-              className="bg-primary-foreground text-primary hover:opacity-90"
-            >
+            <Button href="/buy" size="lg">
               Get Started
               <ArrowRight className="h-4 w-4" />
             </Button>

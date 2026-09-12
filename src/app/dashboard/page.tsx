@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/stat-card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { formatNaira } from "@/lib/currency";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -51,7 +52,7 @@ export default async function DashboardPage() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <StatCard
           label="Balance"
-          value={`$${(user.walletBalanceCents / 100).toFixed(2)}`}
+          value={formatNaira(user.walletBalanceKobo)}
           hint="Add funds from the Wallet page"
         />
         <Card className="p-5">

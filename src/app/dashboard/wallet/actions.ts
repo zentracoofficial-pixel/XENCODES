@@ -3,18 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { creditWallet } from "@/lib/wallet";
+import { TOP_UP_AMOUNTS_NAIRA } from "./top-up-amounts";
+import { nairaToKobo } from "@/lib/currency";
 
-const PRESET_AMOUNTS_CENTS = [1000, 2500, 5000, 10000];
-
-export async function addFundsAction(amountCents: number) {
-  if (!PRESET_AMOUNTS_CENTS.includes(amountCents)) {
+export async function addFundsAction(amountNaira: number) {
+  if (!TOP_UP_AMOUNTS_NAIRA.includes(amountNaira)) {
     throw new Error("Invalid amount");
   }
 
   const session = await auth();
   if (!session?.user?.id) throw new Error("Not authenticated");
 
-  await creditWallet(session.user.id, amountCents, "TOPUP", "Wallet top-up");
+  await creditWallet(session.user.id, nairaToKobo(amountNaira), "TOPUP", "Wallet top-up");
   revalidatePath("/dashboard/wallet");
   revalidatePath("/dashboard");
 }

@@ -6,6 +6,7 @@ import { getServiceBySlug } from "@/data/services";
 import { getCountryBySlug } from "@/data/countries";
 import { assignNumber, generateVerificationCode } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
+import { nairaToKobo } from "@/lib/currency";
 
 export interface PurchaseResult {
   error?: "login_required" | "unavailable" | "insufficient_balance" | "unknown";
@@ -29,26 +30,26 @@ export async function purchaseNumberAction(
     return { error: "unavailable" };
   }
 
-  const priceCents = Math.round(availability.price * 100);
+  const priceKobo = nairaToKobo(availability.priceNaira);
   const assigned = assignNumber(country.dialCode);
   const now = new Date();
 
   try {
     const activation = await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUniqueOrThrow({ where: { id: session.user.id } });
-      if (user.walletBalanceCents < priceCents) {
+      if (user.walletBalanceKobo < priceKobo) {
         throw new Error("insufficient_balance");
       }
 
       await tx.user.update({
         where: { id: user.id },
-        data: { walletBalanceCents: { decrement: priceCents } },
+        data: { walletBalanceKobo: { decrement: priceKobo } },
       });
 
       await tx.walletTransaction.create({
         data: {
           userId: user.id,
-          amountCents: -priceCents,
+          amountKobo: -priceKobo,
           type: "PURCHASE",
           description: `${service.name} number — ${country.name}`,
         },
@@ -62,7 +63,7 @@ export async function purchaseNumberAction(
           countrySlug: country.slug,
           countryName: country.name,
           phoneNumber: assigned.phoneNumber,
-          priceCents,
+          priceKobo,
           deliverAt: new Date(now.getTime() + assigned.deliverInSeconds * 1000),
           expiresAt: new Date(now.getTime() + assigned.sessionSeconds * 1000),
         },
@@ -83,7 +84,7 @@ export interface ActivationState {
   serviceName: string;
   countryName: string;
   phoneNumber: string;
-  priceCents: number;
+  priceKobo: number;
   status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED";
   code: string | null;
   expiresAt: string;
@@ -94,7 +95,7 @@ function toState(activation: {
   serviceName: string;
   countryName: string;
   phoneNumber: string;
-  priceCents: number;
+  priceKobo: number;
   status: string;
   code: string | null;
   expiresAt: Date;
@@ -104,7 +105,7 @@ function toState(activation: {
     serviceName: activation.serviceName,
     countryName: activation.countryName,
     phoneNumber: activation.phoneNumber,
-    priceCents: activation.priceCents,
+    priceKobo: activation.priceKobo,
     status: activation.status as ActivationState["status"],
     code: activation.code,
     expiresAt: activation.expiresAt.toISOString(),
@@ -131,7 +132,7 @@ export async function getActivationStateAction(
     });
     await creditWallet(
       session.user.id,
-      activation.priceCents,
+      activation.priceKobo,
       "REFUND",
       `Refund — no code received for ${activation.serviceName}`,
     );
@@ -169,7 +170,7 @@ export async function cancelActivationAction(activationId: string): Promise<Acti
 
   await creditWallet(
     session.user.id,
-    activation.priceCents,
+    activation.priceKobo,
     "REFUND",
     `Refund — cancelled ${activation.serviceName} activation`,
   );

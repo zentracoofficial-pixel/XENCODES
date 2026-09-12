@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { formatNaira } from "@/lib/currency";
 
 export const metadata: Metadata = {
   title: "History",
@@ -52,7 +53,7 @@ export default async function HistoryPage() {
                   <td className="px-5 py-3.5 font-medium">{activation.serviceName}</td>
                   <td className="px-5 py-3.5 text-muted-foreground">{activation.countryName}</td>
                   <td className="px-5 py-3.5 font-mono text-xs">{activation.phoneNumber}</td>
-                  <td className="px-5 py-3.5">${(activation.priceCents / 100).toFixed(2)}</td>
+                  <td className="px-5 py-3.5">{formatNaira(activation.priceKobo)}</td>
                   <td className="px-5 py-3.5">
                     <Badge variant={statusVariant[activation.status]}>{activation.status}</Badge>
                   </td>

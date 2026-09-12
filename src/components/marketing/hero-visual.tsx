@@ -35,17 +35,17 @@ export function HeroVisual() {
   return (
     <div className="relative mx-auto w-full max-w-sm py-8 sm:py-4">
       <FloatingNumberCard
+        flag="🇳🇬"
+        country="Nigeria"
+        dialCode="+234"
+        price="₦80"
+        className="-left-6 -top-9 -rotate-3 sm:-left-14"
+      />
+      <FloatingNumberCard
         flag="🇺🇸"
         country="United States"
         dialCode="+1"
-        price="$0.35"
-        className="-left-6 -top-4 -rotate-3 sm:-left-14"
-      />
-      <FloatingNumberCard
-        flag="🇬🇧"
-        country="United Kingdom"
-        dialCode="+44"
-        price="$0.36"
+        price="₦110"
         className="-right-6 -bottom-4 rotate-2 sm:-right-12"
       />
 

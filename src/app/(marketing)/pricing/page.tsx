@@ -5,6 +5,7 @@ import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { pricingFactors, pricingExamples } from "@/data/pricing";
+import { formatNairaFromNaira } from "@/lib/currency";
 import { services } from "@/data/services";
 import { countries } from "@/data/countries";
 
@@ -60,7 +61,7 @@ export default function PricingPage() {
                         {country.flag} {country.name}
                       </td>
                       <td className="px-5 py-3.5 font-semibold">
-                        ${availability.price.toFixed(2)}
+                        {formatNairaFromNaira(availability.priceNaira)}
                       </td>
                     </tr>
                   );

@@ -16,7 +16,7 @@ model User {
   email              String    @unique
   passwordHash       String
   emailVerified      DateTime?
-  walletBalanceCents Int       @default(0)
+  walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
   twoFactorEnabled   Boolean   @default(false)
   createdAt          DateTime  @default(now())
@@ -71,7 +71,7 @@ model Activation {
   countrySlug String
   countryName String
   phoneNumber String
-  priceCents  Int
+  priceKobo  Int
   status      ActivationStatus @default(WAITING)
   code        String?
   deliverAt   DateTime
@@ -95,7 +95,7 @@ model WalletTransaction {
   userId      String
   user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   type        WalletTransactionType
-  amountCents Int
+  amountKobo Int
   description String
   createdAt   DateTime              @default(now())
 

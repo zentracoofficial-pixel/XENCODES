@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { countAvailableCountries } from "@/data/services";
 import { AvailabilityBadge } from "@/components/marketing/availability-badge";
+import { formatNairaFromNaira } from "@/lib/currency";
 import type { Service, ServiceCategory } from "@/data/types";
 
 function overallAvailability(service: Service) {
@@ -95,7 +96,7 @@ export function ServicesDirectory({ services }: { services: Service[] }) {
                 <div className="mt-4 flex items-center justify-between text-sm">
                   <AvailabilityBadge status={overallAvailability(service)} />
                   <span className="font-semibold">
-                    from ${service.priceFrom.toFixed(2)}
+                    from {formatNairaFromNaira(service.priceFromNaira)}
                   </span>
                 </div>
               </Card>

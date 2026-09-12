@@ -6,6 +6,7 @@ import { Check, Copy, Loader2, MessageSquareText, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatNaira } from "@/lib/currency";
 import { getActivationStateAction, cancelActivationAction, type ActivationState } from "./actions";
 
 function useCountdown(expiresAt: string, active: boolean) {
@@ -90,7 +91,7 @@ export function ActivationView({ initial }: { initial: ActivationState }) {
         </div>
         <div className="flex items-center justify-between text-sm border-b border-border pb-4">
           <span className="text-muted-foreground">Price</span>
-          <span className="font-medium">${(activation.priceCents / 100).toFixed(2)}</span>
+          <span className="font-medium">{formatNaira(activation.priceKobo)}</span>
         </div>
 
         {isWaiting ? (

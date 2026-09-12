@@ -3,13 +3,22 @@ import { services } from "./services";
 
 const baseCountries: Omit<Country, "serviceCount">[] = [
   {
+    slug: "nigeria",
+    name: "Nigeria",
+    flag: "🇳🇬",
+    dialCode: "+234",
+    availability: "available",
+    numberTypes: ["activation", "rental"],
+    priceFromNaira: 80,
+  },
+  {
     slug: "usa",
     name: "United States",
     flag: "🇺🇸",
     dialCode: "+1",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFrom: 0.34,
+    priceFromNaira: 110,
   },
   {
     slug: "uk",
@@ -18,7 +27,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+44",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFrom: 0.36,
+    priceFromNaira: 120,
   },
   {
     slug: "canada",
@@ -27,16 +36,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+1",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFrom: 0.35,
-  },
-  {
-    slug: "nigeria",
-    name: "Nigeria",
-    flag: "🇳🇬",
-    dialCode: "+234",
-    availability: "limited",
-    numberTypes: ["activation"],
-    priceFrom: 0.28,
+    priceFromNaira: 115,
   },
   {
     slug: "germany",
@@ -45,7 +45,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+49",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFrom: 0.37,
+    priceFromNaira: 130,
   },
   {
     slug: "indonesia",
@@ -54,7 +54,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+62",
     availability: "limited",
     numberTypes: ["activation"],
-    priceFrom: 0.3,
+    priceFromNaira: 90,
   },
   {
     slug: "poland",
@@ -63,7 +63,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+48",
     availability: "available",
     numberTypes: ["activation", "rental"],
-    priceFrom: 0.32,
+    priceFromNaira: 100,
   },
   {
     slug: "philippines",
@@ -72,7 +72,7 @@ const baseCountries: Omit<Country, "serviceCount">[] = [
     dialCode: "+63",
     availability: "limited",
     numberTypes: ["activation"],
-    priceFrom: 0.31,
+    priceFromNaira: 95,
   },
 ];
 
