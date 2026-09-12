@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Search } from "lucide-react";
-import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { ServiceLogo } from "@/components/marketing/service-logo";
+import { AvailabilityDot } from "@/components/marketing/availability-badge";
 import { countAvailableCountries } from "@/data/services";
-import { AvailabilityBadge } from "@/components/marketing/availability-badge";
 import { formatNairaFromNaira } from "@/lib/currency";
 import type { Service, ServiceCategory } from "@/data/types";
 
@@ -16,90 +16,94 @@ function overallAvailability(service: Service) {
   return "unavailable" as const;
 }
 
-const categories: (ServiceCategory | "All")[] = [
-  "All",
-  "Social & Messaging",
-  "Marketplaces & Freelance",
-  "Developer & Cloud",
-  "Finance & Shopping",
-  "Dating",
-];
-
-export function ServicesDirectory({ services }: { services: Service[] }) {
+export function ServicesDirectory({
+  services,
+  categories,
+}: {
+  services: Service[];
+  categories: ServiceCategory[];
+}) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<(typeof categories)[number]>("All");
+  const [category, setCategory] = useState<ServiceCategory | "All">("All");
 
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return services.filter((service) => {
       const matchesCategory = category === "All" || service.category === category;
-      const matchesQuery = service.name
-        .toLowerCase()
-        .includes(query.trim().toLowerCase());
+      const matchesQuery = !q || service.name.toLowerCase().includes(q);
       return matchesCategory && matchesQuery;
     });
   }, [services, query, category]);
 
+  const tabs: (ServiceCategory | "All")[] = ["All", ...categories];
+
   return (
     <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="sticky top-16 z-10 -mx-6 border-b border-border bg-background/80 px-6 py-4 backdrop-blur">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
-            type="text"
+            type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search services..."
-            className="h-10 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+            placeholder={`Search ${services.length} services…`}
+            className="h-12 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none ring-ring transition-shadow focus:ring-2"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((c) => (
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {tabs.map((tab) => (
             <button
-              key={c}
+              key={tab}
               type="button"
-              onClick={() => setCategory(c)}
+              onClick={() => setCategory(tab)}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                category === c
-                  ? "border-primary bg-primary-muted text-primary"
+                "shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+                category === tab
+                  ? "border-primary bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
               )}
             >
-              {c}
+              {tab}
             </button>
           ))}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="mt-16 text-center text-sm text-muted-foreground">
-          No services match your search.
-        </p>
+        <div className="mt-16 text-center">
+          <p className="font-medium">No service called “{query}”</p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Try another name, or browse a category above.
+          </p>
+        </div>
       ) : (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((service) => (
-            <Link key={service.slug} href={`/buy?service=${service.slug}`} className="group block">
-              <Card className="h-full p-6 transition-colors group-hover:border-primary/40 group-hover:bg-secondary">
-                <div className="flex items-start justify-between">
-                  <span
-                    className="flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white"
-                    style={{ backgroundColor: service.color }}
-                  >
-                    {service.name.slice(0, 1)}
-                  </span>
-                  <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-                <p className="mt-4 font-semibold">{service.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {countAvailableCountries(service)} countries available
-                </p>
-                <div className="mt-4 flex items-center justify-between text-sm">
-                  <AvailabilityBadge status={overallAvailability(service)} />
-                  <span className="font-semibold">
-                    from {formatNairaFromNaira(service.priceFromNaira)}
-                  </span>
-                </div>
-              </Card>
+            <Link
+              key={service.slug}
+              href={`/buy?service=${service.slug}`}
+              className="group rounded-xl border border-border bg-card p-5 transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <ServiceLogo service={service} size="lg" />
+                <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              </div>
+
+              <p className="mt-4 font-semibold">{service.name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {service.category}
+              </p>
+
+              <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+                <AvailabilityDot
+                  status={overallAvailability(service)}
+                  label={`${countAvailableCountries(service)} countries`}
+                />
+                <span className="text-sm font-semibold tabular-nums">
+                  {formatNairaFromNaira(service.priceFromNaira)}
+                </span>
+              </div>
             </Link>
           ))}
         </div>

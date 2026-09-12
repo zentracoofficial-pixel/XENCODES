@@ -16,7 +16,20 @@ export function AvailabilityBadge({ status }: { status: AvailabilityLevel }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-export function AvailabilityDot({ status }: { status: AvailabilityLevel }) {
-  const { label, tone } = config[status];
-  return <StatusDot tone={tone} label={label} pulse={status === "available"} />;
+export function AvailabilityDot({
+  status,
+  label,
+}: {
+  status: AvailabilityLevel;
+  /** Overrides the status word, e.g. to show a country count instead. */
+  label?: string;
+}) {
+  const { label: statusLabel, tone } = config[status];
+  return (
+    <StatusDot
+      tone={tone}
+      label={label ?? statusLabel}
+      pulse={status === "available"}
+    />
+  );
 }

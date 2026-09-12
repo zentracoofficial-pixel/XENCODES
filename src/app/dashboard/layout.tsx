@@ -1,13 +1,15 @@
-import { DashboardNav } from "./dashboard-nav";
-import { Container } from "@/components/ui/container";
+import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col bg-secondary/30">
-      <DashboardNav />
-      <main className="flex-1 py-10">
-        <Container>{children}</Container>
-      </main>
+    <div className="flex min-h-screen bg-secondary/30">
+      <DashboardSidebar />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <DashboardTopBar />
+        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-10">
+          <div className="mx-auto w-full max-w-5xl">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

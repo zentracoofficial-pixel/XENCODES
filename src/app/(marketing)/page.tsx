@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { JsonLd } from "@/components/seo/json-ld";
 import { PricePicker } from "@/components/marketing/price-picker";
 import { CodeArrival } from "@/components/marketing/code-arrival";
+import { ServiceChip } from "@/components/marketing/service-chip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { services, catalogFloorNaira } from "@/data/services";
 import { countries } from "@/data/countries";
@@ -257,28 +258,7 @@ export default function HomePage() {
             {popularSlugs.map((slug) => {
               const service = services.find((s) => s.slug === slug);
               if (!service) return null;
-              return (
-                <Link
-                  key={slug}
-                  href={`/buy?service=${slug}`}
-                  className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-                      style={{ backgroundColor: service.color }}
-                    >
-                      {service.name.slice(0, 1)}
-                    </span>
-                    <span className="truncate text-sm font-medium">
-                      {service.name}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-xs font-semibold text-muted-foreground">
-                    {formatNairaFromNaira(service.priceFromNaira)}
-                  </span>
-                </Link>
-              );
+              return <ServiceChip key={slug} service={service} />;
             })}
           </div>
         </Container>
