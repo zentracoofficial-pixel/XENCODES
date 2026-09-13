@@ -101,6 +101,18 @@ export class HttpProvider implements NumberProvider {
     return mapOffers(data);
   }
 
+  /**
+   * Safe generic default: filters the same full listOffers() call locally.
+   * Fine as long as this provider's whole catalog is small enough to price
+   * eagerly. If it is not (SMSPool-sized), override this with a real
+   * per-service endpoint the same way SmsPoolProvider does, so a service
+   * outside whatever listOffers() eagerly prices can still be looked up.
+   */
+  async listOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
+    const offers = await this.listOffers();
+    return offers.filter((offer) => offer.serviceSlug === serviceSlug);
+  }
+
   async requestNumber(
     serviceSlug: string,
     countrySlug: string,

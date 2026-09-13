@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getCatalog, getOffer } from "@/lib/catalog";
+import { getCatalog, getOfferForBuy } from "@/lib/catalog";
 import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
@@ -29,7 +29,10 @@ export async function purchaseNumberAction(
 
   // Read through the resolved catalog so the customer is charged the
   // admin-set price and a disabled item cannot be bought via a stale link.
-  const match = await getOffer(serviceSlug, countrySlug);
+  // getOfferForBuy() also covers a service outside the eagerly priced set,
+  // pricing it live on demand rather than only recognising what getCatalog()
+  // already precomputed.
+  const match = await getOfferForBuy(serviceSlug, countrySlug);
   if (!match) return { error: "unavailable" };
 
   const { service, offer } = match;

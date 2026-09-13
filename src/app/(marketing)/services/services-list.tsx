@@ -6,13 +6,24 @@ import { ArrowRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatNairaFromNaira } from "@/lib/currency";
-import type { CatalogService } from "@/lib/catalog";
+
+/** A directory row: priceFromNaira/offerCount are only present for a
+ *  service already priced by getCatalog(); everything else the provider
+ *  lists still shows up, just without a price until selected on /buy. */
+export interface DirectoryEntry {
+  slug: string;
+  name: string;
+  color: string;
+  category: string;
+  priceFromNaira?: number;
+  offerCount?: number;
+}
 
 export function ServicesList({
   services,
   categories,
 }: {
-  services: CatalogService[];
+  services: DirectoryEntry[];
   categories: string[];
 }) {
   const [query, setQuery] = useState("");
@@ -79,15 +90,22 @@ export function ServicesList({
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{service.name}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {service.offers.length}{" "}
-                    {service.offers.length === 1 ? "country" : "countries"} in stock
+                    {service.offerCount !== undefined
+                      ? `${service.offerCount} ${service.offerCount === 1 ? "country" : "countries"} in stock`
+                      : "Tap to check availability"}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-sm font-semibold tabular-nums">
-                    {formatNairaFromNaira(service.priceFromNaira)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">from</p>
+                  {service.priceFromNaira !== undefined ? (
+                    <>
+                      <p className="text-sm font-semibold tabular-nums">
+                        {formatNairaFromNaira(service.priceFromNaira)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">from</p>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-forest">View pricing</p>
+                  )}
                 </div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-forest" />
               </Link>

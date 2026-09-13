@@ -71,6 +71,14 @@ export interface NumberProvider {
   listCountries(): Promise<ProviderCountry[]>;
   /** Every buyable combination. Callers filter by service or country. */
   listOffers(): Promise<ProviderOffer[]>;
+  /**
+   * Offers for just this one service, across every country. For a provider
+   * whose catalog is far larger than what listOffers() eagerly prices (see
+   * SmsPoolProvider), this is how a service outside that eagerly-priced set
+   * still becomes buyable: fetched live, on demand, only when a customer
+   * actually selects it, rather than upfront for the entire catalog.
+   */
+  listOffersForService(serviceSlug: string): Promise<ProviderOffer[]>;
 
   requestNumber(
     serviceSlug: string,

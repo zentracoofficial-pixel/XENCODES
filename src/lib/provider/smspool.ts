@@ -219,6 +219,13 @@ export class SmsPoolProvider implements NumberProvider {
   /** The raw rows, ID included, shared by fetchServices and resolveServiceId
    *  so both read from one cached call rather than two. */
   private readonly cachedRawServices: () => Promise<RawService[]>;
+  /** On-demand pricing for one service at a time, cached per slug: how a
+   *  service outside KNOWN_SERVICE_NAMES still becomes buyable. See
+   *  listOffersForService(). unstable_cache folds the argument into its own
+   *  cache key, so this stays one entry per distinct slug automatically. */
+  private readonly cachedOffersForService: (
+    serviceSlug: string,
+  ) => Promise<ProviderOffer[]>;
 
   constructor(config: SmsPoolConfig) {
     this.apiKey = config.apiKey;
@@ -244,6 +251,11 @@ export class SmsPoolProvider implements NumberProvider {
     this.cachedOffers = unstable_cache(
       () => this.fetchOffers(),
       ["smspool-offers", keyPart],
+      cacheOptions,
+    );
+    this.cachedOffersForService = unstable_cache(
+      (serviceSlug: string) => this.fetchOffersForService(serviceSlug),
+      ["smspool-offers-for-service", keyPart],
       cacheOptions,
     );
   }
@@ -321,6 +333,10 @@ export class SmsPoolProvider implements NumberProvider {
 
   async listOffers(): Promise<ProviderOffer[]> {
     return this.cachedOffers();
+  }
+
+  async listOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
+    return this.cachedOffersForService(serviceSlug);
   }
 
   private async fetchCountries(): Promise<ProviderCountry[]> {
@@ -491,6 +507,40 @@ export class SmsPoolProvider implements NumberProvider {
     const rows = await this.cachedRawServices();
     const match = rows.find((row) => this.toProviderService(row).slug === slug);
     return match ? String(match.ID) : undefined;
+  }
+
+  /**
+   * Prices one specific service across every country, on demand. This is
+   * how a service outside KNOWN_SERVICE_NAMES (fetchOffers()'s eagerly
+   * priced set) still becomes buyable: a customer selecting it triggers
+   * exactly this, not a change to what gets priced upfront for everyone.
+   * Same per-pair /request/price call fetchOffers() uses, just scoped to
+   * one already-known service id instead of every country's full listing.
+   */
+  private async fetchOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
+    const serviceId = await this.resolveServiceId(serviceSlug);
+    if (!serviceId) return [];
+
+    const countries = await this.cachedCountries();
+
+    const offers = await mapWithConcurrency(countries, 15, async (country) => {
+      const countryId = country.slug.replace(/^sp-/, "");
+      try {
+        const result = await this.call<{ price?: string | number }>(
+          "/request/price",
+          { country: countryId, service: serviceId },
+        );
+        const priceUsd = firstNumber(result.price);
+        return priceUsd !== undefined
+          ? this.buildOffer(serviceSlug, country.slug, priceUsd)
+          : null;
+      } catch {
+        // Genuinely unavailable for this pair right now.
+        return null;
+      }
+    });
+
+    return offers.filter((offer): offer is ProviderOffer => offer !== null);
   }
 }
 

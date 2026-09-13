@@ -108,6 +108,13 @@ export const developmentProvider: NumberProvider = {
     );
   },
 
+  async listOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
+    // The mock catalog is small enough that "on demand" is just a filter
+    // over the same data listOffers() already computes.
+    const offers = await developmentProvider.listOffers();
+    return offers.filter((offer) => offer.serviceSlug === serviceSlug);
+  },
+
   async requestNumber(
     serviceSlug: string,
     countrySlug: string,

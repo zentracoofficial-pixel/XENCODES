@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Container } from "@/components/ui/container";
-import { getCatalog } from "@/lib/catalog";
+import { getCatalog, getServiceForBuy } from "@/lib/catalog";
 import { BuyFlow } from "./buy-flow";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,18 @@ export default async function BuyPage({
   const [{ services, isLive }, session] = await Promise.all([getCatalog(), auth()]);
 
   if (services.length === 0) notFound();
+
+  // Linking straight to a service outside the eagerly priced set (SMSPool's
+  // full catalog is far bigger than what getCatalog() precomputes): price it
+  // live, on demand, and fold it in so BuyFlow's existing selection logic
+  // just works without knowing the difference.
+  let allServices = services;
+  if (serviceSlug && !services.some((s) => s.slug === serviceSlug)) {
+    const onDemand = await getServiceForBuy(serviceSlug);
+    if (onDemand && onDemand.offers.length > 0) {
+      allServices = [...services, onDemand];
+    }
+  }
 
   // Resuming an activation the customer already paid for.
   let resumed = null;
@@ -62,7 +74,7 @@ export default async function BuyPage({
   return (
     <Container className="py-10 sm:py-14">
       <BuyFlow
-        services={services}
+        services={allServices}
         initialServiceSlug={serviceSlug}
         resumed={resumed}
         signedIn={Boolean(session?.user?.id)}

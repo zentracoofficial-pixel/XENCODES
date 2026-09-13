@@ -209,3 +209,114 @@ export async function getOffer(serviceSlug: string, countrySlug: string) {
   const offer = service.offers.find((o) => o.countrySlug === countrySlug);
   return offer ? { service, offer } : null;
 }
+
+/**
+ * Every service the provider lists, admin-disabled ones excluded, with no
+ * price attached. Cheap: provider.listServices() is already cached at the
+ * provider layer. Used by the /services directory to show the provider's
+ * real full catalog, not only the smaller eagerly-priced subset getCatalog()
+ * computes (see SmsPoolProvider's KNOWN_SERVICE_NAMES).
+ */
+export async function getAllServices(): Promise<ProviderService[]> {
+  const [provider, serviceSettings] = await Promise.all([
+    getProvider(),
+    prisma.serviceSetting.findMany(),
+  ]);
+  const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
+
+  try {
+    const services = await provider.listServices();
+    return services.filter(
+      (service) => serviceSettingBySlug.get(service.slug)?.enabled !== false,
+    );
+  } catch (error) {
+    console.error("[catalog] listServices failed, falling back to sample data:", error);
+    return developmentProvider.listServices();
+  }
+}
+
+/**
+ * Resolves one service for the buy flow. Tries the already-cached, eagerly
+ * priced catalog first (the fast path: no extra live calls for anything
+ * getCatalog() already prices). Falls back to pricing that one service live,
+ * on demand, for anything outside that set - this is what makes the
+ * provider's entire catalog buyable rather than only what gets eagerly
+ * precomputed for everyone on every cache refresh.
+ */
+export async function getServiceForBuy(slug: string): Promise<CatalogService | null> {
+  const catalog = await getCatalog();
+  const fast = catalog.services.find((service) => service.slug === slug);
+  if (fast) return fast;
+
+  const provider = await getProvider();
+  const [allServices, serviceSettings, countrySettings, markupRow, countries] =
+    await Promise.all([
+      provider.listServices(),
+      prisma.serviceSetting.findMany(),
+      prisma.countrySetting.findMany(),
+      prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
+      provider.listCountries(),
+    ]);
+
+  const meta = allServices.find((service) => service.slug === slug);
+  if (!meta) return null;
+
+  const serviceSetting = serviceSettings.find((s) => s.slug === slug);
+  if (serviceSetting?.enabled === false) return null;
+
+  let rawOffers: ProviderOffer[];
+  try {
+    rawOffers = await provider.listOffersForService(slug);
+  } catch (error) {
+    console.error(`[catalog] on-demand pricing failed for "${slug}":`, error);
+    rawOffers = [];
+  }
+
+  const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
+  const countryBySlug = new Map(countries.map((c) => [c.slug, c]));
+  const globalMarkupPercent = markupRow
+    ? Number(markupRow.value) || 0
+    : DEFAULT_GLOBAL_MARKUP_PERCENT;
+  const markup = globalMarkupPercent + (serviceSetting?.markupPercent ?? 0);
+
+  const offers: CatalogOffer[] = rawOffers
+    .filter((offer) => offer.stock !== "out_of_stock")
+    .filter((offer) => countrySettingBySlug.get(offer.countrySlug)?.enabled !== false)
+    .flatMap((offer) => {
+      const country = countryBySlug.get(offer.countrySlug);
+      if (!country) return [];
+      return [
+        {
+          countrySlug: country.slug,
+          countryName: country.name,
+          flag: country.flag,
+          dialCode: country.dialCode,
+          nationalDigits: country.nationalDigits,
+          priceNaira: applyMarkup(offer.priceNaira, markup),
+          stock: offer.stock,
+          stockCount: offer.stockCount,
+          avgDeliverySeconds: offer.avgDeliverySeconds,
+          successRate: offer.successRate,
+        },
+      ];
+    })
+    .sort((a, b) => a.priceNaira - b.priceNaira);
+
+  return {
+    slug: meta.slug,
+    name: meta.name,
+    color: meta.color,
+    category: meta.category,
+    priceFromNaira: offers.length ? offers[0].priceNaira : 0,
+    offers,
+  };
+}
+
+/** Same as getOffer(), but through getServiceForBuy()'s on-demand fallback,
+ *  so a purchase of a service outside the eagerly priced set still works. */
+export async function getOfferForBuy(serviceSlug: string, countrySlug: string) {
+  const service = await getServiceForBuy(serviceSlug);
+  if (!service) return null;
+  const offer = service.offers.find((o) => o.countrySlug === countrySlug);
+  return offer ? { service, offer } : null;
+}
