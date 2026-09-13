@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getCatalog, getOfferForBuy, getLiveOfferPrice } from "@/lib/catalog";
+import { getCatalog, getOfferForBuy } from "@/lib/catalog";
 import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
@@ -27,25 +27,19 @@ export async function purchaseNumberAction(
   const session = await auth();
   if (!session?.user?.id) return { error: "login_required" };
 
-  // Read through the resolved catalog for the service/country metadata (name,
-  // flag, digit format) and to reject a disabled item early. getOfferForBuy()
-  // also covers a service outside the eagerly priced set, pricing it live on
-  // demand rather than only recognising what getCatalog() already precomputed.
+  // Read through the resolved catalog so the customer is charged the
+  // admin-set price and a disabled item cannot be bought via a stale link.
+  // getOfferForBuy() also covers a service outside the eagerly priced set,
+  // pricing it live on demand rather than only recognising what getCatalog()
+  // already precomputed. The cost price behind this is refreshed once a day
+  // (see PROVIDER_CACHE_SECONDS in smspool.ts), not re-verified per purchase:
+  // the admin markup exists to absorb ordinary day-to-day cost drift, so a
+  // purchase always charges the same price the customer was just shown.
   const match = await getOfferForBuy(serviceSlug, countrySlug);
   if (!match) return { error: "unavailable" };
 
   const { service, offer } = match;
-
-  // The catalog price above can be up to several minutes stale (see
-  // PROVIDER_CACHE_SECONDS in smspool.ts) - fine for browsing, not fine for
-  // what actually gets charged. Re-verify against the provider's live price
-  // right now, with the same markup, so a purchase always matches what the
-  // provider is really quoting at this exact moment rather than a cached
-  // snapshot. If the pair has genuinely gone unavailable since the page was
-  // rendered, this catches that too.
-  const livePriceNaira = await getLiveOfferPrice(serviceSlug, countrySlug);
-  if (livePriceNaira === null) return { error: "unavailable" };
-  const priceKobo = nairaToKobo(livePriceNaira);
+  const priceKobo = nairaToKobo(offer.priceNaira);
 
   // Check funds before asking the provider for a number, so a customer who
   // cannot pay never consumes inventory.

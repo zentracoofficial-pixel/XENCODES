@@ -113,21 +113,6 @@ export class HttpProvider implements NumberProvider {
     return offers.filter((offer) => offer.serviceSlug === serviceSlug);
   }
 
-  /**
-   * Safe generic default, same caveat as listOffersForService(): this reuses
-   * the cached full listing rather than a genuinely uncached single-pair
-   * call. Fine for a small catalog; a provider large enough to need
-   * listOffersForService's on-demand override should get a real uncached
-   * price endpoint wired in here too before it is trusted for charging.
-   */
-  async getLivePrice(serviceSlug: string, countrySlug: string): Promise<number | null> {
-    const offers = await this.listOffersForService(serviceSlug);
-    const offer = offers.find(
-      (o) => o.countrySlug === countrySlug && o.stock !== "out_of_stock",
-    );
-    return offer?.priceNaira ?? null;
-  }
-
   async requestNumber(
     serviceSlug: string,
     countrySlug: string,

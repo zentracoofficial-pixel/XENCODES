@@ -16,12 +16,14 @@ import { ProviderError } from "./types";
 // catalog data cached here, so a change still takes effect immediately even
 // though this cache is much longer-lived than the catalog's own.
 const CATALOG_TAG = "catalog";
-// 15 minutes, not 5: fetchOffers() now runs at a deliberately gentle
-// concurrency (see its own comment) to avoid tripping SMSPool's rate
-// limiting, which makes a full resolution slower. A longer window means
-// fewer full refreshes hitting SMSPool overall, trading a little price
-// freshness for actually getting real results back instead of empty ones.
-const PROVIDER_CACHE_SECONDS = 900;
+// A full day, by design, not a tight cache window. SMSPool's per-service
+// cost moves a little day to day, not minute to minute, and the admin
+// markup (30% by default, see DEFAULT_GLOBAL_MARKUP_PERCENT in catalog.ts)
+// exists precisely to absorb that drift: if the real cost ticks up before
+// the next refresh, the day's margin on that pair is a little thinner, not
+// negative. This also keeps SMSPool call volume low enough that the gentle
+// concurrency in fetchOffers() never needs to fight a tight deadline.
+const PROVIDER_CACHE_SECONDS = 60 * 60 * 24;
 
 /** A short, non-secret fingerprint used only to key the cache by account. */
 function fingerprint(apiKey: string) {
@@ -452,31 +454,6 @@ export class SmsPoolProvider implements NumberProvider {
 
   async listOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
     return this.cachedOffersForService(serviceSlug);
-  }
-
-  /**
-   * Deliberately bypasses every cache on this class: resolveServiceId() and
-   * cachedCountries() are the only cached reads here (id lookups, not
-   * prices, and safe to reuse), while the /request/price call itself is
-   * fresh every time. This is what a purchase should always charge against
-   * instead of a catalog price that can be up to PROVIDER_CACHE_SECONDS
-   * old - see purchaseNumberAction, the only caller that matters here.
-   */
-  async getLivePrice(serviceSlug: string, countrySlug: string): Promise<number | null> {
-    const serviceId = await this.resolveServiceId(serviceSlug);
-    if (!serviceId) return null;
-
-    const countryId = countrySlug.replace(/^sp-/, "");
-    try {
-      const result = await this.call<{ price?: string | number }>("/request/price", {
-        country: countryId,
-        service: serviceId,
-      });
-      const priceUsd = firstNumber(result.price);
-      return priceUsd !== undefined ? this.usdToNaira(priceUsd) : null;
-    } catch {
-      return null;
-    }
   }
 
   private async fetchCountries(): Promise<ProviderCountry[]> {

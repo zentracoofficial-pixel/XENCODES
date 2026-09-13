@@ -80,17 +80,6 @@ export interface NumberProvider {
    */
   listOffersForService(serviceSlug: string): Promise<ProviderOffer[]>;
 
-  /**
-   * The true, uncached price for one (service, country) pair right now, in
-   * whole Naira before markup, or null if that pair is not available at
-   * all. Every other lookup on this interface is cached for minutes at a
-   * time so pages stay fast; this one exists specifically to bypass that
-   * before money changes hands, so a purchase is always charged against
-   * what the provider is quoting at that exact moment, never a stale
-   * catalog snapshot.
-   */
-  getLivePrice(serviceSlug: string, countrySlug: string): Promise<number | null>;
-
   requestNumber(
     serviceSlug: string,
     countrySlug: string,
