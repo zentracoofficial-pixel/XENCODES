@@ -274,6 +274,22 @@ interface RawService {
   name: string;
 }
 
+/**
+ * /request/price. Only `price` is confirmed live (see file header); the
+ * rest are read defensively and simply stay undefined when SMSPool does
+ * not send them, which is why the corresponding ProviderOffer fields are
+ * optional. Nothing downstream substitutes a stand-in value for a missing
+ * one.
+ */
+interface RawPrice {
+  price?: string | number;
+  high_price?: string | number;
+  /** Share of recent activations on this pair that received a code. */
+  success_rate?: string | number;
+  /** How many numbers SMSPool currently has for the pair. */
+  pool?: string | number;
+}
+
 interface RawPurchaseResponse {
   success: 0 | 1;
   number?: string | number;
@@ -541,14 +557,11 @@ export class SmsPoolProvider implements NumberProvider {
       const priced = await mapWithConcurrency(knownRows, 4, async (row) => {
         const service = this.toProviderService(row);
         try {
-          const result = await this.call<{ price?: string | number }>(
-            "/request/price",
-            { country: countryId, service: row.ID },
-          );
-          const priceUsd = firstNumber(result.price);
-          return priceUsd !== undefined
-            ? this.buildOffer(service.slug, country.slug, priceUsd)
-            : null;
+          const result = await this.call<RawPrice>("/request/price", {
+            country: countryId,
+            service: row.ID,
+          });
+          return this.buildOffer(service.slug, country.slug, result);
         } catch {
           // Genuinely unavailable for this pair right now.
           return null;
@@ -561,20 +574,35 @@ export class SmsPoolProvider implements NumberProvider {
     return perCountry.flat();
   }
 
+  /**
+   * Turns one /request/price response into an offer, or null when SMSPool
+   * quotes no price for the pair (which is how it says "not available").
+   *
+   * Everything here comes off the response. Nothing is filled in from a
+   * plausible constant: an earlier version of this hardcoded a 25 second
+   * delivery time and a 95% success rate on every single offer, which the
+   * buy page then displayed per country as though it had been measured
+   * there. Both fields are optional on ProviderOffer precisely so an
+   * adapter can decline to answer, and the UI hides what it is not told.
+   */
   private buildOffer(
     serviceSlug: string,
     countrySlug: string,
-    priceUsd: number,
-  ): ProviderOffer {
+    raw: RawPrice,
+  ): ProviderOffer | null {
+    const priceUsd = firstNumber(raw.price);
+    if (priceUsd === undefined) return null;
+
+    const pool = firstNumber(raw.pool);
+
     return {
       serviceSlug,
       countrySlug,
       priceNaira: this.usdToNaira(priceUsd),
-      // SMSPool does not report a stock count on this listing, only that a
-      // price is currently quoted, which implies availability.
+      // A quoted price is SMSPool's own signal that the pair is available.
       stock: "in_stock",
-      avgDeliverySeconds: 25,
-      successRate: 95,
+      stockCount: pool,
+      successRate: percent(raw.success_rate),
     };
   }
 
@@ -645,16 +673,19 @@ export class SmsPoolProvider implements NumberProvider {
   }
 
   /**
-   * Prices one specific service across every country, on demand. This is
-   * how a service outside KNOWN_SERVICE_NAMES (fetchOffers()'s eagerly
-   * priced set) still becomes buyable: a customer selecting it triggers
-   * exactly this, not a change to what gets priced upfront for everyone.
-   * Same per-pair /request/price call fetchOffers() uses, just scoped to
-   * one already-known service id instead of every country's full listing.
-   * Concurrency kept modest for the same reason as fetchOffers(): too many
-   * requests in flight at once trips SMSPool's own rate limiting, which
-   * looks identical to genuine unavailability without the 429 retry in
-   * call() and silently drops real countries.
+   * Prices one specific service across every country SMSPool has, on
+   * demand. This is what the buy page runs on, so it is deliberately not
+   * bounded to PRIORITY_COUNTRY_NAMES the way fetchOffers() is: a customer
+   * looking at one service should see every country that service is really
+   * available in, not the subset the eager pass had time to precompute.
+   *
+   * Affordable precisely because it is one service: the whole sweep is one
+   * /request/price per country (~144 calls), against the eager pass's
+   * countries x services. That headroom is why concurrency is higher here
+   * than in fetchOffers(), while still far below the level that trips
+   * SMSPool's rate limiting - and the 429 retry in call() covers the rest,
+   * so a throttled response is retried rather than being mistaken for the
+   * country being unavailable.
    */
   private async fetchOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
     const serviceId = await this.resolveServiceId(serviceSlug);
@@ -662,17 +693,14 @@ export class SmsPoolProvider implements NumberProvider {
 
     const countries = await this.cachedCountries();
 
-    const offers = await mapWithConcurrency(countries, 5, async (country) => {
+    const offers = await mapWithConcurrency(countries, 10, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
       try {
-        const result = await this.call<{ price?: string | number }>(
-          "/request/price",
-          { country: countryId, service: serviceId },
-        );
-        const priceUsd = firstNumber(result.price);
-        return priceUsd !== undefined
-          ? this.buildOffer(serviceSlug, country.slug, priceUsd)
-          : null;
+        const result = await this.call<RawPrice>("/request/price", {
+          country: countryId,
+          service: serviceId,
+        });
+        return this.buildOffer(serviceSlug, country.slug, result);
       } catch {
         // Genuinely unavailable for this pair right now.
         return null;
@@ -707,6 +735,16 @@ async function mapWithConcurrency<T, R>(
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
+}
+
+/** A percentage the provider actually sent, or undefined. Anything outside
+ *  0 to 100 is treated as a field that does not mean what we assumed rather
+ *  than clamped into looking valid. */
+function percent(value: string | number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return undefined;
+  return Math.round(n);
 }
 
 function firstNumber(...values: (string | number | undefined)[]): number | undefined {

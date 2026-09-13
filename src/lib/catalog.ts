@@ -22,8 +22,10 @@ export interface CatalogOffer {
   priceNaira: number;
   stock: StockLevel;
   stockCount?: number;
-  avgDeliverySeconds: number;
-  successRate: number;
+  /** Only present when the provider actually reports it. Never invented,
+   *  so the UI must treat "missing" as "we do not know", not as zero. */
+  avgDeliverySeconds?: number;
+  successRate?: number;
 }
 
 export interface CatalogService {
@@ -188,6 +190,14 @@ async function resolveCatalog(): Promise<Catalog> {
     .filter((service) => service.offers.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // Every country the provider sells in, minus the ones an admin switched
+  // off. Deliberately not filtered down to countries the eager pass happened
+  // to price: that pass is bounded to a priority subset (see
+  // PRIORITY_COUNTRY_NAMES), so filtering on it would both understate how
+  // many countries the site actually covers and leave the rest without a
+  // flag to render once a customer buys a number in one of them.
+  // serviceCount here therefore means "priced in the eager pass", not
+  // "everything available", which is why nothing user-facing counts it.
   const countries = providerCountries
     .filter((country) => !disabledCountries.has(country.slug))
     .map((country) => {
@@ -201,8 +211,7 @@ async function resolveCatalog(): Promise<Catalog> {
         serviceCount: prices.length,
         priceFromNaira: prices.length ? Math.min(...prices) : 0,
       };
-    })
-    .filter((country) => country.serviceCount > 0);
+    });
 
   const floors = services.map((s) => s.priceFromNaira).filter((p) => p > 0);
 
@@ -267,18 +276,26 @@ export async function getAllServices(): Promise<ProviderService[]> {
 }
 
 /**
- * Resolves one service for the buy flow. Tries the already-cached, eagerly
- * priced catalog first (the fast path: no extra live calls for anything
- * getCatalog() already prices). Falls back to pricing that one service live,
- * on demand, for anything outside that set - this is what makes the
- * provider's entire catalog buyable rather than only what gets eagerly
- * precomputed for everyone on every cache refresh.
+ * Resolves one service for the buy flow, priced across every country the
+ * provider offers it in.
+ *
+ * Deliberately does NOT short-circuit to the eagerly priced catalog when it
+ * has an entry for this service. That entry only covers the bounded
+ * priority-country subset the eager pass has time to precompute (see
+ * PRIORITY_COUNTRY_NAMES in smspool.ts), so reading from it here made the
+ * buy page understate real availability badly: Booking.com, priced eagerly,
+ * offered 5 countries on the page while SMSPool actually had it in far
+ * more. The eager pass exists to make the homepage and instant search fast
+ * and broad; the buy page is where a customer needs the real, complete
+ * list, so it always asks the provider for this one service directly. That
+ * is one call per country for a single service, and cached per service, so
+ * the cost is bounded and paid once per refresh window.
+ *
+ * If that live sweep comes back empty (provider down, everything sold out),
+ * the eagerly priced entry is used as a fallback rather than showing the
+ * customer nothing.
  */
 export async function getServiceForBuy(slug: string): Promise<CatalogService | null> {
-  const catalog = await getCatalog();
-  const fast = catalog.services.find((service) => service.slug === slug);
-  if (fast) return fast;
-
   const provider = await getProvider();
   const [allServices, serviceSettings, countrySettings, markupRow, countries] =
     await Promise.all([
@@ -334,6 +351,15 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
       ];
     })
     .sort((a, b) => a.priceNaira - b.priceNaira);
+
+  // Nothing came back live. Rather than tell the customer this service has
+  // no countries at all, fall back to whatever the eager pass last priced
+  // for it, which is at worst a narrower but real list.
+  if (offers.length === 0) {
+    const catalog = await getCatalog();
+    const eager = catalog.services.find((service) => service.slug === slug);
+    if (eager) return eager;
+  }
 
   return {
     slug: meta.slug,

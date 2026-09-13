@@ -40,10 +40,17 @@ export interface ProviderOffer {
   stock: StockLevel;
   /** How many numbers the provider reports, when it reports a count. */
   stockCount?: number;
-  /** Typical time from purchase to code, in seconds. */
-  avgDeliverySeconds: number;
-  /** Share of recent activations that received a code, 0 to 100. */
-  successRate: number;
+  /**
+   * Typical time from purchase to code, in seconds. Optional on purpose:
+   * only set it from a figure the provider actually reports. An adapter
+   * that has no such figure must leave it undefined rather than filling in
+   * a plausible-looking constant, which would read to a customer as a
+   * measurement of this exact country when it is nothing of the sort.
+   */
+  avgDeliverySeconds?: number;
+  /** Share of recent activations that received a code, 0 to 100. Optional
+   *  for the same reason as avgDeliverySeconds: never invented. */
+  successRate?: number;
 }
 
 export interface RequestedNumber {

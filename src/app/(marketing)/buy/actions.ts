@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getCatalog, getOfferForBuy } from "@/lib/catalog";
+import { getCatalog, getOfferForBuy, revalidateCatalog } from "@/lib/catalog";
 import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
@@ -57,6 +57,11 @@ export async function purchaseNumberAction(
     assigned = await provider.requestNumber(serviceSlug, countrySlug);
   } catch (error) {
     if (error instanceof ProviderError && error.code === "out_of_stock") {
+      // The provider just told us this pair is gone, which is fresher than
+      // anything the price cache knows. Drop the cached catalog now so the
+      // country stops being offered on the next load, instead of staying
+      // listed as in stock until the refresh window happens to turn over.
+      revalidateCatalog();
       return { error: "unavailable" };
     }
     return { error: "provider_unavailable" };

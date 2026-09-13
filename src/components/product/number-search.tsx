@@ -63,6 +63,7 @@ export function NumberSearch({
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const [query, setQuery] = useState("");
+  const [countryQuery, setCountryQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const [selected, setSelected] = useState<CatalogService | null>(
     () => services.find((s) => s.slug === initialServiceSlug) ?? null,
@@ -92,10 +93,23 @@ export function NumberSearch({
     optionRefs.current[highlighted]?.scrollIntoView({ block: "nearest" });
   }, [highlighted]);
 
+  // The provider lists a service in as many as 140+ countries, far too many
+  // to scan by eye, so the country step gets its own filter.
+  const countryResults = useMemo(() => {
+    if (!selected) return [];
+    const q = countryQuery.trim().toLowerCase();
+    if (!q) return selected.offers;
+    return selected.offers.filter(
+      (offer) =>
+        offer.countryName.toLowerCase().includes(q) || offer.dialCode.includes(q),
+    );
+  }, [selected, countryQuery]);
+
   function choose(service: CatalogService) {
     setSelected(service);
     setCountrySlug(null);
     setQuery("");
+    setCountryQuery("");
     setHighlighted(0);
   }
 
@@ -103,6 +117,7 @@ export function NumberSearch({
     setSelected(null);
     setCountrySlug(null);
     setQuery("");
+    setCountryQuery("");
     setHighlighted(0);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -213,83 +228,125 @@ export function NumberSearch({
       <div className="p-3 sm:p-4">
         {selected ? (
           <>
-            <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Choose a country
-            </p>
-            <ul className="max-h-[19rem] space-y-1 overflow-y-auto">
-              {selected.offers.map((offer) => {
-                const active = countrySlug === offer.countrySlug;
-                return (
-                  <li key={offer.countrySlug}>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => selectCountry(offer)}
-                      className={cn(
-                        "group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
-                        active
-                          ? "border-mint bg-mint-soft"
-                          : "border-transparent hover:border-border hover:bg-background",
-                        pending && !active && "opacity-50",
-                      )}
-                    >
-                      <span aria-hidden className="text-xl leading-none">
-                        {offer.flag}
-                      </span>
+            <div className="flex items-baseline justify-between gap-3 px-1 pb-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Choose a country
+              </p>
+              <p className="text-xs tabular-nums text-muted-foreground">
+                {countryResults.length} available
+              </p>
+            </div>
 
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {offer.countryName}
-                        </span>
-                        <span className="block truncate font-mono text-xs text-muted-foreground">
-                          {numberFormat(offer.dialCode, offer.nationalDigits)}
-                        </span>
-                      </span>
+            {selected.offers.length > 8 ? (
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={countryQuery}
+                  onChange={(e) => setCountryQuery(e.target.value)}
+                  placeholder="Filter by country or code"
+                  aria-label="Filter countries"
+                  className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm outline-none transition-colors focus:border-mint focus:bg-surface focus:ring-2 focus:ring-mint/25"
+                />
+              </div>
+            ) : null}
 
-                      <span className="hidden shrink-0 text-right sm:block">
-                        <span
-                          className={cn(
-                            "block text-xs font-medium",
-                            offer.stock === "in_stock" ? "text-success" : "text-warning",
-                          )}
-                        >
-                          {stockLabel[offer.stock]}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          about {offer.avgDeliverySeconds}s
-                        </span>
-                      </span>
-
-                      <span className="shrink-0 text-right">
-                        <span className="block text-sm font-semibold tabular-nums">
-                          {formatNairaFromNaira(offer.priceNaira)}
-                        </span>
-                        <span className="block text-xs text-muted-foreground sm:hidden">
-                          {stockLabel[offer.stock]}
-                        </span>
-                      </span>
-
-                      <span
+            {countryResults.length === 0 ? (
+              <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                No country matches that filter.
+              </p>
+            ) : (
+              <ul className="max-h-[22rem] space-y-1 overflow-y-auto pr-0.5">
+                {countryResults.map((offer) => {
+                  const active = countrySlug === offer.countrySlug;
+                  return (
+                    <li key={offer.countrySlug}>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => selectCountry(offer)}
                         className={cn(
-                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                          "group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
                           active
-                            ? "bg-mint text-forest-dark"
-                            : "text-muted-foreground group-hover:bg-mint-soft group-hover:text-forest",
+                            ? "border-mint bg-mint-soft"
+                            : "border-transparent hover:border-border hover:bg-background",
+                          pending && !active && "opacity-50",
                         )}
                       >
-                        {pending && active ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : active ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <ArrowRight className="h-4 w-4" />
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                        <span
+                          aria-hidden
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-lg leading-none"
+                        >
+                          {offer.flag}
+                        </span>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {offer.countryName}
+                          </span>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="truncate font-mono text-xs text-muted-foreground">
+                              {numberFormat(offer.dialCode, offer.nationalDigits)}
+                            </span>
+                            {/* Only ever rendered from a figure the provider
+                                actually reported. No value, no badge. */}
+                            {offer.successRate !== undefined ? (
+                              <span
+                                className={cn(
+                                  "text-xs font-medium",
+                                  offer.successRate >= 80
+                                    ? "text-success"
+                                    : offer.successRate >= 50
+                                      ? "text-warning"
+                                      : "text-danger",
+                                )}
+                              >
+                                {offer.successRate}% delivered
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+
+                        <span className="shrink-0 text-right">
+                          <span className="block text-sm font-semibold tabular-nums">
+                            {formatNairaFromNaira(offer.priceNaira)}
+                          </span>
+                          <span
+                            className={cn(
+                              "block text-xs",
+                              offer.stock === "in_stock"
+                                ? "text-muted-foreground"
+                                : "text-warning",
+                            )}
+                          >
+                            {offer.stockCount !== undefined
+                              ? `${offer.stockCount.toLocaleString("en-NG")} left`
+                              : stockLabel[offer.stock]}
+                          </span>
+                        </span>
+
+                        <span
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                            active
+                              ? "bg-mint text-forest-dark"
+                              : "text-muted-foreground group-hover:bg-mint-soft group-hover:text-forest",
+                          )}
+                        >
+                          {pending && active ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : active ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" />
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
 
             {error ? (
               <p className="mt-3 rounded-lg bg-danger-soft px-3 py-2.5 text-sm text-danger">
