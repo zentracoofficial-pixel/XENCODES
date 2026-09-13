@@ -50,6 +50,11 @@ function fingerprint(apiKey: string) {
  *    prices KNOWN_SERVICE_NAMES below: real, confirmed SMSPool service
  *    names for the platforms customers actually search for, not an attempt
  *    at full coverage of SMSPool's catalog.
+ * 3. /request/price does return `success_rate` (confirmed live: WhatsApp in
+ *    the US returned `{"price":"1.44","high_price":"1.96","success_rate":71}`)
+ *    but no stock-count field of any kind. An earlier version of this
+ *    guessed one under the name `pool`; that guess is now removed rather
+ *    than kept as an unconfirmed field nobody checked.
  */
 
 const BASE_URL = "https://api.smspool.net";
@@ -275,19 +280,19 @@ interface RawService {
 }
 
 /**
- * /request/price. Only `price` is confirmed live (see file header); the
- * rest are read defensively and simply stay undefined when SMSPool does
- * not send them, which is why the corresponding ProviderOffer fields are
- * optional. Nothing downstream substitutes a stand-in value for a missing
- * one.
+ * /request/price. `price` and `success_rate` confirmed live against a real
+ * response: `{"price":"1.44","high_price":"1.96","success_rate":71}`. No
+ * stock-count field appears in that response at all - an earlier version
+ * of this guessed one under the name `pool`, which was never actually
+ * confirmed and is removed rather than left as a silent guess.
+ * `high_price` is real but currently unused; nothing here invents a field
+ * that has not been seen on the wire.
  */
 interface RawPrice {
   price?: string | number;
   high_price?: string | number;
   /** Share of recent activations on this pair that received a code. */
   success_rate?: string | number;
-  /** How many numbers SMSPool currently has for the pair. */
-  pool?: string | number;
 }
 
 interface RawPurchaseResponse {
@@ -593,15 +598,14 @@ export class SmsPoolProvider implements NumberProvider {
     const priceUsd = firstNumber(raw.price);
     if (priceUsd === undefined) return null;
 
-    const pool = firstNumber(raw.pool);
-
     return {
       serviceSlug,
       countrySlug,
       priceNaira: this.usdToNaira(priceUsd),
       // A quoted price is SMSPool's own signal that the pair is available.
+      // No stock-count field exists on this response (confirmed live, see
+      // RawPrice), so stockCount is simply never set here.
       stock: "in_stock",
-      stockCount: pool,
       successRate: percent(raw.success_rate),
     };
   }
