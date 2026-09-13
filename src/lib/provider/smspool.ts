@@ -454,6 +454,31 @@ export class SmsPoolProvider implements NumberProvider {
     return this.cachedOffersForService(serviceSlug);
   }
 
+  /**
+   * Deliberately bypasses every cache on this class: resolveServiceId() and
+   * cachedCountries() are the only cached reads here (id lookups, not
+   * prices, and safe to reuse), while the /request/price call itself is
+   * fresh every time. This is what a purchase should always charge against
+   * instead of a catalog price that can be up to PROVIDER_CACHE_SECONDS
+   * old - see purchaseNumberAction, the only caller that matters here.
+   */
+  async getLivePrice(serviceSlug: string, countrySlug: string): Promise<number | null> {
+    const serviceId = await this.resolveServiceId(serviceSlug);
+    if (!serviceId) return null;
+
+    const countryId = countrySlug.replace(/^sp-/, "");
+    try {
+      const result = await this.call<{ price?: string | number }>("/request/price", {
+        country: countryId,
+        service: serviceId,
+      });
+      const priceUsd = firstNumber(result.price);
+      return priceUsd !== undefined ? this.usdToNaira(priceUsd) : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async fetchCountries(): Promise<ProviderCountry[]> {
     const rows = await this.call<RawCountry[]>("/country/retrieve_all", {});
     return rows.map((row) => {

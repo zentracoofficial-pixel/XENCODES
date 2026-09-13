@@ -115,6 +115,17 @@ export const developmentProvider: NumberProvider = {
     return offers.filter((offer) => offer.serviceSlug === serviceSlug);
   },
 
+  async getLivePrice(serviceSlug: string, countrySlug: string): Promise<number | null> {
+    // No real provider behind this data, so "live" just means "the same
+    // fixed mock price", which is fine: the point of this adapter is a
+    // stable demo, not staleness risk.
+    const offers = await developmentProvider.listOffersForService(serviceSlug);
+    const offer = offers.find(
+      (o) => o.countrySlug === countrySlug && o.stock !== "out_of_stock",
+    );
+    return offer?.priceNaira ?? null;
+  },
+
   async requestNumber(
     serviceSlug: string,
     countrySlug: string,
