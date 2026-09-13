@@ -54,6 +54,36 @@ export function applyMarkup(priceNaira: number, percent: number) {
   return Math.round((priceNaira * (100 + percent)) / 100 / 5) * 5;
 }
 
+/**
+ * A starting per-category markup bonus, stacked on top of the global
+ * percent, applied only until an admin sets an explicit per-service value
+ * on /admin/services (which always wins, same pattern as
+ * DEFAULT_GLOBAL_MARKUP_PERCENT). This is not derived from live SMSPool
+ * cost data - there is no way to fetch every service's real cost without
+ * pricing the entire catalog, which is exactly what KNOWN_SERVICE_NAMES in
+ * smspool.ts avoids. It is a defensible starting heuristic instead: more
+ * margin on identity-critical categories a customer needs urgently and
+ * shops around for less (social/messaging, finance/crypto - PayPal,
+ * Binance, Wise and the like, for KYC and account recovery), a smaller
+ * bump on categories with some urgency but more alternatives, and none on
+ * commodity or long-tail categories where staying competitive matters more
+ * than squeezing margin.
+ */
+const CATEGORY_MARKUP_BONUS: Record<string, number> = {
+  "Social & Messaging": 10,
+  "Finance & Crypto": 10,
+  "Dating": 5,
+  "Marketplaces & Freelance": 5,
+  "Developer & Cloud": 5,
+  "Entertainment": 0,
+  "Travel & Delivery": 0,
+  "Other": 0,
+};
+
+export function defaultServiceMarkupBonus(category: string) {
+  return CATEGORY_MARKUP_BONUS[category] ?? 0;
+}
+
 async function resolveCatalog(): Promise<Catalog> {
   const provider = await getProvider();
 
@@ -121,7 +151,8 @@ async function resolveCatalog(): Promise<Catalog> {
     .map((service) => {
       const markup =
         globalMarkupPercent +
-        (serviceSettingBySlug.get(service.slug)?.markupPercent ?? 0);
+        (serviceSettingBySlug.get(service.slug)?.markupPercent ??
+          defaultServiceMarkupBonus(service.category));
 
       const offers: CatalogOffer[] = (offersByService.get(service.slug) ?? [])
         .flatMap((offer) => {
@@ -277,7 +308,9 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
   const globalMarkupPercent = markupRow
     ? Number(markupRow.value) || 0
     : DEFAULT_GLOBAL_MARKUP_PERCENT;
-  const markup = globalMarkupPercent + (serviceSetting?.markupPercent ?? 0);
+  const markup =
+    globalMarkupPercent +
+    (serviceSetting?.markupPercent ?? defaultServiceMarkupBonus(meta.category));
 
   const offers: CatalogOffer[] = rawOffers
     .filter((offer) => offer.stock !== "out_of_stock")

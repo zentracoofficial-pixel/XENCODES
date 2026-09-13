@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import type { CatalogService } from "@/lib/catalog";
 
 /**
  * The whole catalog drifting past in two rows, one each way.
@@ -11,14 +10,24 @@ import type { CatalogService } from "@/lib/catalog";
  * loops seamlessly with no JavaScript and no layout thrash. Hovering or
  * tabbing into a row pauses it so anything can be clicked, and reduced-motion
  * turns it into a plain scrollable row.
+ *
+ * Only needs slug/name/color, never a price: the provider's whole real
+ * catalog can drift past here even though most of it is priced on demand
+ * (see /services and getServiceForBuy), not eagerly like the curated set.
+ * Clicking through to /buy already handles both cases identically.
  */
+export interface MarqueeService {
+  slug: string;
+  name: string;
+  color: string;
+}
 
 function Row({
   services,
   reverse = false,
   durationSeconds,
 }: {
-  services: CatalogService[];
+  services: MarqueeService[];
   reverse?: boolean;
   durationSeconds: number;
 }) {
@@ -67,7 +76,7 @@ function Row({
   );
 }
 
-export function ServiceMarquee({ services }: { services: CatalogService[] }) {
+export function ServiceMarquee({ services }: { services: MarqueeService[] }) {
   if (services.length === 0) return null;
 
   // Split down the middle so the two rows carry different services rather

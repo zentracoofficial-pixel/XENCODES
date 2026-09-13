@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/provider";
-import { applyMarkup } from "@/lib/catalog";
+import { applyMarkup, defaultServiceMarkupBonus } from "@/lib/catalog";
 import {
   readSettings,
   readNumber,
@@ -151,7 +151,8 @@ export default async function AdminServicesPage() {
               <tbody>
                 {items.map((service) => {
                   const setting = serviceSettingBySlug.get(service.slug);
-                  const markupPercent = setting?.markupPercent ?? 0;
+                  const markupPercent =
+                    setting?.markupPercent ?? defaultServiceMarkupBonus(service.category);
                   const basePriceNaira = basePriceBySlug.get(service.slug) ?? 0;
 
                   return (
