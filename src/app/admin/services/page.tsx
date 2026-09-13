@@ -4,7 +4,12 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/provider";
 import { applyMarkup } from "@/lib/catalog";
-import { readSettings, readNumber, SETTING_KEYS } from "@/lib/settings";
+import {
+  readSettings,
+  readNumber,
+  SETTING_KEYS,
+  DEFAULT_GLOBAL_MARKUP_PERCENT,
+} from "@/lib/settings";
 import { ServiceRow } from "./service-row";
 import { CountryRow } from "./country-row";
 
@@ -43,7 +48,11 @@ export default async function AdminServicesPage() {
   const providerUnavailable =
     provider.isLive && providerServices.length === 0 && providerCountries.length === 0;
 
-  const globalMarkupPercent = readNumber(settings, SETTING_KEYS.globalMarkupPercent, 0);
+  const globalMarkupPercent = readNumber(
+    settings,
+    SETTING_KEYS.globalMarkupPercent,
+    DEFAULT_GLOBAL_MARKUP_PERCENT,
+  );
   const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
   const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
 

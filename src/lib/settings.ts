@@ -15,6 +15,11 @@ export const SETTING_KEYS = {
  *  real one in Settings before going live with a USD-priced provider. */
 export const DEFAULT_USD_TO_NGN_RATE = 1600;
 
+/** Applied only until an admin sets an explicit value on /admin/pricing;
+ *  once that row exists, it always wins over this. A starting margin so a
+ *  fresh deployment is never accidentally selling at cost. */
+export const DEFAULT_GLOBAL_MARKUP_PERCENT = 30;
+
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
 export async function readSettings(): Promise<Record<string, string>> {

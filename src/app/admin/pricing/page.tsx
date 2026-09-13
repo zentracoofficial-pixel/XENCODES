@@ -4,7 +4,12 @@ import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { getCatalog } from "@/lib/catalog";
 import { getProvider } from "@/lib/provider";
-import { readSettings, readNumber, SETTING_KEYS } from "@/lib/settings";
+import {
+  readSettings,
+  readNumber,
+  SETTING_KEYS,
+  DEFAULT_GLOBAL_MARKUP_PERCENT,
+} from "@/lib/settings";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 import { GlobalMarkupForm } from "./markup-form";
@@ -26,7 +31,11 @@ export default async function AdminPricingPage() {
     readSettings(),
     getProvider(),
   ]);
-  const globalMarkupPercent = readNumber(settings, SETTING_KEYS.globalMarkupPercent, 0);
+  const globalMarkupPercent = readNumber(
+    settings,
+    SETTING_KEYS.globalMarkupPercent,
+    DEFAULT_GLOBAL_MARKUP_PERCENT,
+  );
 
   // The provider's own quote, so the admin can see the margin on each line.
   // getCatalog() above already degrades gracefully on a provider outage;

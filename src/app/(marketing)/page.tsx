@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { getCatalog } from "@/lib/catalog";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,11 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const { services, countries, floorNaira, isLive } = await getCatalog();
+  const [{ services, countries, floorNaira, isLive }, numbersDelivered] = await Promise.all([
+    getCatalog(),
+    // A real, live count, never invented: this is exactly what it says.
+    prisma.activation.count({ where: { status: "RECEIVED" } }),
+  ]);
 
   // Three real examples straight from the catalog, never invented.
   const priceExamples = ["instagram", "telegram", "facebook"]
@@ -106,12 +111,23 @@ export default async function HomePage() {
                     {countries.length}
                   </dd>
                 </div>
+                {numbersDelivered > 0 ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Delivered</dt>
+                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
+                      {numbersDelivered.toLocaleString("en-NG")}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
 
-              <p className="mt-7 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                No code arrives, no charge. Every failed activation is refunded
-                to your wallet automatically.
-              </p>
+              <div className="mt-7 flex max-w-sm items-start gap-2.5 rounded-lg bg-mint-soft px-3.5 py-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-forest" />
+                <p className="text-sm leading-relaxed text-forest">
+                  No code arrives, no charge. Every failed activation is
+                  refunded to your wallet automatically.
+                </p>
+              </div>
             </div>
 
             <div>

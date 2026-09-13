@@ -1,6 +1,6 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { SETTING_KEYS } from "@/lib/settings";
+import { SETTING_KEYS, DEFAULT_GLOBAL_MARKUP_PERCENT } from "@/lib/settings";
 import { getProvider, developmentProvider } from "@/lib/provider";
 import type { ProviderCountry, ProviderService, ProviderOffer, StockLevel } from "@/lib/provider";
 
@@ -93,7 +93,12 @@ async function resolveCatalog(): Promise<Catalog> {
 
   const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
   const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
-  const globalMarkupPercent = Number(markupRow?.value ?? 0) || 0;
+  // No row yet means no admin has ever touched this: apply the starting
+  // default rather than accidentally selling at cost. Once a row exists
+  // (even "0"), it always wins over the default.
+  const globalMarkupPercent = markupRow
+    ? Number(markupRow.value) || 0
+    : DEFAULT_GLOBAL_MARKUP_PERCENT;
 
   const countryBySlug = new Map(providerCountries.map((c) => [c.slug, c]));
   const disabledCountries = new Set(
