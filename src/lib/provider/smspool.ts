@@ -26,27 +26,24 @@ function fingerprint(apiKey: string) {
 /**
  * Adapter for SMSPool (https://www.smspool.net).
  *
- * Built from SMSPool's published API article, their Postman collection
- * listing, and their own unofficial JS/Python client libraries, since this
- * environment's network policy blocks smspool.net and api.smspool.net
- * outright, so the wire format could not be exercised against the live
- * service. Every endpoint, parameter and field name below is what those
- * sources document. Two things are marked explicitly as inference rather
- * than fact, because no source gave a confirmed answer:
+ * This environment's network policy blocks smspool.net and api.smspool.net
+ * outright, so this was originally built from SMSPool's published docs and
+ * client libraries rather than a live response, with two things marked as
+ * inference. Both have since been confirmed live (see git history) and
+ * corrected here:
  *
- * 1. Whether /service/retrieve_all?country=<id> returns a price per service
- *    for that country. Passing a country to a "list services" call only
- *    makes sense if it does, so this is used as the primary path, with a
- *    fallback to the documented single-pair /request/price endpoint for
- *    anything that comes back without a price.
- * 2. SMSPool's country list gives a name and region, not a flag or dial
- *    code, so those are looked up from the name against a table of common
- *    countries below. A country whose name is not recognised still works,
- *    it just shows a plain flag and no formatted dial code.
- *
- * First real purchase against the live API should be watched closely, and
- * this file is the one place to correct if SMSPool's actual response shapes
- * differ from what is coded here.
+ * 1. /country/retrieve_all does return an ISO2 code (`short_name`) and dial
+ *    code (`cc`) directly, so flag and dial code are read straight off the
+ *    response instead of a name-keyed guess table.
+ * 2. /service/retrieve_all?country=<id> does NOT carry a price per service,
+ *    confirmed against a real response: every row is just {ID, name}. The
+ *    only way to price a (service, country) pair is one /request/price call
+ *    each. SMSPool lists well over a thousand services across 144+
+ *    countries, so pricing all of them would mean 250,000+ live calls on
+ *    every cache refresh, which is not viable. This deliberately only
+ *    prices KNOWN_SERVICE_NAMES below: real, confirmed SMSPool service
+ *    names for the platforms customers actually search for, not an attempt
+ *    at full coverage of SMSPool's catalog.
  */
 
 const BASE_URL = "https://api.smspool.net";
@@ -109,6 +106,40 @@ const CURATED_BY_NAME = new Map(
 const FALLBACK_COLOR = "#63756F";
 const FALLBACK_CATEGORY = "Other";
 
+// Real SMSPool service names, confirmed present in a live response (see git
+// history), worth pricing even without a curated brand colour of their own
+// (they get FALLBACK_COLOR/FALLBACK_CATEGORY via toProviderService, same as
+// any other uncurated name). Deliberately a top slice of well-known
+// consumer platforms, not an attempt at SMSPool's full ~1800-service
+// catalog: see the file header for why pricing everything isn't viable.
+const KNOWN_SERVICE_NAMES = new Set([
+  "whatsapp", "telegram", "instagram / threads", "facebook / meta viewpoints",
+  "twitter / x", "tiktok/douyin", "discord", "snapchat", "google/gmail",
+  "google voice", "microsoft / microsoft rewards / outlook / bing", "apple",
+  "amazon / amazon web services", "netflix", "spotify", "uber / postmates",
+  "linkedin", "steam", "twitch", "openai / chatgpt", "tinder", "reddit",
+  "yahoo", "ebay", "airbnb", "doordash", "grubhub", "lyft", "signal", "line",
+  "line2", "viber", "wechat", "skype", "protonmail", "roblox", "epic games",
+  "nvidia", "adobe", "grindr", "hinge", "booking.com", "tripadvisor",
+  "shopify", "indeed", "upwork", "fiverr", "freelancer", "docusign",
+  "ringcentral", "dialpad", "messagebird", "twilio / sendgrid", "pinterest",
+  "badoo", "okcupid", "plenty of fish", "match / meetic / zweisam",
+  "coffee meets bagel", "happn", "meetme", "clubhouse", "kik", "imo",
+  "kakaotalk", "vk", "weibo", "baidu", "alibaba", "aliexpress", "taobao",
+  "shopee", "lazada", "tokopedia", "grab", "gojek", "bolt", "careem",
+  "olacabs", "didi", "walmart", "target", "bestbuy", "starbucks",
+  "burger king", "dunkindonuts", "chick-fil-a", "cocacola", "nike",
+  "adidas", "zara", "shein", "temu", "wish", "etsy", "poshmark", "depop",
+  "mercari", "offerup", "craigslist", "olx", "carousell", "vinted",
+  "truecaller", "yandex", "mailru", "instacart", "cvs", "walgreens",
+  "chipotle", "pubgmobile", "garena",
+]);
+
+function isKnownService(name: string) {
+  const key = name.trim().toLowerCase();
+  return CURATED_BY_NAME.has(key) || KNOWN_SERVICE_NAMES.has(key);
+}
+
 // ---------------------------------------------------------------------------
 // SMSPool's own response shapes, as documented.
 // ---------------------------------------------------------------------------
@@ -127,12 +158,6 @@ interface RawCountry {
 interface RawService {
   ID: string | number;
   name: string;
-  /** Only present, per SMSPool's own client libraries, when a country was
-   *  passed to /service/retrieve_all. Field name is inferred; see the file
-   *  header. */
-  price?: string | number;
-  rate?: string | number;
-  cost?: string | number;
 }
 
 interface RawPurchaseResponse {
@@ -310,26 +335,23 @@ export class SmsPoolProvider implements NumberProvider {
   /**
    * One offer per (service, country) pair SMSPool can currently fulfil.
    *
-   * Fetches a per-country service list, which SMSPool's own client shows
-   * accepts a country filter, in the hope it carries a price for each
-   * service in that country (see the file header). Any service that comes
-   * back without a recognisable price field falls back to the documented
-   * single-pair /request/price call, but only for services this catalog
-   * already curates, so an incorrect guess costs at most one request per
-   * known service per country rather than an unbounded cross product.
+   * /service/retrieve_all?country=<id> confirmed live to carry no price
+   * field at all (see file header) - it only says which services exist in
+   * that country. Pricing a pair is always a separate /request/price call,
+   * so this only prices KNOWN_SERVICE_NAMES, not everything the country
+   * lists, to keep total call volume bounded.
    *
-   * Countries are fetched with bounded concurrency, not one at a time: with
-   * SMSPool listing well over a hundred countries, a plain sequential loop
-   * here was the actual cause of the very first production build timing
-   * out (see git history), since resolving this on a cache miss meant 100+
-   * live round trips end to end before anything could render.
+   * Two levels of concurrency, both bounded, since a plain sequential loop
+   * at either level was slow enough to time out the very first production
+   * build (see git history): countries themselves run 10 at a time, and
+   * within a country, its known services are priced 8 at a time rather
+   * than one after another.
    */
   private async fetchOffers(): Promise<ProviderOffer[]> {
     const countries = await this.cachedCountries();
 
     const perCountry = await mapWithConcurrency(countries, 10, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
-      const countryOffers: ProviderOffer[] = [];
 
       let rows: RawService[];
       try {
@@ -339,38 +361,29 @@ export class SmsPoolProvider implements NumberProvider {
       } catch {
         // A country with nothing available for it should not break the
         // whole catalog resolution.
-        return countryOffers;
+        return [] as ProviderOffer[];
       }
 
-      for (const row of rows) {
-        const priceUsd = firstNumber(row.price, row.rate, row.cost);
+      const knownRows = rows.filter((row) => isKnownService(row.name));
+
+      const priced = await mapWithConcurrency(knownRows, 8, async (row) => {
         const service = this.toProviderService(row);
-
-        if (priceUsd !== undefined) {
-          countryOffers.push(this.buildOffer(service.slug, country.slug, priceUsd));
-          continue;
-        }
-
-        // No price on the per-country listing: fall back to the confirmed
-        // single-pair endpoint, but only for services this catalog already
-        // curates, to keep the fallback bounded.
-        if (!CURATED_BY_NAME.has(row.name.trim().toLowerCase())) continue;
-
         try {
-          const priced = await this.call<{ price?: string | number }>(
+          const result = await this.call<{ price?: string | number }>(
             "/request/price",
             { country: countryId, service: row.ID },
           );
-          const fallbackUsd = firstNumber(priced.price);
-          if (fallbackUsd !== undefined) {
-            countryOffers.push(this.buildOffer(service.slug, country.slug, fallbackUsd));
-          }
+          const priceUsd = firstNumber(result.price);
+          return priceUsd !== undefined
+            ? this.buildOffer(service.slug, country.slug, priceUsd)
+            : null;
         } catch {
           // Genuinely unavailable for this pair right now.
+          return null;
         }
-      }
+      });
 
-      return countryOffers;
+      return priced.filter((offer): offer is ProviderOffer => offer !== null);
     });
 
     return perCountry.flat();
