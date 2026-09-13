@@ -125,6 +125,7 @@ export default async function AdminUserDetailPage({
 
         <UserActions
           userId={user.id}
+          email={user.email}
           status={user.status}
           role={user.role}
           isSelf={admin.id === user.id}

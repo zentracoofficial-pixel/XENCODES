@@ -28,6 +28,17 @@ export async function setUserRoleAction(userId: string, role: "USER" | "ADMIN") 
   revalidatePath("/admin/users");
 }
 
+/**
+ * Permanently removes an account: their activations, wallet transactions and
+ * auth tokens cascade with it (see schema.prisma). There is no undo, so the
+ * client requires typing the account's email back before calling this.
+ */
+export async function deleteUserAction(userId: string) {
+  await guardNotSelf(userId, "delete");
+  await prisma.user.delete({ where: { id: userId } });
+  revalidatePath("/admin/users");
+}
+
 export interface CreditWalletState {
   error?: string;
   success?: boolean;

@@ -9,6 +9,7 @@ import { nairaToKobo } from "@/lib/currency";
 
 export type PurchaseError =
   | "login_required"
+  | "admin_account"
   | "unavailable"
   | "insufficient_balance"
   | "provider_unavailable"
@@ -38,6 +39,9 @@ export async function purchaseNumberAction(
   // cannot pay never consumes inventory.
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user) return { error: "unknown" };
+  // The proxy already keeps admins out of /buy; this is the authoritative
+  // check, in case that ever changes or someone calls this action directly.
+  if (user.role === "ADMIN") return { error: "admin_account" };
   if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
 
   let assigned;

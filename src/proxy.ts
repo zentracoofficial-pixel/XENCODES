@@ -36,8 +36,16 @@ export const proxy = auth((req) => {
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
+
+  // Admin accounts run the business; they don't also shop with the same
+  // login. Anyone who wants to buy a number, including an admin, uses an
+  // ordinary account, so a signed-in admin lands back in the admin panel
+  // instead of the customer dashboard or checkout.
+  if (isLoggedIn && isAdmin && (pathname.startsWith("/dashboard") || pathname === "/buy")) {
+    return NextResponse.redirect(new URL("/admin", origin));
+  }
 });
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*"],
+  matcher: ["/dashboard/:path*", "/admin/:path*", "/buy"],
 };

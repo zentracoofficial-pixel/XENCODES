@@ -29,6 +29,8 @@ const POLL_MS = 2500;
 
 const errorCopy: Record<PurchaseError, string> = {
   login_required: "Log in to buy a number.",
+  admin_account:
+    "Admin accounts don't buy numbers. Use a separate account to shop as a customer.",
   unavailable: "That number just went out of stock. Try another country.",
   insufficient_balance:
     "Your wallet does not have enough for this number. Add funds and try again.",

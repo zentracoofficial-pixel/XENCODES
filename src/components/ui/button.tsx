@@ -11,6 +11,8 @@ const variants = {
   outline:
     "border border-border bg-surface text-foreground hover:bg-mint-soft hover:border-mint/40",
   ghost: "text-muted-foreground hover:text-foreground hover:bg-mint-soft",
+  /** Irreversible actions: delete, suspend-and-forget. */
+  danger: "bg-danger text-white hover:brightness-[0.92] active:brightness-[0.88]",
   /** For use on a forest background. */
   onDark: "bg-white/10 text-white hover:bg-white/15 border border-white/15",
 } as const;
