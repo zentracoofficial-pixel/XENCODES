@@ -232,6 +232,27 @@ function isKnownService(name: string) {
   return CURATED_BY_NAME.has(key) || KNOWN_SERVICE_NAMES.has(key);
 }
 
+// SMSPool's real /country/retrieve_all list runs to 144 countries. Eagerly
+// pricing every (known service x country) pair across all of them, even at
+// a gentle concurrency, adds up to enough sequential /request/price round
+// trips to exceed a single serverless function's execution budget - the
+// platform kills the whole request outright, which is worse than the rate
+// limiting this list is not about fixing (see fetchOffers() below). Names
+// are exactly as confirmed live from a real /country/retrieve_all response
+// (see file header): plain "Canada" and plain "Australia" do not exist in
+// SMSPool's catalog, only "Australia (Virtual)" does, so neither the misspelling
+// nor a guess belongs here.
+const PRIORITY_COUNTRY_NAMES = new Set(
+  [
+    "Nigeria", "United States", "United Kingdom", "Germany", "France",
+    "Netherlands", "Sweden", "Portugal", "Poland", "Ireland", "Spain",
+    "Italy", "Indonesia", "Vietnam", "Philippines", "India", "Malaysia",
+    "Turkey", "Pakistan", "Bangladesh", "Singapore", "Japan", "Kenya",
+    "Egypt", "Ghana", "South Africa", "Colombia", "Argentina", "Brazil",
+    "Chile", "Australia (Virtual)", "Jamaica",
+  ].map((name) => name.toLowerCase()),
+);
+
 // ---------------------------------------------------------------------------
 // SMSPool's own response shapes, as documented.
 // ---------------------------------------------------------------------------
@@ -473,20 +494,34 @@ export class SmsPoolProvider implements NumberProvider {
    * so this only prices KNOWN_SERVICE_NAMES, not everything the country
    * lists, to keep total call volume bounded.
    *
-   * Two levels of concurrency, both bounded: a plain sequential loop at
-   * either level was slow enough to time out the very first production
-   * build (see git history), but going too far the other way (10 countries
-   * x 8 services, up to 80 requests in flight) tripped SMSPool's own rate
-   * limiting hard enough that most pairs came back empty rather than
-   * priced - indistinguishable from genuine unavailability without the
-   * 429 retry in call(), and this silently dropped the large majority of
-   * real countries and services. Deliberately gentler now: 4 countries at
-   * a time, each pricing 3 services at a time.
+   * Two things bound the total work here, for two different failure modes:
+   *
+   * - Concurrency: a plain sequential loop was slow enough to time out the
+   *   very first production build, but going too far the other way (10
+   *   countries x 8 services, up to 80 requests in flight) tripped
+   *   SMSPool's own rate limiting hard enough that most pairs came back
+   *   empty rather than priced - indistinguishable from genuine
+   *   unavailability without the 429 retry in call(), and that silently
+   *   dropped the large majority of real countries and services.
+   * - Total volume: lowering concurrency alone to fix the above just makes
+   *   the same total number of requests take longer in *series*, and doing
+   *   that across all 144 real countries made the whole eager pass run
+   *   long enough to hit the serverless function's own execution timeout -
+   *   which kills the request outright, before the in-code fallback in
+   *   resolveCatalog() ever gets a chance to return anything. So this pass
+   *   only eagerly prices PRIORITY_COUNTRY_NAMES (the markets that matter
+   *   for the homepage counts and instant search), not every country
+   *   SMSPool has. Every other country is still fully listable and
+   *   buyable via listOffersForService()'s on-demand path below, just not
+   *   pre-priced on every catalog resolve.
    */
   private async fetchOffers(): Promise<ProviderOffer[]> {
-    const countries = await this.cachedCountries();
+    const allCountries = await this.cachedCountries();
+    const countries = allCountries.filter((country) =>
+      PRIORITY_COUNTRY_NAMES.has(country.name.trim().toLowerCase()),
+    );
 
-    const perCountry = await mapWithConcurrency(countries, 4, async (country) => {
+    const perCountry = await mapWithConcurrency(countries, 6, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
 
       let rows: RawService[];
@@ -502,7 +537,7 @@ export class SmsPoolProvider implements NumberProvider {
 
       const knownRows = rows.filter((row) => isKnownService(row.name));
 
-      const priced = await mapWithConcurrency(knownRows, 3, async (row) => {
+      const priced = await mapWithConcurrency(knownRows, 4, async (row) => {
         const service = this.toProviderService(row);
         try {
           const result = await this.call<{ price?: string | number }>(
