@@ -11,6 +11,49 @@ export function revalidateCatalog() {
   revalidateTag(CATALOG_TAG, "max");
 }
 
+/**
+ * A serverless function has a hard execution ceiling (10s on Vercel's
+ * default tier, and this project sets no maxDuration override), enforced
+ * by the platform itself, not by any try/catch in this file. The provider
+ * calls below already catch real errors and fall back to sample data - but
+ * a *slow* provider is not an error, it is a pending promise, and awaiting
+ * one for too long means the platform kills the whole request before that
+ * catch block ever runs. That produces exactly the failure a customer
+ * cannot tell apart from "the site is broken": no fallback render, no
+ * error boundary, nothing.
+ *
+ * This matters most right after a fresh deploy or right after the
+ * provider-level cache in smspool.ts turns over (every 45 minutes): the
+ * very first request to land in that window is the one that pays for a
+ * full live resolution, and if SMSPool happens to be slow at that exact
+ * moment, that one request was at risk of taking the whole page down with
+ * it rather than just showing slightly stale or sample data. Racing the
+ * live call against this budget turns "occasionally times out with
+ * nothing rendered" into "occasionally serves sample data for one
+ * request", which is the graceful degradation resolveCatalog() was always
+ * supposed to guarantee.
+ */
+const LIVE_PROVIDER_BUDGET_MS = 8000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${what} did not respond within ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** One buyable option, after admin pricing and availability are applied. */
 export interface CatalogOffer {
   countrySlug: string;
@@ -102,11 +145,11 @@ async function resolveCatalog(): Promise<Catalog> {
   let providerLabel = provider.label;
 
   try {
-    [providerServices, providerCountries, providerOffers] = await Promise.all([
-      provider.listServices(),
-      provider.listCountries(),
-      provider.listOffers(),
-    ]);
+    [providerServices, providerCountries, providerOffers] = await withTimeout(
+      Promise.all([provider.listServices(), provider.listCountries(), provider.listOffers()]),
+      LIVE_PROVIDER_BUDGET_MS,
+      "the number provider",
+    );
   } catch (error) {
     // A live provider hiccup (timeout, rate limit, outage) must never take
     // the whole storefront down with it. Fall back to the bundled sample
@@ -297,14 +340,32 @@ export async function getAllServices(): Promise<ProviderService[]> {
  */
 export async function getServiceForBuy(slug: string): Promise<CatalogService | null> {
   const provider = await getProvider();
-  const [allServices, serviceSettings, countrySettings, markupRow, countries] =
-    await Promise.all([
-      provider.listServices(),
-      prisma.serviceSetting.findMany(),
-      prisma.countrySetting.findMany(),
-      prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
-      provider.listCountries(),
-    ]);
+
+  let allServices: ProviderService[];
+  let countries: ProviderCountry[];
+  let serviceSettings: Awaited<ReturnType<typeof prisma.serviceSetting.findMany>>;
+  let countrySettings: Awaited<ReturnType<typeof prisma.countrySetting.findMany>>;
+  let markupRow: Awaited<ReturnType<typeof prisma.setting.findUnique>>;
+  try {
+    [allServices, serviceSettings, countrySettings, markupRow, countries] = await withTimeout(
+      Promise.all([
+        provider.listServices(),
+        prisma.serviceSetting.findMany(),
+        prisma.countrySetting.findMany(),
+        prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
+        provider.listCountries(),
+      ]),
+      LIVE_PROVIDER_BUDGET_MS,
+      "the number provider",
+    );
+  } catch (error) {
+    // Same reasoning as resolveCatalog(): a slow provider must degrade to
+    // whatever the eager pass already has cached, never hang the buy page
+    // until the platform kills the request outright.
+    console.error(`[catalog] provider lookup failed for "${slug}":`, error);
+    const catalog = await getCatalog();
+    return catalog.services.find((service) => service.slug === slug) ?? null;
+  }
 
   const meta = allServices.find((service) => service.slug === slug);
   if (!meta) return null;
@@ -314,7 +375,11 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
 
   let rawOffers: ProviderOffer[];
   try {
-    rawOffers = await provider.listOffersForService(slug);
+    rawOffers = await withTimeout(
+      provider.listOffersForService(slug),
+      LIVE_PROVIDER_BUDGET_MS,
+      "the number provider",
+    );
   } catch (error) {
     console.error(`[catalog] on-demand pricing failed for "${slug}":`, error);
     rawOffers = [];
