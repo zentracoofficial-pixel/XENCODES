@@ -154,6 +154,31 @@ function fallbackColorFor(name: string) {
   return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length];
 }
 
+// Well-known consumer brands with a real logo added to brandIcons.ts
+// (confirmed live from simple-icons, see git history), for names outside
+// the original curated 40 in data/services.ts. slugify(row.name) already
+// produces the exact key each logo is stored under for every one of these,
+// so only their colour and category need overriding here instead of
+// falling through to fallbackColorFor()/FALLBACK_CATEGORY.
+const EXTRA_BRANDED: Record<string, { color: string; category: string }> = {
+  "target": { color: "#CC0000", category: FALLBACK_CATEGORY },
+  "starbucks": { color: "#00704A", category: FALLBACK_CATEGORY },
+  "nike": { color: "#111111", category: FALLBACK_CATEGORY },
+  "doordash": { color: "#FF3008", category: "Travel & Delivery" },
+  "lyft": { color: "#FF00BF", category: "Travel & Delivery" },
+  "pinterest": { color: "#E60023", category: "Social & Messaging" },
+  "gitlab": { color: "#FC6D26", category: "Developer & Cloud" },
+  "roblox": { color: "#000000", category: "Entertainment" },
+  "adidas": { color: "#000000", category: FALLBACK_CATEGORY },
+  "vk": { color: "#0077FF", category: "Social & Messaging" },
+  "baidu": { color: "#2932E1", category: "Social & Messaging" },
+  "line": { color: "#00C300", category: "Social & Messaging" },
+  "cocacola": { color: "#D00013", category: FALLBACK_CATEGORY },
+  "epic games": { color: "#313131", category: "Entertainment" },
+  "alibaba": { color: "#FF6A00", category: "Marketplaces & Freelance" },
+  "kakaotalk": { color: "#FFCD00", category: "Social & Messaging" },
+};
+
 // Real SMSPool service names, confirmed present in a live response (see git
 // history), worth pricing even without a curated brand colour of their own
 // (they get fallbackColorFor()/FALLBACK_CATEGORY via toProviderService,
@@ -392,11 +417,12 @@ export class SmsPoolProvider implements NumberProvider {
   private toProviderService(row: RawService): ProviderService {
     const key = row.name.trim().toLowerCase();
     const curated = CURATED_BY_NAME.get(REAL_NAME_TO_CURATED[key] ?? key);
+    const extra = EXTRA_BRANDED[key];
     return {
       slug: curated?.slug ?? (slugify(row.name) || `sp-${row.ID}`),
       name: row.name,
-      color: curated?.color ?? fallbackColorFor(row.name),
-      category: curated?.category ?? FALLBACK_CATEGORY,
+      color: curated?.color ?? extra?.color ?? fallbackColorFor(row.name),
+      category: curated?.category ?? extra?.category ?? FALLBACK_CATEGORY,
     };
   }
 
