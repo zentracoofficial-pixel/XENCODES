@@ -15,6 +15,9 @@ export const authConfig: NextAuthConfig = {
         // Cheap gate for the proxy. Authoritative checks re-read the database,
         // since this claim is only as fresh as the token.
         token.role = (user as { role?: string }).role ?? "USER";
+        // Explicit rather than relying on default claim merging, since the
+        // proxy's ADMIN_EMAILS fallback below needs this to be reliably set.
+        token.email = user.email ?? token.email;
       }
       return token;
     },
@@ -22,6 +25,7 @@ export const authConfig: NextAuthConfig = {
       if (session.user && token.id) {
         session.user.id = token.id as string;
         session.user.role = (token.role as "USER" | "ADMIN") ?? "USER";
+        if (token.email) session.user.email = token.email as string;
       }
       return session;
     },
