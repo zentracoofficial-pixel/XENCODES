@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getOffer } from "@/lib/catalog";
+import { getCatalog, getOffer } from "@/lib/catalog";
 import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { nairaToKobo } from "@/lib/currency";
@@ -155,8 +155,12 @@ async function toState(activation: ActivationRow): Promise<ActivationState> {
 }
 
 async function flagFor(countrySlug: string) {
-  const provider = await getProvider();
-  const countries = await provider.listCountries();
+  // Read through the already-cached catalog rather than instantiating the
+  // provider and re-fetching every country: this runs on every activation
+  // poll (every few seconds while a customer waits for a code), so hitting
+  // a live provider directly here would mean real outbound requests on a
+  // tight loop instead of one cached lookup.
+  const { countries } = await getCatalog();
   return countries.find((c) => c.slug === countrySlug)?.flag ?? "";
 }
 

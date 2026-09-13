@@ -1,8 +1,8 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { SETTING_KEYS } from "@/lib/settings";
-import { getProvider } from "@/lib/provider";
-import type { ProviderCountry, StockLevel } from "@/lib/provider";
+import { getProvider, developmentProvider } from "@/lib/provider";
+import type { ProviderCountry, ProviderService, ProviderOffer, StockLevel } from "@/lib/provider";
 
 export const CATALOG_TAG = "catalog";
 
@@ -57,21 +57,39 @@ export function applyMarkup(priceNaira: number, percent: number) {
 async function resolveCatalog(): Promise<Catalog> {
   const provider = await getProvider();
 
-  const [
-    providerServices,
-    providerCountries,
-    providerOffers,
-    serviceSettings,
-    countrySettings,
-    markupRow,
-  ] = await Promise.all([
-    provider.listServices(),
-    provider.listCountries(),
-    provider.listOffers(),
+  const [serviceSettings, countrySettings, markupRow] = await Promise.all([
     prisma.serviceSetting.findMany(),
     prisma.countrySetting.findMany(),
     prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
   ]);
+
+  let providerServices: ProviderService[];
+  let providerCountries: ProviderCountry[];
+  let providerOffers: ProviderOffer[];
+  let isLive = provider.isLive;
+  let providerLabel = provider.label;
+
+  try {
+    [providerServices, providerCountries, providerOffers] = await Promise.all([
+      provider.listServices(),
+      provider.listCountries(),
+      provider.listOffers(),
+    ]);
+  } catch (error) {
+    // A live provider hiccup (timeout, rate limit, outage) must never take
+    // the whole storefront down with it. Fall back to the bundled sample
+    // catalog so every page still renders something, clearly marked as not
+    // live, and self-heals on the next cache window once the provider
+    // recovers.
+    console.error("[catalog] live provider failed, falling back to sample data:", error);
+    [providerServices, providerCountries, providerOffers] = await Promise.all([
+      developmentProvider.listServices(),
+      developmentProvider.listCountries(),
+      developmentProvider.listOffers(),
+    ]);
+    isLive = false;
+    providerLabel = `${provider.label} (temporarily unavailable)`;
+  }
 
   const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
   const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
@@ -158,8 +176,8 @@ async function resolveCatalog(): Promise<Catalog> {
     categories: Array.from(new Set(services.map((s) => s.category))).sort(),
     floorNaira: floors.length ? Math.min(...floors) : 0,
     globalMarkupPercent,
-    isLive: provider.isLive,
-    providerLabel: provider.label,
+    isLive,
+    providerLabel,
   };
 }
 

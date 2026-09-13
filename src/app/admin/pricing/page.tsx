@@ -29,7 +29,10 @@ export default async function AdminPricingPage() {
   const globalMarkupPercent = readNumber(settings, SETTING_KEYS.globalMarkupPercent, 0);
 
   // The provider's own quote, so the admin can see the margin on each line.
-  const offers = await provider.listOffers();
+  // getCatalog() above already degrades gracefully on a provider outage;
+  // this direct call does not, so it needs its own fallback rather than
+  // crashing the whole page when the provider is briefly unavailable.
+  const offers = await provider.listOffers().catch(() => []);
   const basePriceBySlug = new Map<string, number>();
   for (const offer of offers) {
     const current = basePriceBySlug.get(offer.serviceSlug);

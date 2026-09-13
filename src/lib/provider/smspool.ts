@@ -362,18 +362,19 @@ export class SmsPoolProvider implements NumberProvider {
    * single-pair /request/price call, but only for services this catalog
    * already curates, so an incorrect guess costs at most one request per
    * known service per country rather than an unbounded cross product.
+   *
+   * Countries are fetched with bounded concurrency, not one at a time: with
+   * SMSPool listing well over a hundred countries, a plain sequential loop
+   * here was the actual cause of the very first production build timing
+   * out (see git history), since resolving this on a cache miss meant 100+
+   * live round trips end to end before anything could render.
    */
   private async fetchOffers(): Promise<ProviderOffer[]> {
-    const countries = await this.fetchCountries();
-    const providerIdByCountrySlug = new Map(
-      countries.map((c) => [c.slug, c.slug.replace(/^sp-/, "")]),
-    );
+    const countries = await this.cachedCountries();
 
-    const offers: ProviderOffer[] = [];
-
-    for (const country of countries) {
-      const countryId = providerIdByCountrySlug.get(country.slug);
-      if (!countryId) continue;
+    const perCountry = await mapWithConcurrency(countries, 10, async (country) => {
+      const countryId = country.slug.replace(/^sp-/, "");
+      const countryOffers: ProviderOffer[] = [];
 
       let rows: RawService[];
       try {
@@ -383,7 +384,7 @@ export class SmsPoolProvider implements NumberProvider {
       } catch {
         // A country with nothing available for it should not break the
         // whole catalog resolution.
-        continue;
+        return countryOffers;
       }
 
       for (const row of rows) {
@@ -391,7 +392,7 @@ export class SmsPoolProvider implements NumberProvider {
         const service = this.toProviderService(row);
 
         if (priceUsd !== undefined) {
-          offers.push(this.buildOffer(service.slug, country.slug, priceUsd));
+          countryOffers.push(this.buildOffer(service.slug, country.slug, priceUsd));
           continue;
         }
 
@@ -407,15 +408,17 @@ export class SmsPoolProvider implements NumberProvider {
           );
           const fallbackUsd = firstNumber(priced.price);
           if (fallbackUsd !== undefined) {
-            offers.push(this.buildOffer(service.slug, country.slug, fallbackUsd));
+            countryOffers.push(this.buildOffer(service.slug, country.slug, fallbackUsd));
           }
         } catch {
           // Genuinely unavailable for this pair right now.
         }
       }
-    }
 
-    return offers;
+      return countryOffers;
+    });
+
+    return perCountry.flat();
   }
 
   private buildOffer(
@@ -500,6 +503,32 @@ export class SmsPoolProvider implements NumberProvider {
     const match = rows.find((row) => this.toProviderService(row).slug === slug);
     return match ? String(match.ID) : undefined;
   }
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` calls in flight at once.
+ * Plain Promise.all would fire one request per country simultaneously
+ * (100+ at once against SMSPool); a strict for-of loop, the previous
+ * approach, fires them one at a time and was the actual cause of a build
+ * timeout and slow page loads, since it means 100+ sequential round trips
+ * on every cache miss. This keeps SMSPool responding at a reasonable
+ * concurrency instead of either extreme.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const current = next++;
+      results[current] = await fn(items[current]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 function firstNumber(...values: (string | number | undefined)[]): number | undefined {

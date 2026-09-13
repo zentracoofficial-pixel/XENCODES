@@ -20,6 +20,10 @@ export default async function AdminServicesPage() {
 
   const provider = await getProvider();
 
+  // Each provider call gets its own fallback rather than one shared
+  // Promise.all, so a live provider hiccup degrades this page (fewer rows,
+  // an empty table) instead of crashing it outright and losing the
+  // database reads alongside it.
   const [
     providerServices,
     providerCountries,
@@ -28,13 +32,16 @@ export default async function AdminServicesPage() {
     countrySettings,
     settings,
   ] = await Promise.all([
-    provider.listServices(),
-    provider.listCountries(),
-    provider.listOffers(),
+    provider.listServices().catch(() => []),
+    provider.listCountries().catch(() => []),
+    provider.listOffers().catch(() => []),
     prisma.serviceSetting.findMany(),
     prisma.countrySetting.findMany(),
     readSettings(),
   ]);
+
+  const providerUnavailable =
+    provider.isLive && providerServices.length === 0 && providerCountries.length === 0;
 
   const globalMarkupPercent = readNumber(settings, SETTING_KEYS.globalMarkupPercent, 0);
   const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
@@ -78,6 +85,14 @@ export default async function AdminServicesPage() {
           stacks on top.
         </p>
       </div>
+
+      {providerUnavailable ? (
+        <p className="rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
+          {provider.label} did not respond just now, so nothing is shown below.
+          This page always reads live rather than from cache, so reloading in
+          a moment will try again.
+        </p>
+      ) : null}
 
       {/* Countries first: switching one off affects every service. */}
       <Card className="overflow-hidden">
