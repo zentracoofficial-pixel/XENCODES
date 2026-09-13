@@ -31,10 +31,11 @@ export async function purchaseNumberAction(
   // admin-set price and a disabled item cannot be bought via a stale link.
   // getOfferForBuy() also covers a service outside the eagerly priced set,
   // pricing it live on demand rather than only recognising what getCatalog()
-  // already precomputed. The cost price behind this is refreshed once a day
-  // (see PROVIDER_CACHE_SECONDS in smspool.ts), not re-verified per purchase:
-  // the admin markup exists to absorb ordinary day-to-day cost drift, so a
-  // purchase always charges the same price the customer was just shown.
+  // already precomputed. The cost price behind this is refreshed every 45
+  // minutes (see PROVIDER_CACHE_SECONDS in smspool.ts), not re-verified per
+  // purchase: the admin markup exists to absorb ordinary cost drift between
+  // refreshes, so a purchase always charges the same price the customer was
+  // just shown.
   const match = await getOfferForBuy(serviceSlug, countrySlug);
   if (!match) return { error: "unavailable" };
 

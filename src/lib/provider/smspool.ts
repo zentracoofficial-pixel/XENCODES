@@ -16,14 +16,13 @@ import { ProviderError } from "./types";
 // catalog data cached here, so a change still takes effect immediately even
 // though this cache is much longer-lived than the catalog's own.
 const CATALOG_TAG = "catalog";
-// A full day, by design, not a tight cache window. SMSPool's per-service
-// cost moves a little day to day, not minute to minute, and the admin
+// 45 minutes: frequent enough that cost drift stays small and the admin
 // markup (30% by default, see DEFAULT_GLOBAL_MARKUP_PERCENT in catalog.ts)
-// exists precisely to absorb that drift: if the real cost ticks up before
-// the next refresh, the day's margin on that pair is a little thinner, not
-// negative. This also keeps SMSPool call volume low enough that the gentle
-// concurrency in fetchOffers() never needs to fight a tight deadline.
-const PROVIDER_CACHE_SECONDS = 60 * 60 * 24;
+// comfortably absorbs whatever moves between refreshes, but still far below
+// the refresh rate (every few minutes, at high concurrency) that originally
+// tripped SMSPool's own rate limiting - see the 429 retry in call() and the
+// bounded concurrency in fetchOffers(), both still doing their job here.
+const PROVIDER_CACHE_SECONDS = 45 * 60;
 
 /** A short, non-secret fingerprint used only to key the cache by account. */
 function fingerprint(apiKey: string) {
