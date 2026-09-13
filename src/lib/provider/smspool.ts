@@ -92,6 +92,24 @@ function slugify(name: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+// SMSPool often lists a service under a longer or combined name than the
+// short one curated in data/services.ts (confirmed live, see git history:
+// its real "Instagram / Threads" vs our curated "Instagram", "Twitter / X"
+// vs "X (Twitter)", and so on). Without this, those still get priced (they
+// are in KNOWN_SERVICE_NAMES below by their real name) but would silently
+// miss the brand colour already designed for them and show a plain grey
+// icon instead.
+const REAL_NAME_TO_CURATED: Record<string, string> = {
+  "instagram / threads": "instagram",
+  "facebook / meta viewpoints": "facebook",
+  "tiktok/douyin": "tiktok",
+  "twitter / x": "x (twitter)",
+  "amazon / amazon web services": "amazon",
+  "google/gmail": "google",
+  "uber / postmates": "uber",
+  "openai / chatgpt": "openai",
+};
+
 // Reuse the brand colour and category already curated for every service this
 // product was designed around, so a name SMSPool also uses (which is most of
 // them, these are all common OTP marketplace listings) picks up its real
@@ -132,7 +150,9 @@ const KNOWN_SERVICE_NAMES = new Set([
   "adidas", "zara", "shein", "temu", "wish", "etsy", "poshmark", "depop",
   "mercari", "offerup", "craigslist", "olx", "carousell", "vinted",
   "truecaller", "yandex", "mailru", "instacart", "cvs", "walgreens",
-  "chipotle", "pubgmobile", "garena",
+  "chipotle", "pubgmobile", "garena", "firebase", "gitlab", "cursor",
+  "perplexity", "claudeai / anthropic", "mistral ai", "yelp", "home depot",
+  "lowes", "publix", "vrbo", "xbox",
 ]);
 
 function isKnownService(name: string) {
@@ -323,7 +343,8 @@ export class SmsPoolProvider implements NumberProvider {
   }
 
   private toProviderService(row: RawService): ProviderService {
-    const curated = CURATED_BY_NAME.get(row.name.trim().toLowerCase());
+    const key = row.name.trim().toLowerCase();
+    const curated = CURATED_BY_NAME.get(REAL_NAME_TO_CURATED[key] ?? key);
     return {
       slug: curated?.slug ?? (slugify(row.name) || `sp-${row.ID}`),
       name: row.name,
