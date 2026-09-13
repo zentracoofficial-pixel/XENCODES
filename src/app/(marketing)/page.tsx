@@ -16,6 +16,7 @@ import { formatNairaFromNaira } from "@/lib/currency";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
+import { brandIcons } from "@/data/brand-icons";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,10 @@ export default async function HomePage() {
     // A real, live count, never invented: this is exactly what it says.
     prisma.activation.count({ where: { status: "RECEIVED" } }),
   ]);
+
+  // Only services with a real brand logo, not the lettermark fallback: this
+  // decorative row is meant to be instantly recognisable names.
+  const brandedServices = services.filter((service) => Boolean(brandIcons[service.slug]));
 
   // Three real examples straight from the catalog, never invented.
   const priceExamples = ["instagram", "telegram", "facebook"]
@@ -139,7 +144,11 @@ export default async function HomePage() {
       </section>
 
       {/* Everything you can verify, drifting past. Full width on purpose,
-          so the rows run past the edges of the page rather than stopping. */}
+          so the rows run past the edges of the page rather than stopping.
+          Limited to services with a real brand logo, not the lettermark
+          fallback: this row is meant to read as recognisable names at a
+          glance, and the full catalog (lettermarks included) is what
+          /services is for. */}
       <Section className="py-12 sm:py-14">
         <Container>
           <SectionHeading
@@ -158,7 +167,7 @@ export default async function HomePage() {
         </Container>
 
         <div className="mt-6">
-          <ServiceMarquee services={services} />
+          <ServiceMarquee services={brandedServices} />
         </div>
       </Section>
 
