@@ -18,9 +18,10 @@ export const metadata: Metadata = { title: "Admin: Settings" };
 
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
-  const [settings, admins] = await Promise.all([
+  const [settings, admins, usdToNgnRateRow] = await Promise.all([
     readSettings(),
     prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
+    prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
   ]);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
@@ -57,6 +58,7 @@ export default async function AdminSettingsPage() {
               SETTING_KEYS.usdToNgnRate,
               DEFAULT_USD_TO_NGN_RATE,
             )}
+            usdToNgnRateUpdatedAt={usdToNgnRateRow?.updatedAt.toISOString() ?? null}
           />
         </div>
       </Card>
