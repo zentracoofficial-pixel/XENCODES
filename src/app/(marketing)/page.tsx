@@ -11,7 +11,7 @@ import { NumberSearch } from "@/components/product/number-search";
 import { ActivationDemo } from "@/components/product/activation-demo";
 import { ServiceMarquee } from "@/components/product/service-marquee";
 import { DevelopmentDataNotice } from "@/components/product/development-notice";
-import { getCatalog, getAllServices } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog";
 import { formatNairaFromNaira } from "@/lib/currency";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
@@ -40,16 +40,11 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [{ services, countries, floorNaira, isLive }, allServices, numbersDelivered] =
-    await Promise.all([
-      getCatalog(),
-      // The drifting marquee only needs name/color/slug, never a price, so
-      // it can show the provider's whole real catalog rather than only the
-      // smaller eagerly-priced set the search box and pricing preview use.
-      getAllServices(),
-      // A real, live count, never invented: this is exactly what it says.
-      prisma.activation.count({ where: { status: "RECEIVED" } }),
-    ]);
+  const [{ services, countries, floorNaira, isLive }, numbersDelivered] = await Promise.all([
+    getCatalog(),
+    // A real, live count, never invented: this is exactly what it says.
+    prisma.activation.count({ where: { status: "RECEIVED" } }),
+  ]);
 
   // Three real examples straight from the catalog, never invented.
   const priceExamples = ["instagram", "telegram", "facebook"]
@@ -149,7 +144,7 @@ export default async function HomePage() {
         <Container>
           <SectionHeading
             title="Services we cover"
-            description={`${allServices.length} services and counting. Tap any one to pick a country.`}
+            description={`${services.length} services and counting. Tap any one to pick a country.`}
             action={
               <Link
                 href="/services"
@@ -163,7 +158,7 @@ export default async function HomePage() {
         </Container>
 
         <div className="mt-6">
-          <ServiceMarquee services={allServices} />
+          <ServiceMarquee services={services} />
         </div>
       </Section>
 

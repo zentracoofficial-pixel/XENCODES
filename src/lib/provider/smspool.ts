@@ -121,15 +121,46 @@ const CURATED_BY_NAME = new Map(
   ]),
 );
 
-const FALLBACK_COLOR = "#63756F";
 const FALLBACK_CATEGORY = "Other";
+
+// A service with no curated brand colour used to fall back to one flat
+// grey (literally --muted-foreground, the same tone as ordinary body text),
+// so a directory of a thousand-plus uncurated names looked washed out and
+// broken rather than intentional. Sourcing a real logo for each one is not
+// realistic by hand, so instead each name deterministically picks one of
+// these, muted and professional enough to sit next to the curated brand
+// colours without clashing, but varied enough that the grid reads as
+// designed rather than uniformly grey.
+const FALLBACK_PALETTE = [
+  "#0F4C5C", // deep teal
+  "#5B3A29", // umber
+  "#6B2D5C", // plum
+  "#8A3B12", // rust
+  "#1F4E79", // slate blue
+  "#3D348B", // indigo
+  "#2E5339", // moss green
+  "#7B2D26", // brick
+  "#5C4A72", // muted violet
+  "#1B4332", // pine
+  "#6B4226", // walnut
+  "#33475B", // steel
+];
+
+function fallbackColorFor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length];
+}
 
 // Real SMSPool service names, confirmed present in a live response (see git
 // history), worth pricing even without a curated brand colour of their own
-// (they get FALLBACK_COLOR/FALLBACK_CATEGORY via toProviderService, same as
-// any other uncurated name). Deliberately a top slice of well-known
-// consumer platforms, not an attempt at SMSPool's full ~1800-service
-// catalog: see the file header for why pricing everything isn't viable.
+// (they get fallbackColorFor()/FALLBACK_CATEGORY via toProviderService,
+// same as any other uncurated name). Deliberately a top slice of
+// well-known consumer platforms, not an attempt at SMSPool's full
+// ~1800-service catalog: see the file header for why pricing everything
+// isn't viable.
 const KNOWN_SERVICE_NAMES = new Set([
   "whatsapp", "telegram", "instagram / threads", "facebook / meta viewpoints",
   "twitter / x", "tiktok/douyin", "discord", "snapchat", "google/gmail",
@@ -364,7 +395,7 @@ export class SmsPoolProvider implements NumberProvider {
     return {
       slug: curated?.slug ?? (slugify(row.name) || `sp-${row.ID}`),
       name: row.name,
-      color: curated?.color ?? FALLBACK_COLOR,
+      color: curated?.color ?? fallbackColorFor(row.name),
       category: curated?.category ?? FALLBACK_CATEGORY,
     };
   }
