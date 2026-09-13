@@ -59,81 +59,31 @@ export interface SmsPoolConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Country name to flag/dial code. Covers SMSPool's common markets; anything
-// missing degrades gracefully rather than failing.
+// SMSPool's /country/retrieve_all confirmed live (see git history) to
+// already return short_name (ISO2) and cc (dial code digits, no "+"), so
+// flag and dial code are derived straight from the response for every
+// country, not just a curated subset. The one thing it does not return is
+// how many digits a national number has, so that stays a best-effort table
+// keyed by ISO2, covering common markets; anything missing just shows no
+// formatted digit count rather than failing.
 // ---------------------------------------------------------------------------
 
-interface CountryInfo {
-  iso2: string;
-  dialCode: string;
-  nationalDigits: number;
-}
-
-const COUNTRY_INFO: Record<string, CountryInfo> = {
-  nigeria: { iso2: "NG", dialCode: "+234", nationalDigits: 10 },
-  "united states": { iso2: "US", dialCode: "+1", nationalDigits: 10 },
-  usa: { iso2: "US", dialCode: "+1", nationalDigits: 10 },
-  "united kingdom": { iso2: "GB", dialCode: "+44", nationalDigits: 10 },
-  uk: { iso2: "GB", dialCode: "+44", nationalDigits: 10 },
-  canada: { iso2: "CA", dialCode: "+1", nationalDigits: 10 },
-  germany: { iso2: "DE", dialCode: "+49", nationalDigits: 11 },
-  indonesia: { iso2: "ID", dialCode: "+62", nationalDigits: 11 },
-  poland: { iso2: "PL", dialCode: "+48", nationalDigits: 9 },
-  philippines: { iso2: "PH", dialCode: "+63", nationalDigits: 10 },
-  france: { iso2: "FR", dialCode: "+33", nationalDigits: 9 },
-  spain: { iso2: "ES", dialCode: "+34", nationalDigits: 9 },
-  italy: { iso2: "IT", dialCode: "+39", nationalDigits: 10 },
-  netherlands: { iso2: "NL", dialCode: "+31", nationalDigits: 9 },
-  belgium: { iso2: "BE", dialCode: "+32", nationalDigits: 9 },
-  portugal: { iso2: "PT", dialCode: "+351", nationalDigits: 9 },
-  sweden: { iso2: "SE", dialCode: "+46", nationalDigits: 9 },
-  norway: { iso2: "NO", dialCode: "+47", nationalDigits: 8 },
-  denmark: { iso2: "DK", dialCode: "+45", nationalDigits: 8 },
-  finland: { iso2: "FI", dialCode: "+358", nationalDigits: 9 },
-  ireland: { iso2: "IE", dialCode: "+353", nationalDigits: 9 },
-  austria: { iso2: "AT", dialCode: "+43", nationalDigits: 10 },
-  switzerland: { iso2: "CH", dialCode: "+41", nationalDigits: 9 },
-  "czech republic": { iso2: "CZ", dialCode: "+420", nationalDigits: 9 },
-  romania: { iso2: "RO", dialCode: "+40", nationalDigits: 9 },
-  greece: { iso2: "GR", dialCode: "+30", nationalDigits: 10 },
-  hungary: { iso2: "HU", dialCode: "+36", nationalDigits: 9 },
-  ukraine: { iso2: "UA", dialCode: "+380", nationalDigits: 9 },
-  russia: { iso2: "RU", dialCode: "+7", nationalDigits: 10 },
-  turkey: { iso2: "TR", dialCode: "+90", nationalDigits: 10 },
-  india: { iso2: "IN", dialCode: "+91", nationalDigits: 10 },
-  pakistan: { iso2: "PK", dialCode: "+92", nationalDigits: 10 },
-  bangladesh: { iso2: "BD", dialCode: "+880", nationalDigits: 10 },
-  vietnam: { iso2: "VN", dialCode: "+84", nationalDigits: 9 },
-  thailand: { iso2: "TH", dialCode: "+66", nationalDigits: 9 },
-  malaysia: { iso2: "MY", dialCode: "+60", nationalDigits: 9 },
-  singapore: { iso2: "SG", dialCode: "+65", nationalDigits: 8 },
-  "china": { iso2: "CN", dialCode: "+86", nationalDigits: 11 },
-  japan: { iso2: "JP", dialCode: "+81", nationalDigits: 10 },
-  "south korea": { iso2: "KR", dialCode: "+82", nationalDigits: 10 },
-  australia: { iso2: "AU", dialCode: "+61", nationalDigits: 9 },
-  "new zealand": { iso2: "NZ", dialCode: "+64", nationalDigits: 9 },
-  brazil: { iso2: "BR", dialCode: "+55", nationalDigits: 11 },
-  mexico: { iso2: "MX", dialCode: "+52", nationalDigits: 10 },
-  argentina: { iso2: "AR", dialCode: "+54", nationalDigits: 10 },
-  colombia: { iso2: "CO", dialCode: "+57", nationalDigits: 10 },
-  chile: { iso2: "CL", dialCode: "+56", nationalDigits: 9 },
-  peru: { iso2: "PE", dialCode: "+51", nationalDigits: 9 },
-  "south africa": { iso2: "ZA", dialCode: "+27", nationalDigits: 9 },
-  kenya: { iso2: "KE", dialCode: "+254", nationalDigits: 9 },
-  ghana: { iso2: "GH", dialCode: "+233", nationalDigits: 9 },
-  egypt: { iso2: "EG", dialCode: "+20", nationalDigits: 10 },
-  morocco: { iso2: "MA", dialCode: "+212", nationalDigits: 9 },
-  "saudi arabia": { iso2: "SA", dialCode: "+966", nationalDigits: 9 },
-  "united arab emirates": { iso2: "AE", dialCode: "+971", nationalDigits: 9 },
-  israel: { iso2: "IL", dialCode: "+972", nationalDigits: 9 },
+const NATIONAL_DIGITS: Record<string, number> = {
+  NG: 10, US: 10, GB: 10, CA: 10, DE: 11, ID: 11, PL: 9, PH: 10, FR: 9,
+  ES: 9, IT: 10, NL: 9, BE: 9, PT: 9, SE: 9, NO: 8, DK: 8, FI: 9, IE: 9,
+  AT: 10, CH: 9, CZ: 9, RO: 9, GR: 10, HU: 9, UA: 9, RU: 10, TR: 10,
+  IN: 10, PK: 10, BD: 10, VN: 9, TH: 9, MY: 9, SG: 8, CN: 11, JP: 10,
+  KR: 10, AU: 9, NZ: 9, BR: 11, MX: 10, AR: 10, CO: 10, CL: 9, PE: 9,
+  ZA: 9, KE: 9, GH: 9, EG: 10, MA: 9, SA: 9, AE: 9, IL: 9,
 };
 
+/** Only a real two-letter ISO code makes a sensible flag; SMSPool also uses
+ *  suffixed pseudo-codes like "US_V" for virtual number pools, which fall
+ *  back to a plain flag instead of encoding garbage. */
 function flagFromIso2(iso2: string) {
+  if (!/^[A-Z]{2}$/.test(iso2)) return "🏳️";
   return String.fromCodePoint(
-    ...iso2
-      .toUpperCase()
-      .split("")
-      .map((ch) => 0x1f1e6 + (ch.charCodeAt(0) - 65)),
+    ...iso2.split("").map((ch) => 0x1f1e6 + (ch.charCodeAt(0) - 65)),
   );
 }
 
@@ -166,6 +116,11 @@ const FALLBACK_CATEGORY = "Other";
 interface RawCountry {
   ID: string | number;
   name: string;
+  /** ISO2, confirmed live. Not always a real ISO code: SMSPool uses
+   *  suffixed pseudo-codes like "US_V" for its virtual number pools. */
+  short_name: string;
+  /** Dial code digits, no leading "+", confirmed live. */
+  cc: string;
   region?: string;
 }
 
@@ -326,13 +281,13 @@ export class SmsPoolProvider implements NumberProvider {
   private async fetchCountries(): Promise<ProviderCountry[]> {
     const rows = await this.call<RawCountry[]>("/country/retrieve_all", {});
     return rows.map((row) => {
-      const info = COUNTRY_INFO[row.name.trim().toLowerCase()];
+      const iso2 = row.short_name?.trim().toUpperCase() ?? "";
       return {
         slug: `sp-${row.ID}`,
         name: row.name,
-        flag: info ? flagFromIso2(info.iso2) : "🏳️",
-        dialCode: info?.dialCode ?? "",
-        nationalDigits: info?.nationalDigits ?? 10,
+        flag: flagFromIso2(iso2),
+        dialCode: row.cc ? `+${row.cc}` : "",
+        nationalDigits: NATIONAL_DIGITS[iso2] ?? 10,
       };
     });
   }
