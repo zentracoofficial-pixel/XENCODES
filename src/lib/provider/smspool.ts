@@ -16,7 +16,12 @@ import { ProviderError } from "./types";
 // catalog data cached here, so a change still takes effect immediately even
 // though this cache is much longer-lived than the catalog's own.
 const CATALOG_TAG = "catalog";
-const PROVIDER_CACHE_SECONDS = 300;
+// 15 minutes, not 5: fetchOffers() now runs at a deliberately gentle
+// concurrency (see its own comment) to avoid tripping SMSPool's rate
+// limiting, which makes a full resolution slower. A longer window means
+// fewer full refreshes hitting SMSPool overall, trading a little price
+// freshness for actually getting real results back instead of empty ones.
+const PROVIDER_CACHE_SECONDS = 900;
 
 /** A short, non-secret fingerprint used only to key the cache by account. */
 function fingerprint(apiKey: string) {
@@ -48,6 +53,17 @@ function fingerprint(apiKey: string) {
 
 const BASE_URL = "https://api.smspool.net";
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Retries for a 429 specifically, not any other failure: fetchOffers()
+ *  runs many calls concurrently (see the file header on why pricing is
+ *  bounded, not eliminated), and without this a burst of rate-limited
+ *  responses is indistinguishable from every one of those pairs genuinely
+ *  being unavailable, which silently drops real countries and services. */
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 400;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface SmsPoolConfig {
   apiKey: string;
@@ -331,22 +347,44 @@ export class SmsPoolProvider implements NumberProvider {
       if (v !== undefined) query.set(k, String(v));
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response | undefined;
+    for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    let response: Response;
-    try {
-      response = await fetch(`${BASE_URL}${path}?${query.toString()}`, {
-        signal: controller.signal,
-        cache: "no-store",
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new ProviderError("SMSPool did not respond in time.", "network");
+      try {
+        response = await fetch(`${BASE_URL}${path}?${query.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new ProviderError("SMSPool did not respond in time.", "network");
+        }
+        throw new ProviderError("Could not reach SMSPool.", "network");
+      } finally {
+        clearTimeout(timeout);
       }
+
+      // A burst of concurrent requests (fetchOffers() prices many pairs at
+      // once, see the file header) can trip SMSPool's own rate limiting.
+      // Without backing off here, that would be indistinguishable from
+      // every one of those pairs genuinely being unavailable, silently
+      // dropping real countries and services rather than actually pricing
+      // them. Retry with jittered exponential backoff before giving up.
+      if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+        const delay = RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt * (0.75 + Math.random() * 0.5);
+        await sleep(delay);
+        continue;
+      }
+      break;
+    }
+
+    // The loop above only exits without a response if every attempt threw,
+    // which already throws before reaching here; this satisfies the type
+    // checker that response is defined.
+    if (!response) {
       throw new ProviderError("Could not reach SMSPool.", "network");
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (response.status === 401 || response.status === 403) {
@@ -435,16 +473,20 @@ export class SmsPoolProvider implements NumberProvider {
    * so this only prices KNOWN_SERVICE_NAMES, not everything the country
    * lists, to keep total call volume bounded.
    *
-   * Two levels of concurrency, both bounded, since a plain sequential loop
-   * at either level was slow enough to time out the very first production
-   * build (see git history): countries themselves run 10 at a time, and
-   * within a country, its known services are priced 8 at a time rather
-   * than one after another.
+   * Two levels of concurrency, both bounded: a plain sequential loop at
+   * either level was slow enough to time out the very first production
+   * build (see git history), but going too far the other way (10 countries
+   * x 8 services, up to 80 requests in flight) tripped SMSPool's own rate
+   * limiting hard enough that most pairs came back empty rather than
+   * priced - indistinguishable from genuine unavailability without the
+   * 429 retry in call(), and this silently dropped the large majority of
+   * real countries and services. Deliberately gentler now: 4 countries at
+   * a time, each pricing 3 services at a time.
    */
   private async fetchOffers(): Promise<ProviderOffer[]> {
     const countries = await this.cachedCountries();
 
-    const perCountry = await mapWithConcurrency(countries, 10, async (country) => {
+    const perCountry = await mapWithConcurrency(countries, 4, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
 
       let rows: RawService[];
@@ -460,7 +502,7 @@ export class SmsPoolProvider implements NumberProvider {
 
       const knownRows = rows.filter((row) => isKnownService(row.name));
 
-      const priced = await mapWithConcurrency(knownRows, 8, async (row) => {
+      const priced = await mapWithConcurrency(knownRows, 3, async (row) => {
         const service = this.toProviderService(row);
         try {
           const result = await this.call<{ price?: string | number }>(
@@ -573,6 +615,10 @@ export class SmsPoolProvider implements NumberProvider {
    * exactly this, not a change to what gets priced upfront for everyone.
    * Same per-pair /request/price call fetchOffers() uses, just scoped to
    * one already-known service id instead of every country's full listing.
+   * Concurrency kept modest for the same reason as fetchOffers(): too many
+   * requests in flight at once trips SMSPool's own rate limiting, which
+   * looks identical to genuine unavailability without the 429 retry in
+   * call() and silently drops real countries.
    */
   private async fetchOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
     const serviceId = await this.resolveServiceId(serviceSlug);
@@ -580,7 +626,7 @@ export class SmsPoolProvider implements NumberProvider {
 
     const countries = await this.cachedCountries();
 
-    const offers = await mapWithConcurrency(countries, 15, async (country) => {
+    const offers = await mapWithConcurrency(countries, 5, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
       try {
         const result = await this.call<{ price?: string | number }>(
