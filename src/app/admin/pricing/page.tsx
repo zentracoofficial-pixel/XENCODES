@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Banknote, Globe2, Percent, ShoppingBag } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { requireAdmin } from "@/lib/admin";
 import { getCatalog } from "@/lib/catalog";
 import { getProvider } from "@/lib/provider";
 import { readSettings, readNumber, SETTING_KEYS } from "@/lib/settings";
@@ -10,7 +11,16 @@ import { GlobalMarkupForm } from "./markup-form";
 
 export const metadata: Metadata = { title: "Admin: Pricing" };
 
+// Never statically prerendered. With a live provider connected, resolving
+// this page makes real outbound requests, which must never run at build
+// time: a slow one is exactly what timed out the Vercel build that added
+// SMSPool, since this page (unlike most admin pages) had no cookies()-using
+// call to already force it dynamic.
+export const dynamic = "force-dynamic";
+
 export default async function AdminPricingPage() {
+  await requireAdmin();
+
   const [catalog, settings, provider] = await Promise.all([
     getCatalog(),
     readSettings(),

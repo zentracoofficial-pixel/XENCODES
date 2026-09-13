@@ -2,13 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AlertTriangle, Banknote, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 
 export const metadata: Metadata = { title: "Admin: Refunds" };
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminRefundsPage() {
+  await requireAdmin();
+
   const [refunds, refundAgg, totalActivations, failedActivations] = await Promise.all([
     prisma.walletTransaction.findMany({
       where: { type: "REFUND" },

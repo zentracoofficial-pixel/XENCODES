@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertTriangle, CalendarClock, Mail, TrendingDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
@@ -10,12 +11,16 @@ import { StatTile } from "../stat-tile";
 
 export const metadata: Metadata = { title: "Admin: Support" };
 
+export const dynamic = "force-dynamic";
+
 const reasonMeta = {
   EXPIRED: { label: "No code received", variant: "danger" },
   CANCELLED: { label: "Customer cancelled", variant: "neutral" },
 } as const;
 
 export default async function AdminSupportPage() {
+  await requireAdmin();
+
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfWeek = new Date(startOfToday);

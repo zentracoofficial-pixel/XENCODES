@@ -3,16 +3,21 @@ import Link from "next/link";
 import { Search, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 
 export const metadata: Metadata = { title: "Admin: Users" };
+
+export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
+  await requireAdmin();
+
   const { q } = await searchParams;
   const query = q?.trim();
 

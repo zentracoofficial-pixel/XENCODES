@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { getProvider } from "@/lib/provider";
@@ -20,7 +21,14 @@ import { StatTile } from "./stat-tile";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
+// Never statically prerendered: this reads the database and, once a live
+// provider is connected, makes real outbound requests, neither of which
+// should run at build time.
+export const dynamic = "force-dynamic";
+
 export default async function AdminDashboardPage() {
+  await requireAdmin();
+
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 

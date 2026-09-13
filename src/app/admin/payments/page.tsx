@@ -9,12 +9,15 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { StatTile } from "../stat-tile";
 import type { WalletTransactionType } from "@/generated/prisma/client";
 
 export const metadata: Metadata = { title: "Admin: Payments" };
+
+export const dynamic = "force-dynamic";
 
 const typeMeta = {
   TOPUP: { label: "Top-up", icon: ArrowDownLeft, tone: "bg-success-soft text-success" },
@@ -36,6 +39,8 @@ export default async function AdminPaymentsPage({
 }: {
   searchParams: Promise<{ type?: string }>;
 }) {
+  await requireAdmin();
+
   const { type } = await searchParams;
   const activeFilter = filters.find((f) => f.value === type)?.value ?? "ALL";
 

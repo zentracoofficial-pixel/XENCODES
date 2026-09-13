@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Card } from "@/components/ui/card";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/provider";
 import { applyMarkup } from "@/lib/catalog";
@@ -9,7 +10,14 @@ import { CountryRow } from "./country-row";
 
 export const metadata: Metadata = { title: "Admin: Services" };
 
+// See admin/pricing/page.tsx: this page must never be statically
+// prerendered, since resolving it makes real outbound requests once a live
+// provider is connected.
+export const dynamic = "force-dynamic";
+
 export default async function AdminServicesPage() {
+  await requireAdmin();
+
   const provider = await getProvider();
 
   const [

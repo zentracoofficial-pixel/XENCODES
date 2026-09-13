@@ -3,12 +3,15 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import type { ActivationStatus } from "@/generated/prisma/client";
 
 export const metadata: Metadata = { title: "Admin: Orders" };
+
+export const dynamic = "force-dynamic";
 
 const statusVariant = {
   WAITING: "warning",
@@ -30,6 +33,8 @@ export default async function AdminOrdersPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
+  await requireAdmin();
+
   const { status } = await searchParams;
   const activeFilter = filters.find((f) => f.value === status)?.value ?? "ALL";
 
