@@ -46,10 +46,14 @@ function fingerprint(apiKey: string) {
  *    only way to price a (service, country) pair is one /request/price call
  *    each. SMSPool lists well over a thousand services across 144+
  *    countries, so pricing all of them would mean 250,000+ live calls on
- *    every cache refresh, which is not viable. This deliberately only
- *    prices KNOWN_SERVICE_NAMES below: real, confirmed SMSPool service
- *    names for the platforms customers actually search for, not an attempt
- *    at full coverage of SMSPool's catalog.
+ *    every cache refresh, which is not remotely viable - and even the
+ *    curated subset (see isCuratedService()) is bounded to
+ *    PRIORITY_COUNTRY_NAMES specifically because Vercel's Hobby plan
+ *    hard-caps one function invocation at 10 seconds; see that constant's
+ *    comment for the arithmetic. Every service outside the curated set,
+ *    and every country outside the priority list, is still fully real,
+ *    listed, and buyable - just priced live on demand (see
+ *    listOffersForService()) instead of upfront on every catalog refresh.
  * 3. /request/price does return `success_rate` (confirmed live: WhatsApp in
  *    the US returned `{"price":"1.44","high_price":"1.96","success_rate":71}`)
  *    but no stock-count field of any kind. An earlier version of this
@@ -117,10 +121,10 @@ function slugify(name: string) {
 // SMSPool often lists a service under a longer or combined name than the
 // short one curated in data/services.ts (confirmed live, see git history:
 // its real "Instagram / Threads" vs our curated "Instagram", "Twitter / X"
-// vs "X (Twitter)", and so on). Without this, those still get priced (they
-// are in KNOWN_SERVICE_NAMES below by their real name) but would silently
-// miss the brand colour already designed for them and show a plain grey
-// icon instead.
+// vs "X (Twitter)", and so on). isCuratedService() resolves through this
+// map before checking CURATED_BY_NAME, so these are still recognised as
+// curated and keep their designed brand colour instead of falling back to
+// a generic one.
 const REAL_NAME_TO_CURATED: Record<string, string> = {
   "instagram / threads": "instagram",
   "facebook / meta viewpoints": "facebook",
@@ -202,60 +206,47 @@ const EXTRA_BRANDED: Record<string, { color: string; category: string }> = {
 };
 
 // Real SMSPool service names, confirmed present in a live response (see git
-// history), worth pricing even without a curated brand colour of their own
-// (they get fallbackColorFor()/FALLBACK_CATEGORY via toProviderService,
-// same as any other uncurated name). Deliberately a top slice of
-// well-known consumer platforms, not an attempt at SMSPool's full
-// ~1800-service catalog: see the file header for why pricing everything
-// isn't viable.
-const KNOWN_SERVICE_NAMES = new Set([
-  "whatsapp", "telegram", "instagram / threads", "facebook / meta viewpoints",
-  "twitter / x", "tiktok/douyin", "discord", "snapchat", "google/gmail",
-  "google voice", "microsoft / microsoft rewards / outlook / bing", "apple",
-  "amazon / amazon web services", "netflix", "spotify", "uber / postmates",
-  "linkedin", "steam", "twitch", "openai / chatgpt", "tinder", "reddit",
-  "yahoo", "ebay", "airbnb", "doordash", "grubhub", "lyft", "signal", "line",
-  "line2", "viber", "wechat", "skype", "protonmail", "roblox", "epic games",
-  "nvidia", "adobe", "grindr", "hinge", "booking.com", "tripadvisor",
-  "shopify", "indeed", "upwork", "fiverr", "freelancer", "docusign",
-  "ringcentral", "dialpad", "messagebird", "twilio / sendgrid", "pinterest",
-  "badoo", "okcupid", "plenty of fish", "match / meetic / zweisam",
-  "coffee meets bagel", "happn", "meetme", "clubhouse", "kik", "imo",
-  "kakaotalk", "vk", "weibo", "baidu", "alibaba", "aliexpress", "taobao",
-  "shopee", "lazada", "tokopedia", "grab", "gojek", "bolt", "careem",
-  "olacabs", "didi", "walmart", "target", "bestbuy", "starbucks",
-  "burger king", "dunkindonuts", "chick-fil-a", "cocacola", "nike",
-  "adidas", "zara", "shein", "temu", "wish", "etsy", "poshmark", "depop",
-  "mercari", "offerup", "craigslist", "olx", "carousell", "vinted",
-  "truecaller", "yandex", "mailru", "instacart", "cvs", "walgreens",
-  "chipotle", "pubgmobile", "garena", "firebase", "gitlab", "cursor",
-  "perplexity", "claudeai / anthropic", "mistral ai", "yelp", "home depot",
-  "lowes", "publix", "vrbo", "xbox",
-]);
-
-function isKnownService(name: string) {
+// history). Deliberately just the ~40 curated services, not an attempt at
+// SMSPool's full ~1800-service catalog or even the broader "well-known
+// brands" list this used to include (see git history: a ~124-name
+// KNOWN_SERVICE_NAMES set). That larger list is what made the eager pass
+// too slow to finish inside Vercel's hard function-duration ceiling (see
+// PRIORITY_COUNTRY_NAMES below) - every service outside the curated set
+// is still fully real, listed, and buyable, just priced on demand instead
+// of upfront (see listOffersForService()).
+//
+// Resolves through REAL_NAME_TO_CURATED first because SMSPool often lists
+// a curated service under a longer or combined real name (its real
+// "Instagram / Threads" vs the curated "Instagram", and so on) - checking
+// CURATED_BY_NAME alone would silently miss most of them.
+function isCuratedService(name: string) {
   const key = name.trim().toLowerCase();
-  return CURATED_BY_NAME.has(key) || KNOWN_SERVICE_NAMES.has(key);
+  return CURATED_BY_NAME.has(REAL_NAME_TO_CURATED[key] ?? key);
 }
 
-// SMSPool's real /country/retrieve_all list runs to 144 countries. Eagerly
-// pricing every (known service x country) pair across all of them, even at
-// a gentle concurrency, adds up to enough sequential /request/price round
-// trips to exceed a single serverless function's execution budget - the
-// platform kills the whole request outright, which is worse than the rate
-// limiting this list is not about fixing (see fetchOffers() below). Names
-// are exactly as confirmed live from a real /country/retrieve_all response
-// (see file header): plain "Canada" and plain "Australia" do not exist in
-// SMSPool's catalog, only "Australia (Virtual)" does, so neither the misspelling
-// nor a guess belongs here.
+// SMSPool's real /country/retrieve_all list runs to 144 countries, and this
+// project runs on Vercel's Hobby tier, which hard-caps a single serverless
+// function at 10 seconds - a platform ceiling, not something maxDuration or
+// any code-level timeout can raise. That number is what actually sizes this
+// list, not a guess at "enough": eagerly pricing 40 curated services (see
+// isCuratedService()) across N countries is roughly N x 40 live
+// /request/price round trips, and at a concurrency gentle enough to not
+// trip SMSPool's own rate limiting (see call()'s 429 retry), 10 countries
+// comes out to a few seconds of real work - comfortably inside the 10s
+// ceiling with margin for the rest of the request. The 32-country version
+// this list used to be does not fit: the arithmetic (32 countries x up to
+// ~124 services, the size of a now-removed broader "well-known" list) came
+// to thousands of calls, which cannot finish in 10 seconds at any
+// concurrency low enough to avoid rate limiting - so every cold cache hit
+// timed out and silently served the bundled sample catalog instead, with
+// nothing in the UI to say so beyond the small "Development data" notice.
+// Names are exactly as confirmed live from a real /country/retrieve_all
+// response (see file header): plain "Canada" and plain "Australia" do not
+// exist in SMSPool's catalog, only "Australia (Virtual)" does.
 const PRIORITY_COUNTRY_NAMES = new Set(
   [
     "Nigeria", "United States", "United Kingdom", "Germany", "France",
-    "Netherlands", "Sweden", "Portugal", "Poland", "Ireland", "Spain",
-    "Italy", "Indonesia", "Vietnam", "Philippines", "India", "Malaysia",
-    "Turkey", "Pakistan", "Bangladesh", "Singapore", "Japan", "Kenya",
-    "Egypt", "Ghana", "South Africa", "Colombia", "Argentina", "Brazil",
-    "Chile", "Australia (Virtual)", "Jamaica",
+    "India", "Indonesia", "Brazil", "Philippines", "South Africa",
   ].map((name) => name.toLowerCase()),
 );
 
@@ -335,7 +326,7 @@ export class SmsPoolProvider implements NumberProvider {
    *  so both read from one cached call rather than two. */
   private readonly cachedRawServices: () => Promise<RawService[]>;
   /** On-demand pricing for one service at a time, cached per slug: how a
-   *  service outside KNOWN_SERVICE_NAMES still becomes buyable. See
+   *  service outside the curated eager set still becomes buyable. See
    *  listOffersForService(). unstable_cache folds the argument into its own
    *  cache key, so this stays one entry per distinct slug automatically. */
   private readonly cachedOffersForService: (
@@ -508,34 +499,25 @@ export class SmsPoolProvider implements NumberProvider {
   }
 
   /**
-   * One offer per (service, country) pair SMSPool can currently fulfil.
+   * One offer per (service, country) pair SMSPool can currently fulfil, for
+   * PRIORITY_COUNTRY_NAMES x the ~40 curated services only - see that
+   * constant's own comment for the arithmetic on why this stays small: it
+   * exists to make the homepage and instant search feel instant, not to
+   * carry the catalog's real breadth (that is listOffersForService()'s
+   * job, run per service on demand, unbounded by country).
    *
    * /service/retrieve_all?country=<id> confirmed live to carry no price
    * field at all (see file header) - it only says which services exist in
-   * that country. Pricing a pair is always a separate /request/price call,
-   * so this only prices KNOWN_SERVICE_NAMES, not everything the country
-   * lists, to keep total call volume bounded.
+   * that country. Pricing a pair is always a separate /request/price call.
    *
-   * Two things bound the total work here, for two different failure modes:
-   *
-   * - Concurrency: a plain sequential loop was slow enough to time out the
-   *   very first production build, but going too far the other way (10
-   *   countries x 8 services, up to 80 requests in flight) tripped
-   *   SMSPool's own rate limiting hard enough that most pairs came back
-   *   empty rather than priced - indistinguishable from genuine
-   *   unavailability without the 429 retry in call(), and that silently
-   *   dropped the large majority of real countries and services.
-   * - Total volume: lowering concurrency alone to fix the above just makes
-   *   the same total number of requests take longer in *series*, and doing
-   *   that across all 144 real countries made the whole eager pass run
-   *   long enough to hit the serverless function's own execution timeout -
-   *   which kills the request outright, before the in-code fallback in
-   *   resolveCatalog() ever gets a chance to return anything. So this pass
-   *   only eagerly prices PRIORITY_COUNTRY_NAMES (the markets that matter
-   *   for the homepage counts and instant search), not every country
-   *   SMSPool has. Every other country is still fully listable and
-   *   buyable via listOffersForService()'s on-demand path below, just not
-   *   pre-priced on every catalog resolve.
+   * Concurrency here is a second, independent constraint from total
+   * volume: a plain sequential loop was slow enough to time out the very
+   * first production build, but going too far the other way (10 countries
+   * x 8 services, up to 80 requests in flight) tripped SMSPool's own rate
+   * limiting hard enough that most pairs came back empty rather than
+   * priced - indistinguishable from genuine unavailability without the 429
+   * retry in call(). The numbers below are deliberately gentle on that
+   * axis independently of how small the total volume already is.
    */
   private async fetchOffers(): Promise<ProviderOffer[]> {
     const allCountries = await this.cachedCountries();
@@ -543,7 +525,7 @@ export class SmsPoolProvider implements NumberProvider {
       PRIORITY_COUNTRY_NAMES.has(country.name.trim().toLowerCase()),
     );
 
-    const perCountry = await mapWithConcurrency(countries, 6, async (country) => {
+    const perCountry = await mapWithConcurrency(countries, 4, async (country) => {
       const countryId = country.slug.replace(/^sp-/, "");
 
       let rows: RawService[];
@@ -557,9 +539,9 @@ export class SmsPoolProvider implements NumberProvider {
         return [] as ProviderOffer[];
       }
 
-      const knownRows = rows.filter((row) => isKnownService(row.name));
+      const knownRows = rows.filter((row) => isCuratedService(row.name));
 
-      const priced = await mapWithConcurrency(knownRows, 4, async (row) => {
+      const priced = await mapWithConcurrency(knownRows, 5, async (row) => {
         const service = this.toProviderService(row);
         try {
           const result = await this.call<RawPrice>("/request/price", {

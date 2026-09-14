@@ -25,13 +25,25 @@ export function revalidateCatalog() {
  * This matters most right after a fresh deploy or right after the
  * provider-level cache in smspool.ts turns over (every 45 minutes): the
  * very first request to land in that window is the one that pays for a
- * full live resolution, and if SMSPool happens to be slow at that exact
- * moment, that one request was at risk of taking the whole page down with
- * it rather than just showing slightly stale or sample data. Racing the
- * live call against this budget turns "occasionally times out with
- * nothing rendered" into "occasionally serves sample data for one
- * request", which is the graceful degradation resolveCatalog() was always
- * supposed to guarantee.
+ * full live resolution, and if SMSPool happens to be unusually slow at
+ * that exact moment, that one request was at risk of taking the whole
+ * page down with it rather than just showing slightly stale or sample
+ * data. Racing the live call against this budget turns "occasionally
+ * times out with nothing rendered" into "occasionally serves sample data
+ * for one request", which is the graceful degradation resolveCatalog()
+ * was always supposed to guarantee.
+ *
+ * This is a backstop against SMSPool itself being slow, not the thing
+ * sizing how much work fetchOffers() does: an earlier version of this
+ * pass tried to eagerly price 32 countries against a ~124-name service
+ * list, which is thousands of live calls and could never finish in 8
+ * seconds regardless of this constant - it hit this timeout on every
+ * single cold cache, permanently serving the sample catalog. The real
+ * fix was shrinking that workload (see PRIORITY_COUNTRY_NAMES and
+ * isCuratedService() in smspool.ts) until it reliably finishes in a
+ * couple of seconds; this budget only needs to catch the genuinely
+ * unusual case of SMSPool itself being slow to answer that small a
+ * workload.
  */
 const LIVE_PROVIDER_BUDGET_MS = 8000;
 
@@ -105,8 +117,8 @@ export function applyMarkup(priceNaira: number, percent: number) {
  * on /admin/services (which always wins, same pattern as
  * DEFAULT_GLOBAL_MARKUP_PERCENT). This is not derived from live SMSPool
  * cost data - there is no way to fetch every service's real cost without
- * pricing the entire catalog, which is exactly what KNOWN_SERVICE_NAMES in
- * smspool.ts avoids. It is a defensible starting heuristic instead: more
+ * pricing the entire catalog, which is exactly what the curated eager set
+ * in smspool.ts avoids. It is a defensible starting heuristic instead: more
  * margin on identity-critical categories a customer needs urgently and
  * shops around for less (social/messaging, finance/crypto - PayPal,
  * Binance, Wise and the like, for KYC and account recovery), a smaller
@@ -298,7 +310,8 @@ export async function getOffer(serviceSlug: string, countrySlug: string) {
  * price attached. Cheap: provider.listServices() is already cached at the
  * provider layer. Used by the /services directory to show the provider's
  * real full catalog, not only the smaller eagerly-priced subset getCatalog()
- * computes (see SmsPoolProvider's KNOWN_SERVICE_NAMES).
+ * computes (see SmsPoolProvider's isCuratedService() and
+ * PRIORITY_COUNTRY_NAMES).
  */
 export async function getAllServices(): Promise<ProviderService[]> {
   const [provider, serviceSettings] = await Promise.all([

@@ -31,7 +31,7 @@ export default async function ServicesPage() {
   // country count. Everything else the provider lists still shows up, just
   // without a price until a customer actually selects it on /buy: pricing
   // all of the provider's full catalog up front is not viable (see
-  // SmsPoolProvider's KNOWN_SERVICE_NAMES), but that no longer means most of
+  // SmsPoolProvider's isCuratedService()), but that no longer means most of
   // it is invisible.
   const directory: DirectoryEntry[] = allServices.map((service) => {
     const withPrice = pricedBySlug.get(service.slug);
