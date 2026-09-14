@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatNaira } from "@/lib/currency";
-import { purchaseNumberAction, type PurchaseError } from "./actions";
+import {
+  purchaseNumberAction,
+  type PurchaseError,
+} from "@/app/(marketing)/buy/actions";
 
 /**
  * The dedicated buy interface: search the provider's full catalog, pick a
@@ -40,6 +43,7 @@ interface ServiceOption {
   name: string;
   color: string;
   category: string;
+  popular?: boolean;
 }
 
 interface CountryOption {
@@ -71,11 +75,17 @@ export function BuyPanel({
   initialServiceSlug,
   signedIn,
   walletBalanceKobo,
+  basePath = "/buy",
+  walletHref = "/dashboard/wallet",
 }: {
   initialServices: ServiceOption[];
   initialServiceSlug?: string;
   signedIn: boolean;
   walletBalanceKobo: number;
+  /** Where an activation is shown once bought. The dashboard keeps the
+   *  customer inside its own shell, the public route does not. */
+  basePath?: string;
+  walletHref?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -204,7 +214,7 @@ export function BuyPanel({
     if (!service || !country || priceKobo === undefined) return;
 
     if (!signedIn) {
-      router.push(`/login?callbackUrl=/buy?service=${service.slug}`);
+      router.push(`/login?callbackUrl=${encodeURIComponent(`${basePath}?service=${service.slug}`)}`);
       return;
     }
 
@@ -232,16 +242,19 @@ export function BuyPanel({
       }
 
       if (result.activationId) {
-        router.push(`/buy?activation=${result.activationId}`);
+        router.push(`${basePath}?activation=${result.activationId}`);
         router.refresh();
       }
     });
   }
 
+  // The server returns popular services first, so grouping is a matter of
+  // labelling the run rather than reordering anything here.
   const serviceOptions: ComboboxOption[] = services.map((item) => ({
     value: item.slug,
     label: item.name,
     hint: item.category,
+    group: item.popular ? "Popular services" : "All services",
     leading: (
       <ServiceLogo
         slug={item.slug}
@@ -324,7 +337,7 @@ export function BuyPanel({
               {formatNaira(walletBalanceKobo)}
             </span>
             <Link
-              href="/dashboard/wallet"
+              href={walletHref}
               className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
             >
               Add funds
@@ -335,7 +348,7 @@ export function BuyPanel({
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-mint-soft px-4 py-3">
           <p className="text-sm text-forest">Log in to buy a number.</p>
           <span className="flex gap-2">
-            <Button href="/login?callbackUrl=/buy" size="sm" variant="outline">
+            <Button href={`/login?callbackUrl=${encodeURIComponent(basePath)}`} size="sm" variant="outline">
               Log in
             </Button>
             <Button href="/register" size="sm">
@@ -429,7 +442,7 @@ export function BuyPanel({
             Add {formatNaira(priceKobo - walletBalanceKobo)} to your wallet to
             buy this number.
           </p>
-          <Button href="/dashboard/wallet" size="sm" variant="outline">
+          <Button href={walletHref} size="sm" variant="outline">
             Add funds
           </Button>
         </div>

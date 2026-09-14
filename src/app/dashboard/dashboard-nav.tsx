@@ -17,7 +17,7 @@ import { logoutAction } from "./actions";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/buy", label: "Buy Number", icon: Plus },
+  { href: "/dashboard/buy", label: "Buy Number", icon: Plus },
   { href: "/dashboard/history", label: "History", icon: Clock3 },
   { href: "/dashboard/wallet", label: "Wallet", icon: Wallet },
   { href: "/dashboard/support", label: "Support", icon: LifeBuoy },

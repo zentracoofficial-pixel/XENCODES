@@ -41,7 +41,7 @@ export default async function HistoryPage() {
             Once you buy your first number it will appear here with its code and
             status.
           </p>
-          <Button href="/buy" className="mt-5">
+          <Button href="/dashboard/buy" className="mt-5">
             Get a Number
           </Button>
         </div>

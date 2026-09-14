@@ -3,11 +3,13 @@ import Link from "next/link";
 import {
   ArrowDownLeft,
   Banknote,
+  Hourglass,
   RotateCcw,
   ShoppingBag,
   Sparkles,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +26,13 @@ const typeMeta = {
   PURCHASE: { label: "Purchase", icon: ShoppingBag, tone: "bg-background text-foreground" },
   REFUND: { label: "Refund", icon: RotateCcw, tone: "bg-warning-soft text-warning" },
   ADJUSTMENT: { label: "Adjustment", icon: Sparkles, tone: "bg-mint-soft text-forest" },
+} as const;
+
+const STATUS_VARIANT = {
+  PENDING: "warning",
+  SUCCESSFUL: "success",
+  FAILED: "danger",
+  CANCELLED: "neutral",
 } as const;
 
 const filters: { label: string; value: WalletTransactionType | "ALL" }[] = [
@@ -44,22 +53,44 @@ export default async function AdminPaymentsPage({
   const { type } = await searchParams;
   const activeFilter = filters.find((f) => f.value === type)?.value ?? "ALL";
 
-  const [transactions, purchaseAgg, refundAgg, topupAgg] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where: activeFilter === "ALL" ? undefined : { type: activeFilter },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.walletTransaction.aggregate({ where: { type: "PURCHASE" }, _sum: { amountKobo: true } }),
-    prisma.walletTransaction.aggregate({ where: { type: "REFUND" }, _sum: { amountKobo: true } }),
-    prisma.walletTransaction.aggregate({ where: { type: "TOPUP" }, _sum: { amountKobo: true } }),
-  ]);
+  // Every total here counts settled money only. A pending top up is money
+  // that has been asked for, not received, and adding it to "topped up"
+  // would overstate what the platform actually holds.
+  const settled = { status: "SUCCESSFUL" as const };
+
+  const [transactions, purchaseAgg, refundAgg, topupAgg, pendingAgg] =
+    await Promise.all([
+      prisma.walletTransaction.findMany({
+        where: activeFilter === "ALL" ? undefined : { type: activeFilter },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        include: { user: { select: { email: true } } },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { type: "PURCHASE", ...settled },
+        _sum: { amountKobo: true },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { type: "REFUND", ...settled },
+        _sum: { amountKobo: true },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { type: "TOPUP", ...settled },
+        _sum: { amountKobo: true },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { type: "TOPUP", status: "PENDING" },
+        _sum: { amountKobo: true },
+        _count: true,
+      }),
+    ]);
 
   const grossKobo = Math.abs(purchaseAgg._sum.amountKobo ?? 0);
   const refundedKobo = refundAgg._sum.amountKobo ?? 0;
   const netRevenueKobo = grossKobo - refundedKobo;
   const toppedUpKobo = topupAgg._sum.amountKobo ?? 0;
+  const pendingKobo = pendingAgg._sum.amountKobo ?? 0;
+  const pendingCount = pendingAgg._count;
 
   return (
     <div className="space-y-6">
@@ -73,8 +104,18 @@ export default async function AdminPaymentsPage({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Gross revenue" value={formatNaira(grossKobo)} icon={ShoppingBag} />
         <StatTile label="Net revenue" value={formatNaira(netRevenueKobo)} hint="Purchases minus refunds" icon={Banknote} tone="success" />
-        <StatTile label="Refunded" value={formatNaira(refundedKobo)} icon={RotateCcw} />
-        <StatTile label="Topped up" value={formatNaira(toppedUpKobo)} icon={ArrowDownLeft} />
+        <StatTile
+          label="Topped up"
+          value={formatNaira(toppedUpKobo)}
+          hint="Confirmed payments only"
+          icon={ArrowDownLeft}
+        />
+        <StatTile
+          label="Awaiting payment"
+          value={formatNaira(pendingKobo)}
+          hint={`${pendingCount} pending ${pendingCount === 1 ? "request" : "requests"}`}
+          icon={Hourglass}
+        />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -116,12 +157,35 @@ export default async function AdminPaymentsPage({
                       {" "}· {tx.description}
                     </p>
                   </div>
+                  {/* Who is moving the money and under what reference, so a
+                      payment can be traced back to the provider's own
+                      dashboard when something needs reconciling. */}
+                  <div className="hidden w-44 shrink-0 lg:block">
+                    <p className="truncate text-xs text-muted-foreground">
+                      {tx.provider ?? "Internal"}
+                    </p>
+                    {tx.providerReference ? (
+                      <p className="truncate font-mono text-[11px] text-muted-foreground">
+                        {tx.providerReference}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Badge variant={STATUS_VARIANT[tx.status]}>{tx.status}</Badge>
                   <time className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:block">
                     {tx.createdAt.toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                   </time>
-                  <span className={cn("shrink-0 text-sm font-semibold tabular-nums", credit ? "text-success" : "text-foreground")}>
-                    {credit ? "+" : "-"}
-                    {formatNaira(Math.abs(tx.amountKobo))}
+                  <span
+                    className={cn(
+                      "w-28 shrink-0 text-right text-sm font-semibold tabular-nums",
+                      tx.status !== "SUCCESSFUL"
+                        ? "text-muted-foreground"
+                        : credit
+                          ? "text-success"
+                          : "text-foreground",
+                    )}
+                  >
+                    {tx.status === "SUCCESSFUL" ? (credit ? "+" : "-") : ""}
+                    {tx.currency} {formatNaira(Math.abs(tx.amountKobo)).replace(/^₦/, "")}
                   </span>
                 </li>
               );

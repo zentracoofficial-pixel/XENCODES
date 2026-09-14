@@ -23,6 +23,11 @@ export interface ComboboxOption {
   trailing?: React.ReactNode;
   /** Second line under the label. */
   hint?: string;
+  /** Optional section this option belongs under, for example "Popular
+   *  services". Options are rendered in the order given, and a heading is
+   *  drawn each time the group changes, so the caller controls grouping by
+   *  ordering rather than by nesting arrays. */
+  group?: string;
 }
 
 export function Combobox({
@@ -189,6 +194,11 @@ export function Combobox({
               >
                 {options.map((option, index) => (
                   <li key={option.value}>
+                    {option.group && option.group !== options[index - 1]?.group ? (
+                      <p className="px-3.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {option.group}
+                      </p>
+                    ) : null}
                     <button
                       type="button"
                       ref={(el) => {

@@ -41,7 +41,7 @@ export default async function DashboardPage() {
             Your balance, your current number and what you have verified.
           </p>
         </div>
-        <Button href="/buy">
+        <Button href="/dashboard/buy">
           <Plus className="h-4 w-4" />
           Buy Number
         </Button>
@@ -74,7 +74,7 @@ export default async function DashboardPage() {
         <h2 className="text-sm font-semibold">Current activation</h2>
         {current ? (
           <Link
-            href={`/buy?activation=${current.id}`}
+            href={`/dashboard/buy?activation=${current.id}`}
             className="mt-3 flex items-center gap-3.5 rounded-xl border border-mint bg-mint-soft px-4 py-3.5 transition-colors hover:bg-mint-soft/70"
           >
             <ActivationLogo
@@ -100,7 +100,7 @@ export default async function DashboardPage() {
             <p className="text-sm text-muted-foreground">
               No number is active. Buy one to receive a code.
             </p>
-            <Button href="/buy" size="sm" variant="outline">
+            <Button href="/dashboard/buy" size="sm" variant="outline">
               Get a Number
             </Button>
           </div>

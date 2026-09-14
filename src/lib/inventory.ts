@@ -20,11 +20,56 @@ import { loadMarkupRules, quoteFor, type PriceQuote } from "@/lib/pricing";
 
 const SERVICE_RESULT_LIMIT = 40;
 
+/**
+ * The services customers ask for most, listed first so they do not have to
+ * be searched for.
+ *
+ * This is a discoverability hint, not a catalog. Each entry is matched
+ * against whatever the live provider actually returns, by slug: a slug
+ * here that SMSPool does not currently offer simply never appears, and no
+ * service is ever shown that the provider cannot sell. Everything outside
+ * this list stays fully searchable.
+ *
+ * Ordered, not alphabetical, because the order is the point.
+ */
+const POPULAR_SERVICE_SLUGS = [
+  "whatsapp",
+  "instagram",
+  "facebook",
+  "telegram",
+  "google",
+  "tiktok",
+  "x",
+  "discord",
+  "signal",
+  "fiverr",
+  "snapchat",
+  "microsoft",
+  "amazon",
+  "paypal",
+  "uber",
+  "airbnb",
+] as const;
+
+const POPULAR_RANK = new Map(
+  POPULAR_SERVICE_SLUGS.map((slug, index) => [slug as string, index]),
+);
+
+/**
+ * A service as the buy flow sees it.
+ *
+ * Note what is absent: the provider's own service id. That stays server
+ * side, resolved from the slug when a purchase is made, so the browser
+ * never handles provider identifiers and the mapping between our slug and
+ * SMSPool's id can change without touching the client.
+ */
 export interface InventoryService {
   slug: string;
   name: string;
   color: string;
   category: string;
+  /** True when this is one of the commonly requested services above. */
+  popular: boolean;
 }
 
 export interface InventoryCountry {
@@ -63,25 +108,41 @@ export async function searchServices(
   );
 
   const q = query.trim().toLowerCase();
+  // Match on the slug as well as the display name: SMSPool lists several
+  // services under compound names ("Instagram / Threads", "Google/Gmail"),
+  // and someone typing "google" should find that row.
   const matches = q
-    ? services.filter((service) => service.name.toLowerCase().includes(q))
+    ? services.filter(
+        (service) =>
+          service.name.toLowerCase().includes(q) || service.slug.includes(q),
+      )
     : services;
 
-  // A name that starts with the query is almost always the one being
-  // typed towards, so surface those before mid-word matches.
-  const ranked = q
-    ? [...matches].sort((a, b) => {
-        const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
-        return aStarts - bStarts || a.name.localeCompare(b.name);
-      })
-    : [...matches].sort((a, b) => a.name.localeCompare(b.name));
+  const rankOf = (slug: string) => POPULAR_RANK.get(slug) ?? Infinity;
+
+  const ranked = [...matches].sort((a, b) => {
+    // Popular services lead, in their configured order, both when
+    // browsing and when searching.
+    const byPopularity = rankOf(a.slug) - rankOf(b.slug);
+    if (byPopularity !== 0 && Number.isFinite(Math.min(rankOf(a.slug), rankOf(b.slug)))) {
+      return byPopularity;
+    }
+    if (q) {
+      // Then whatever starts with what was typed, which is nearly always
+      // the thing being typed towards.
+      const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+      const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+    }
+    return a.name.localeCompare(b.name);
+  });
 
   return ranked.slice(0, limit).map((service) => ({
     slug: service.slug,
     name: service.name,
     color: service.color,
     category: service.category,
+    popular: POPULAR_RANK.has(service.slug),
   }));
 }
 
@@ -209,5 +270,6 @@ export async function getServiceMeta(
     name: service.name,
     color: service.color,
     category: service.category,
+    popular: POPULAR_RANK.has(service.slug),
   };
 }

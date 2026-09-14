@@ -20,6 +20,13 @@ const typeMeta = {
   ADJUSTMENT: { label: "Account adjustment", icon: Sparkles },
 } as const;
 
+const STATUS_WORDING = {
+  PENDING: "awaiting payment",
+  SUCCESSFUL: "completed",
+  FAILED: "payment failed",
+  CANCELLED: "cancelled",
+} as const;
+
 const dateFormat: Intl.DateTimeFormatOptions = {
   day: "numeric",
   month: "short",
@@ -77,7 +84,11 @@ export default async function WalletPage() {
           <ul className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {transactions.map((tx) => {
               const meta = typeMeta[tx.type];
-              const credit = tx.amountKobo >= 0;
+              // Only a settled credit is styled as money gained. A pending
+              // top up is shown in the muted style, because reading it as
+              // a green "+" would suggest a balance that has not moved.
+              const settled = tx.status === "SUCCESSFUL";
+              const credit = tx.amountKobo >= 0 && settled;
               return (
                 <li key={tx.id} className="flex items-center gap-3.5 px-4 py-3">
                   <span
@@ -93,7 +104,9 @@ export default async function WalletPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{meta.label}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {tx.description}
+                      {tx.status === "SUCCESSFUL"
+                        ? tx.description
+                        : `${tx.description}, ${STATUS_WORDING[tx.status]}`}
                     </p>
                   </div>
 
@@ -108,10 +121,12 @@ export default async function WalletPage() {
                     className={
                       credit
                         ? "shrink-0 text-sm font-semibold tabular-nums text-success"
-                        : "shrink-0 text-sm font-semibold tabular-nums"
+                        : settled
+                          ? "shrink-0 text-sm font-semibold tabular-nums"
+                          : "shrink-0 text-sm font-semibold tabular-nums text-muted-foreground"
                     }
                   >
-                    {credit ? "+" : "-"}
+                    {settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
                     {formatNaira(Math.abs(tx.amountKobo))}
                   </span>
                 </li>

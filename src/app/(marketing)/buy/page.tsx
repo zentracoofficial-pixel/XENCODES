@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
 import { Container } from "@/components/ui/container";
 import { searchServices, getServiceMeta } from "@/lib/inventory";
-import { BuyPanel } from "./buy-panel";
-import { ActivationView } from "./activation-view";
+import { BuyPanel } from "@/components/product/buy-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -23,50 +22,22 @@ export default async function BuyPage({
   const { service: serviceSlug, activation: activationId } = await searchParams;
   const session = await auth();
 
-  // An activation in progress takes over the page: the customer's number
-  // and code matter more than the form that produced them.
-  if (activationId && session?.user?.id) {
-    const row = await prisma.activation.findFirst({
-      where: { id: activationId, userId: session.user.id },
-    });
-
-    if (row) {
-      const meta = await getServiceMeta(row.serviceSlug);
-      return (
-        <Container className="py-10 sm:py-14">
-          <ActivationView
-            activation={{
-              id: row.id,
-              serviceSlug: row.serviceSlug,
-              serviceName: row.serviceName,
-              serviceColor: meta?.color ?? "#063B2D",
-              countryName: row.countryName,
-              flag: "",
-              phoneNumber: row.phoneNumber,
-              priceKobo: row.priceKobo,
-              status: row.status,
-              code: row.code,
-              expiresAt: row.expiresAt.toISOString(),
-            }}
-          />
-        </Container>
-      );
-    }
+  // A signed-in customer belongs in the dashboard, not on the marketing
+  // site. This route stays for visitors who have not signed in yet, and
+  // for the header's own Get a Number link, but anyone with an account is
+  // sent to the dashboard version so buying never drops them back out
+  // into the public site.
+  if (session?.user?.id) {
+    const params = new URLSearchParams();
+    if (serviceSlug) params.set("service", serviceSlug);
+    if (activationId) params.set("activation", activationId);
+    const query = params.toString();
+    redirect(query ? `/dashboard/buy?${query}` : "/dashboard/buy");
   }
 
   // The first page of services, so the picker is useful before a single
   // keystroke. Everything past this comes from the search endpoint.
-  const [initialServices, walletBalanceKobo] = await Promise.all([
-    searchServices("").catch(() => []),
-    session?.user?.id
-      ? prisma.user
-          .findUnique({
-            where: { id: session.user.id },
-            select: { walletBalanceKobo: true },
-          })
-          .then((row) => row?.walletBalanceKobo ?? 0)
-      : Promise.resolve(0),
-  ]);
+  const initialServices = await searchServices("").catch(() => []);
 
   // A deep link to a service that is not on the first page still needs to
   // arrive selected, so fetch that one on its own.
@@ -78,11 +49,13 @@ export default async function BuyPage({
 
   return (
     <Container className="py-10 sm:py-14">
+      {/* Only reached when signed out, so there is no wallet to show and
+          the panel's own prompts point at logging in. */}
       <BuyPanel
         initialServices={services}
         initialServiceSlug={serviceSlug}
-        signedIn={Boolean(session?.user?.id)}
-        walletBalanceKobo={walletBalanceKobo}
+        signedIn={false}
+        walletBalanceKobo={0}
       />
     </Container>
   );

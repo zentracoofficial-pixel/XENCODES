@@ -116,6 +116,15 @@ enum WalletTransactionType {
   ADJUSTMENT
 }
 
+enum WalletTransactionStatus {
+  /// Money has been asked for but not received. A pending row must never
+  /// have contributed to the user's balance.
+  PENDING
+  SUCCESSFUL
+  FAILED
+  CANCELLED
+}
+
 model WalletTransaction {
   id          String                @id @default(cuid())
   userId      String
@@ -123,9 +132,29 @@ model WalletTransaction {
   type        WalletTransactionType
   amountKobo Int
   description String
+  /// ISO 4217. Stored per row rather than assumed globally so a future
+  /// second currency does not silently reinterpret old rows.
+  currency    String                @default("NGN")
+  /// Defaults to SUCCESSFUL because every row that existed before funding
+  /// was introduced was an already-settled purchase, refund or adjustment.
+  /// Only a top-up ever starts life PENDING.
+  status      WalletTransactionStatus @default(SUCCESSFUL)
+  /// The payment provider that owns this movement, for example "korapay".
+  /// Null for internal movements like a purchase or an admin adjustment.
+  provider    String?
+  /// Our reference, generated before the provider is called and passed to
+  /// it, so a webhook arriving later can be matched back to this exact row.
+  /// Unique because it is what makes crediting idempotent.
+  providerReference String?         @unique
+  /// The provider's own id for the payment, recorded once it is known.
+  providerTransactionId String?
+  /// When the money actually landed, as distinct from when it was asked for.
+  completedAt DateTime?
+  failureReason String?
   createdAt   DateTime              @default(now())
 
   @@index([userId])
+  @@index([status])
   @@map("wallet_transactions")
 }
 
