@@ -5,9 +5,11 @@ import {
   Banknote,
   CheckCircle2,
   Radio,
+  Receipt,
   RotateCcw,
   ShoppingBag,
   Smartphone,
+  TrendingUp,
   Users,
   XCircle,
 } from "lucide-react";
@@ -46,7 +48,9 @@ export default async function AdminDashboardPage() {
     prisma.user.count(),
     prisma.activation.count({ where: { createdAt: { gte: startOfToday } } }),
     prisma.activation.count({ where: { status: "RECEIVED" } }),
-    prisma.activation.count({ where: { status: { in: ["EXPIRED", "CANCELLED"] } } }),
+    prisma.activation.count({
+      where: { status: { in: ["EXPIRED", "CANCELLED", "REFUNDED"] } },
+    }),
     prisma.activation.count(),
     prisma.activation.count({ where: { status: "WAITING" } }),
     prisma.walletTransaction.aggregate({
@@ -60,9 +64,22 @@ export default async function AdminDashboardPage() {
     prisma.activation.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
   ]);
 
+  // Margin is measured over orders that actually stood, not every order
+  // ever placed: a refunded activation returns the customer's money, so
+  // counting its markup as earned would overstate what the business kept.
+  const keptOrders = await prisma.activation.aggregate({
+    where: { status: "RECEIVED" },
+    _sum: { priceKobo: true, providerCostKobo: true, markupKobo: true },
+  });
+
   const grossKobo = Math.abs(purchaseAgg._sum.amountKobo ?? 0);
   const refundedKobo = refundAgg._sum.amountKobo ?? 0;
   const netRevenueKobo = grossKobo - refundedKobo;
+  const providerCostKobo = keptOrders._sum.providerCostKobo ?? 0;
+  const grossMarginKobo = keptOrders._sum.markupKobo ?? 0;
+  const soldKobo = keptOrders._sum.priceKobo ?? 0;
+  const marginPercent =
+    soldKobo > 0 ? Math.round((grossMarginKobo / soldKobo) * 100) : 0;
   const successRate = totalActivations
     ? Math.round((successful / totalActivations) * 100)
     : 0;
@@ -98,6 +115,19 @@ export default async function AdminDashboardPage() {
           value={formatNaira(netRevenueKobo)}
           hint="Purchases minus refunds"
           icon={Banknote}
+        />
+        <StatTile
+          label="Provider cost"
+          value={formatNaira(providerCostKobo)}
+          hint="What SMSPool billed on delivered orders"
+          icon={Receipt}
+        />
+        <StatTile
+          label="Gross margin"
+          value={formatNaira(grossMarginKobo)}
+          hint={`${marginPercent}% of delivered sales`}
+          icon={TrendingUp}
+          tone={grossMarginKobo > 0 ? "success" : undefined}
         />
         <StatTile
           label="Refunded"

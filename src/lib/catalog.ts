@@ -1,6 +1,6 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { SETTING_KEYS, DEFAULT_GLOBAL_MARKUP_PERCENT } from "@/lib/settings";
+import { loadMarkupRules, quoteFor } from "@/lib/pricing";
 import { getProvider, developmentProvider } from "@/lib/provider";
 import type { ProviderCountry, ProviderService, ProviderOffer, StockLevel } from "@/lib/provider";
 
@@ -105,49 +105,18 @@ export interface Catalog {
   providerLabel: string;
 }
 
-/** Keeps marked up prices on tidy 5 Naira steps. */
-export function applyMarkup(priceNaira: number, percent: number) {
-  if (!percent) return priceNaira;
-  return Math.round((priceNaira * (100 + percent)) / 100 / 5) * 5;
-}
-
-/**
- * A starting per-category markup bonus, stacked on top of the global
- * percent, applied only until an admin sets an explicit per-service value
- * on /admin/services (which always wins, same pattern as
- * DEFAULT_GLOBAL_MARKUP_PERCENT). This is not derived from live SMSPool
- * cost data - there is no way to fetch every service's real cost without
- * pricing the entire catalog, which is exactly what the curated eager set
- * in smspool.ts avoids. It is a defensible starting heuristic instead: more
- * margin on identity-critical categories a customer needs urgently and
- * shops around for less (social/messaging, finance/crypto - PayPal,
- * Binance, Wise and the like, for KYC and account recovery), a smaller
- * bump on categories with some urgency but more alternatives, and none on
- * commodity or long-tail categories where staying competitive matters more
- * than squeezing margin.
- */
-const CATEGORY_MARKUP_BONUS: Record<string, number> = {
-  "Social & Messaging": 10,
-  "Finance & Crypto": 10,
-  "Dating": 5,
-  "Marketplaces & Freelance": 5,
-  "Developer & Cloud": 5,
-  "Entertainment": 0,
-  "Travel & Delivery": 0,
-  "Other": 0,
-};
-
-export function defaultServiceMarkupBonus(category: string) {
-  return CATEGORY_MARKUP_BONUS[category] ?? 0;
-}
+// Pricing lives in one place now, src/lib/pricing.ts. Re-exported here so
+// the pages that already import these keep working, but nothing in this
+// file computes a customer price itself any more: it asks quoteFor().
+export { defaultServiceMarkupBonus } from "@/lib/pricing";
 
 async function resolveCatalog(): Promise<Catalog> {
   const provider = await getProvider();
 
-  const [serviceSettings, countrySettings, markupRow] = await Promise.all([
+  const [serviceSettings, countrySettings, markupRules] = await Promise.all([
     prisma.serviceSetting.findMany(),
     prisma.countrySetting.findMany(),
-    prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
+    loadMarkupRules(),
   ]);
 
   let providerServices: ProviderService[];
@@ -180,12 +149,6 @@ async function resolveCatalog(): Promise<Catalog> {
 
   const serviceSettingBySlug = new Map(serviceSettings.map((s) => [s.slug, s]));
   const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
-  // No row yet means no admin has ever touched this: apply the starting
-  // default rather than accidentally selling at cost. Once a row exists
-  // (even "0"), it always wins over the default.
-  const globalMarkupPercent = markupRow
-    ? Number(markupRow.value) || 0
-    : DEFAULT_GLOBAL_MARKUP_PERCENT;
 
   const countryBySlug = new Map(providerCountries.map((c) => [c.slug, c]));
   const disabledCountries = new Set(
@@ -206,15 +169,17 @@ async function resolveCatalog(): Promise<Catalog> {
   const services: CatalogService[] = providerServices
     .filter((service) => serviceSettingBySlug.get(service.slug)?.enabled !== false)
     .map((service) => {
-      const markup =
-        globalMarkupPercent +
-        (serviceSettingBySlug.get(service.slug)?.markupPercent ??
-          defaultServiceMarkupBonus(service.category));
-
       const offers: CatalogOffer[] = (offersByService.get(service.slug) ?? [])
         .flatMap((offer) => {
           const country = countryBySlug.get(offer.countrySlug);
           if (!country) return [];
+
+          const quote = quoteFor(markupRules, offer.costKobo, {
+            serviceSlug: service.slug,
+            countrySlug: offer.countrySlug,
+            category: service.category,
+          });
+
           return [
             {
               countrySlug: country.slug,
@@ -222,7 +187,7 @@ async function resolveCatalog(): Promise<Catalog> {
               flag: country.flag,
               dialCode: country.dialCode,
               nationalDigits: country.nationalDigits,
-              priceNaira: applyMarkup(offer.priceNaira, markup),
+              priceNaira: quote.customerPriceKobo / 100,
               stock: offer.stock,
               stockCount: offer.stockCount,
               avgDeliverySeconds: offer.avgDeliverySeconds,
@@ -275,7 +240,7 @@ async function resolveCatalog(): Promise<Catalog> {
     countries,
     categories: Array.from(new Set(services.map((s) => s.category))).sort(),
     floorNaira: floors.length ? Math.min(...floors) : 0,
-    globalMarkupPercent,
+    globalMarkupPercent: markupRules.globalPercent,
     isLive,
     providerLabel,
   };
@@ -358,14 +323,14 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
   let countries: ProviderCountry[];
   let serviceSettings: Awaited<ReturnType<typeof prisma.serviceSetting.findMany>>;
   let countrySettings: Awaited<ReturnType<typeof prisma.countrySetting.findMany>>;
-  let markupRow: Awaited<ReturnType<typeof prisma.setting.findUnique>>;
+  let markupRules: Awaited<ReturnType<typeof loadMarkupRules>>;
   try {
-    [allServices, serviceSettings, countrySettings, markupRow, countries] = await withTimeout(
+    [allServices, serviceSettings, countrySettings, markupRules, countries] = await withTimeout(
       Promise.all([
         provider.listServices(),
         prisma.serviceSetting.findMany(),
         prisma.countrySetting.findMany(),
-        prisma.setting.findUnique({ where: { key: SETTING_KEYS.globalMarkupPercent } }),
+        loadMarkupRules(),
         provider.listCountries(),
       ]),
       LIVE_PROVIDER_BUDGET_MS,
@@ -400,12 +365,6 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
 
   const countrySettingBySlug = new Map(countrySettings.map((c) => [c.slug, c]));
   const countryBySlug = new Map(countries.map((c) => [c.slug, c]));
-  const globalMarkupPercent = markupRow
-    ? Number(markupRow.value) || 0
-    : DEFAULT_GLOBAL_MARKUP_PERCENT;
-  const markup =
-    globalMarkupPercent +
-    (serviceSetting?.markupPercent ?? defaultServiceMarkupBonus(meta.category));
 
   const offers: CatalogOffer[] = rawOffers
     .filter((offer) => offer.stock !== "out_of_stock")
@@ -413,6 +372,13 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
     .flatMap((offer) => {
       const country = countryBySlug.get(offer.countrySlug);
       if (!country) return [];
+
+      const quote = quoteFor(markupRules, offer.costKobo, {
+        serviceSlug: slug,
+        countrySlug: offer.countrySlug,
+        category: meta.category,
+      });
+
       return [
         {
           countrySlug: country.slug,
@@ -420,7 +386,7 @@ export async function getServiceForBuy(slug: string): Promise<CatalogService | n
           flag: country.flag,
           dialCode: country.dialCode,
           nationalDigits: country.nationalDigits,
-          priceNaira: applyMarkup(offer.priceNaira, markup),
+          priceNaira: quote.customerPriceKobo / 100,
           stock: offer.stock,
           stockCount: offer.stockCount,
           avgDeliverySeconds: offer.avgDeliverySeconds,

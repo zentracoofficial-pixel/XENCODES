@@ -2,10 +2,10 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getCatalog, getOfferForBuy, revalidateCatalog } from "@/lib/catalog";
+import { getCatalog, revalidateCatalog } from "@/lib/catalog";
+import { getLiveQuote, getServiceMeta } from "@/lib/inventory";
 import { getProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
-import { nairaToKobo } from "@/lib/currency";
 
 export type PurchaseError =
   | "login_required"
@@ -13,34 +13,75 @@ export type PurchaseError =
   | "unavailable"
   | "insufficient_balance"
   | "provider_unavailable"
+  | "price_changed"
   | "unknown";
 
 export interface PurchaseResult {
   error?: PurchaseError;
   activationId?: string;
+  /** Set with "price_changed" so the UI can show the new figure. */
+  priceKobo?: number;
 }
 
+/**
+ * Buys one number.
+ *
+ * The price charged here is never taken from the page the customer was
+ * looking at, and never from a cache. It is re-derived from a provider
+ * cost fetched in this request, moments before the number is reserved,
+ * because a cached price that has since gone up is exactly how a sale
+ * ends up below what the provider bills. `expectedPriceKobo` is what the
+ * customer was shown: if the live price has risen past it, the purchase
+ * stops and the customer is asked to confirm the new figure rather than
+ * being quietly charged more than they agreed to.
+ */
 export async function purchaseNumberAction(
   serviceSlug: string,
   countrySlug: string,
+  expectedPriceKobo?: number,
 ): Promise<PurchaseResult> {
   const session = await auth();
   if (!session?.user?.id) return { error: "login_required" };
 
-  // Read through the resolved catalog so the customer is charged the
-  // admin-set price and a disabled item cannot be bought via a stale link.
-  // getOfferForBuy() also covers a service outside the eagerly priced set,
-  // pricing it live on demand rather than only recognising what getCatalog()
-  // already precomputed. The cost price behind this is refreshed every 45
-  // minutes (see PROVIDER_CACHE_SECONDS in smspool.ts), not re-verified per
-  // purchase: the admin markup exists to absorb ordinary cost drift between
-  // refreshes, so a purchase always charges the same price the customer was
-  // just shown.
-  const match = await getOfferForBuy(serviceSlug, countrySlug);
-  if (!match) return { error: "unavailable" };
+  const [meta, quoted] = await Promise.all([
+    getServiceMeta(serviceSlug),
+    getLiveQuote(serviceSlug, countrySlug),
+  ]);
 
-  const { service, offer } = match;
-  const priceKobo = nairaToKobo(offer.priceNaira);
+  if (!meta) return { error: "unavailable" };
+  if (!quoted.ok) {
+    if (quoted.reason === "provider_error") return { error: "provider_unavailable" };
+    // The provider says this pair cannot be sold, which is fresher than
+    // anything the catalog cache knows. Drop the cache so it stops being
+    // offered instead of waiting for the refresh window to turn over.
+    revalidateCatalog();
+    return { error: "unavailable" };
+  }
+
+  const { quote } = quoted;
+  const priceKobo = quote.customerPriceKobo;
+
+  // The rule this whole path exists to protect. quotePrice() already
+  // clamps to cost, so this only fires if that ever regresses, and it
+  // refuses the sale rather than completing one that loses money.
+  if (priceKobo < quote.providerCostKobo) {
+    console.error(
+      `[buy] refusing negative margin order: ${serviceSlug}/${countrySlug} ` +
+        `price ${priceKobo} below cost ${quote.providerCostKobo}`,
+    );
+    return { error: "unavailable" };
+  }
+
+  // Charging more than the customer agreed to is not something to do
+  // silently. A price that dropped is fine, they simply pay less.
+  if (expectedPriceKobo !== undefined && priceKobo > expectedPriceKobo) {
+    return { error: "price_changed", priceKobo };
+  }
+
+  const country = (await getProvider().then((p) => p.listCountries())).find(
+    (row) => row.slug === countrySlug,
+  );
+  if (!country) return { error: "unavailable" };
 
   // Check funds before asking the provider for a number, so a customer who
   // cannot pay never consumes inventory.
@@ -88,20 +129,25 @@ export async function purchaseNumberAction(
           userId: current.id,
           amountKobo: -priceKobo,
           type: "PURCHASE",
-          description: `${service.name} number, ${offer.countryName}`,
+          description: `${meta.name} number, ${country.name}`,
         },
       });
 
       return tx.activation.create({
         data: {
           userId: current.id,
-          serviceSlug: service.slug,
-          serviceName: service.name,
-          countrySlug: offer.countrySlug,
-          countryName: offer.countryName,
+          serviceSlug: meta.slug,
+          serviceName: meta.name,
+          countrySlug: country.slug,
+          countryName: country.name,
           phoneNumber: assigned.phoneNumber,
           externalId: assigned.externalId,
           priceKobo,
+          // Captured from the quote this purchase was validated against, so
+          // the order's real margin stays answerable later even after the
+          // provider's price has moved on.
+          providerCostKobo: quote.providerCostKobo,
+          markupKobo: quote.markupKobo,
           expiresAt,
         },
       });
@@ -133,7 +179,7 @@ export interface ActivationState {
   flag: string;
   phoneNumber: string;
   priceKobo: number;
-  status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED";
+  status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
   code: string | null;
   expiresAt: string;
 }
@@ -214,18 +260,31 @@ export async function getActivationStateAction(
     return toState(received);
   }
 
-  if (sms.state === "expired" || now >= activation.expiresAt) {
-    const expired = await prisma.activation.update({
+  // Three different ways an activation ends without a code, recorded as
+  // three different things. The customer is refunded in full either way,
+  // but the order history should say what actually happened rather than
+  // calling every one of them a timeout.
+  const settled =
+    sms.state === "refunded"
+      ? { status: "REFUNDED" as const, why: "the provider refunded it" }
+      : sms.state === "cancelled"
+        ? { status: "CANCELLED" as const, why: "it was cancelled" }
+        : sms.state === "expired" || now >= activation.expiresAt
+          ? { status: "EXPIRED" as const, why: "no code arrived in time" }
+          : null;
+
+  if (settled) {
+    const closed = await prisma.activation.update({
       where: { id: activation.id },
-      data: { status: "EXPIRED" },
+      data: { status: settled.status },
     });
     await creditWallet(
       session.user.id,
       activation.priceKobo,
       "REFUND",
-      `Refund, no code received for ${activation.serviceName}`,
+      `Refund for ${activation.serviceName}, ${settled.why}`,
     );
-    return toState(expired);
+    return toState(closed);
   }
 
   return toState(activation);

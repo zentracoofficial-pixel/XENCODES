@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Container } from "@/components/ui/container";
-import { getCatalog, getServiceForBuy } from "@/lib/catalog";
-import { BuyFlow } from "./buy-flow";
+import { searchServices, getServiceMeta } from "@/lib/inventory";
+import { BuyPanel } from "./buy-panel";
+import { ActivationView } from "./activation-view";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Get a Number",
+  title: "Buy a Number",
   description:
-    "Choose the service you need, pick a country, and get a virtual number that receives your verification code in seconds.",
+    "Search any service, pick a country, and get a virtual number that receives your verification code in seconds.",
   alternates: { canonical: "/buy" },
 };
 
@@ -21,65 +21,68 @@ export default async function BuyPage({
   searchParams: Promise<{ service?: string; country?: string; activation?: string }>;
 }) {
   const { service: serviceSlug, activation: activationId } = await searchParams;
-  const [{ services, isLive }, session] = await Promise.all([getCatalog(), auth()]);
+  const session = await auth();
 
-  if (services.length === 0) notFound();
-
-  // Linking straight to a service outside the eagerly priced set (SMSPool's
-  // full catalog is far bigger than what getCatalog() precomputes): price it
-  // live, on demand, and fold it in so BuyFlow's existing selection logic
-  // just works without knowing the difference.
-  let allServices = services;
-  if (serviceSlug && !services.some((s) => s.slug === serviceSlug)) {
-    const onDemand = await getServiceForBuy(serviceSlug);
-    if (onDemand && onDemand.offers.length > 0) {
-      allServices = [...services, onDemand];
-    }
-  }
-
-  // Resuming an activation the customer already paid for.
-  let resumed = null;
+  // An activation in progress takes over the page: the customer's number
+  // and code matter more than the form that produced them.
   if (activationId && session?.user?.id) {
     const row = await prisma.activation.findFirst({
       where: { id: activationId, userId: session.user.id },
     });
+
     if (row) {
-      const service = services.find((s) => s.slug === row.serviceSlug);
-      const offer = service?.offers.find((o) => o.countrySlug === row.countrySlug);
-      resumed = {
-        id: row.id,
-        serviceSlug: row.serviceSlug,
-        serviceName: row.serviceName,
-        serviceColor: service?.color ?? "#063B2D",
-        countryName: row.countryName,
-        flag: offer?.flag ?? "",
-        phoneNumber: row.phoneNumber,
-        priceKobo: row.priceKobo,
-        status: row.status as "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED",
-        code: row.code,
-        expiresAt: row.expiresAt.toISOString(),
-      };
+      const meta = await getServiceMeta(row.serviceSlug);
+      return (
+        <Container className="py-10 sm:py-14">
+          <ActivationView
+            activation={{
+              id: row.id,
+              serviceSlug: row.serviceSlug,
+              serviceName: row.serviceName,
+              serviceColor: meta?.color ?? "#063B2D",
+              countryName: row.countryName,
+              flag: "",
+              phoneNumber: row.phoneNumber,
+              priceKobo: row.priceKobo,
+              status: row.status,
+              code: row.code,
+              expiresAt: row.expiresAt.toISOString(),
+            }}
+          />
+        </Container>
+      );
     }
   }
 
-  const walletBalanceKobo = session?.user?.id
-    ? ((
-        await prisma.user.findUnique({
-          where: { id: session.user.id },
-          select: { walletBalanceKobo: true },
-        })
-      )?.walletBalanceKobo ?? 0)
-    : 0;
+  // The first page of services, so the picker is useful before a single
+  // keystroke. Everything past this comes from the search endpoint.
+  const [initialServices, walletBalanceKobo] = await Promise.all([
+    searchServices("").catch(() => []),
+    session?.user?.id
+      ? prisma.user
+          .findUnique({
+            where: { id: session.user.id },
+            select: { walletBalanceKobo: true },
+          })
+          .then((row) => row?.walletBalanceKobo ?? 0)
+      : Promise.resolve(0),
+  ]);
+
+  // A deep link to a service that is not on the first page still needs to
+  // arrive selected, so fetch that one on its own.
+  let services = initialServices;
+  if (serviceSlug && !services.some((s) => s.slug === serviceSlug)) {
+    const meta = await getServiceMeta(serviceSlug);
+    if (meta) services = [meta, ...services];
+  }
 
   return (
     <Container className="py-10 sm:py-14">
-      <BuyFlow
-        services={allServices}
+      <BuyPanel
+        initialServices={services}
         initialServiceSlug={serviceSlug}
-        resumed={resumed}
         signedIn={Boolean(session?.user?.id)}
         walletBalanceKobo={walletBalanceKobo}
-        isLive={isLive}
       />
     </Container>
   );

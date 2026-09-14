@@ -6,6 +6,7 @@ import {
   CreditCard,
   LayoutDashboard,
   LifeBuoy,
+  LogOut,
   Package,
   RotateCcw,
   Settings,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { XenMark } from "@/components/layout/wordmark";
+import { logoutAction } from "@/app/dashboard/actions";
 
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -80,6 +82,18 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
         >
           Back to customer app
         </Link>
+        {/* Ends the session itself, not just the admin view: signOut()
+            clears the auth cookie, so the next request arrives
+            unauthenticated rather than still holding a valid admin token. */}
+        <form action={logoutAction} className="mt-3">
+          <button
+            type="submit"
+            className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            Log out
+          </button>
+        </form>
       </div>
     </aside>
   );
@@ -90,8 +104,17 @@ export function AdminTopBar() {
     <header className="flex h-14 items-center gap-2 bg-forest-dark px-4 lg:hidden">
       <XenMark className="h-5 w-5 text-white" />
       <p className="text-sm font-semibold text-white">Admin</p>
-      <nav className="ml-auto flex gap-1 overflow-x-auto">
+      <nav className="ml-auto flex items-center gap-1 overflow-x-auto">
         <NavItems />
+        <form action={logoutAction}>
+          <button
+            type="submit"
+            aria-label="Log out"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </form>
       </nav>
     </header>
   );

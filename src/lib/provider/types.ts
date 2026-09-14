@@ -36,7 +36,14 @@ export interface ProviderCountry {
 export interface ProviderOffer {
   serviceSlug: string;
   countrySlug: string;
-  priceNaira: number;
+  /**
+   * What the provider charges Xencodes for this pair, in kobo. This is a
+   * cost, never a customer price: turning it into something a customer
+   * pays is src/lib/pricing.ts's job and only its job. Kept exact rather
+   * than rounded to a tidy figure, because rounding a cost down is how a
+   * sale ends up below what the provider actually bills.
+   */
+  costKobo: number;
   stock: StockLevel;
   /** How many numbers the provider reports, when it reports a count. */
   stockCount?: number;
@@ -61,10 +68,22 @@ export interface RequestedNumber {
   sessionSeconds: number;
 }
 
+/**
+ * Providers report more than "worked" and "did not". SMSPool alone
+ * documents pending, activating, processing, completed, expired,
+ * cancelled and refunded, and folding those into a single failure state
+ * loses the distinction that matters most: whether the provider already
+ * refunded itself, which changes what Xencodes owes the customer.
+ *
+ * "refunded" is kept separate from "expired" for exactly that reason.
+ * Both end the activation and both return the customer's money, but only
+ * one of them means the provider has already returned ours.
+ */
 export type SmsStatus =
   | { state: "waiting" }
   | { state: "received"; code: string; text?: string }
   | { state: "expired" }
+  | { state: "refunded" }
   | { state: "cancelled" };
 
 export interface NumberProvider {
@@ -86,6 +105,20 @@ export interface NumberProvider {
    * actually selects it, rather than upfront for the entire catalog.
    */
   listOffersForService(serviceSlug: string): Promise<ProviderOffer[]>;
+
+  /**
+   * The provider's current cost for one pair, in kobo, fetched fresh with
+   * no caching, or null when the pair cannot be bought right now.
+   *
+   * Every other lookup here is cached for minutes at a time so pages stay
+   * fast. This one deliberately is not: it is what a purchase is validated
+   * against immediately before money moves, so that a cached price that
+   * has since gone up cannot be sold at the old figure.
+   */
+  getLiveCostKobo(
+    serviceSlug: string,
+    countrySlug: string,
+  ): Promise<number | null>;
 
   requestNumber(
     serviceSlug: string,

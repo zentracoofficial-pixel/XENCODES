@@ -96,7 +96,7 @@ export const developmentProvider: NumberProvider = {
         .map((entry) => ({
           serviceSlug: service.slug,
           countrySlug: entry.countrySlug,
-          priceNaira: entry.priceNaira,
+          costKobo: entry.priceNaira * 100,
           stock: stockFor(entry.status),
           stockCount:
             entry.status === "limited"
@@ -113,6 +113,20 @@ export const developmentProvider: NumberProvider = {
     // over the same data listOffers() already computes.
     const offers = await developmentProvider.listOffers();
     return offers.filter((offer) => offer.serviceSlug === serviceSlug);
+  },
+
+  async getLiveCostKobo(
+    serviceSlug: string,
+    countrySlug: string,
+  ): Promise<number | null> {
+    // Nothing live behind this adapter, so "live" is just the same fixed
+    // sample cost. That is the point of it: a stable demo, not a price
+    // that can move underneath a purchase.
+    const offers = await developmentProvider.listOffersForService(serviceSlug);
+    const offer = offers.find(
+      (o) => o.countrySlug === countrySlug && o.stock !== "out_of_stock",
+    );
+    return offer?.costKobo ?? null;
   },
 
   async requestNumber(

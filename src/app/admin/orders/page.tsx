@@ -8,17 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import type { ActivationStatus } from "@/generated/prisma/client";
+import { ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
 export const metadata: Metadata = { title: "Admin: Orders" };
 
 export const dynamic = "force-dynamic";
-
-const statusVariant = {
-  WAITING: "warning",
-  RECEIVED: "success",
-  EXPIRED: "danger",
-  CANCELLED: "neutral",
-} as const;
 
 const filters: { label: string; value: ActivationStatus | "ALL" }[] = [
   { label: "All", value: "ALL" },
@@ -26,6 +20,7 @@ const filters: { label: string; value: ActivationStatus | "ALL" }[] = [
   { label: "Delivered", value: "RECEIVED" },
   { label: "Expired", value: "EXPIRED" },
   { label: "Cancelled", value: "CANCELLED" },
+  { label: "Refunded", value: "REFUNDED" },
 ];
 
 export default async function AdminOrdersPage({
@@ -95,13 +90,33 @@ export default async function AdminOrdersPage({
                 <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
                   {formatPhoneNumber(order.phoneNumber)}
                 </span>
-                <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                {/* The three figures that answer whether this order made
+                    money: what the customer paid, what the provider
+                    charged, and the difference. */}
+                <span className="hidden w-28 shrink-0 text-right lg:block">
+                  <span className="block text-sm font-medium tabular-nums">
+                    {formatNaira(order.priceKobo)}
+                  </span>
+                  <span className="block text-xs tabular-nums text-muted-foreground">
+                    cost {formatNaira(order.providerCostKobo)}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "hidden w-20 shrink-0 text-right text-sm tabular-nums lg:block",
+                    order.markupKobo > 0 ? "text-success" : "text-muted-foreground",
+                  )}
+                  title="Margin on this order"
+                >
+                  {order.providerCostKobo > 0 ? formatNaira(order.markupKobo) : "n/a"}
+                </span>
+                <span className="shrink-0 text-sm tabular-nums text-muted-foreground lg:hidden">
                   {formatNaira(order.priceKobo)}
                 </span>
                 <time className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:block">
                   {order.createdAt.toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                 </time>
-                <Badge variant={statusVariant[order.status]}>{order.status}</Badge>
+                <Badge variant={ACTIVATION_STATUS_VARIANT[order.status]}>{order.status}</Badge>
               </li>
             ))}
           </ul>

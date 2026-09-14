@@ -7,15 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { UserActions } from "./user-actions";
+import { ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
 export const metadata: Metadata = { title: "Admin: User" };
-
-const statusVariant = {
-  WAITING: "warning",
-  RECEIVED: "success",
-  EXPIRED: "danger",
-  CANCELLED: "neutral",
-} as const;
 
 export default async function AdminUserDetailPage({
   params,
@@ -85,7 +79,7 @@ export default async function AdminUserDetailPage({
                     <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                       {formatNaira(a.priceKobo)}
                     </span>
-                    <Badge variant={statusVariant[a.status]}>{a.status}</Badge>
+                    <Badge variant={ACTIVATION_STATUS_VARIANT[a.status]}>{a.status}</Badge>
                   </li>
                 ))}
               </ul>

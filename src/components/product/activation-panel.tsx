@@ -13,7 +13,12 @@ import { formatPhoneNumber } from "@/lib/currency";
  * so the marketing page shows the actual interface rather than a picture of one.
  */
 
-export type PanelStatus = "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED";
+export type PanelStatus =
+  | "WAITING"
+  | "RECEIVED"
+  | "EXPIRED"
+  | "CANCELLED"
+  | "REFUNDED";
 
 export interface ActivationPanelProps {
   serviceSlug: string;
@@ -90,7 +95,8 @@ export function ActivationPanel({
   footer,
 }: ActivationPanelProps) {
   const received = status === "RECEIVED" && code;
-  const closed = status === "EXPIRED" || status === "CANCELLED";
+  const closed =
+    status === "EXPIRED" || status === "CANCELLED" || status === "REFUNDED";
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-panel)]">
@@ -156,7 +162,11 @@ export function ActivationPanel({
       ) : closed ? (
         <div className="px-4 py-5 sm:px-5">
           <p className="text-sm font-medium">
-            {status === "EXPIRED" ? "No code arrived" : "Activation cancelled"}
+            {status === "EXPIRED"
+              ? "No code arrived"
+              : status === "REFUNDED"
+                ? "Refunded by the provider"
+                : "Activation cancelled"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             You were refunded in full. Nothing was charged for this number.

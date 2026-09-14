@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/provider";
-import { applyMarkup, defaultServiceMarkupBonus } from "@/lib/catalog";
+import { defaultServiceMarkupBonus, quotePrice } from "@/lib/pricing";
 import {
   readSettings,
   readNumber,
@@ -61,9 +61,10 @@ export default async function AdminServicesPage() {
   const basePriceBySlug = new Map<string, number>();
   const countryCount = new Map<string, number>();
   for (const offer of providerOffers) {
+    const costNaira = offer.costKobo / 100;
     const current = basePriceBySlug.get(offer.serviceSlug);
-    if (current === undefined || offer.priceNaira < current) {
-      basePriceBySlug.set(offer.serviceSlug, offer.priceNaira);
+    if (current === undefined || costNaira < current) {
+      basePriceBySlug.set(offer.serviceSlug, costNaira);
     }
     countryCount.set(
       offer.countrySlug,
@@ -164,10 +165,12 @@ export default async function AdminServicesPage() {
                       basePriceNaira={basePriceNaira}
                       enabled={setting?.enabled ?? true}
                       markupPercent={markupPercent}
-                      livePriceNaira={applyMarkup(
-                        basePriceNaira,
-                        globalMarkupPercent + markupPercent,
-                      )}
+                      livePriceNaira={
+                        quotePrice(
+                          basePriceNaira * 100,
+                          globalMarkupPercent + markupPercent,
+                        ).customerPriceKobo / 100
+                      }
                     />
                   );
                 })}

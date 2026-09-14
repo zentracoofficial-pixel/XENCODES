@@ -7,22 +7,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "./activation-logo";
+import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
 export const metadata: Metadata = { title: "Dashboard" };
-
-const statusVariant = {
-  WAITING: "warning",
-  RECEIVED: "success",
-  EXPIRED: "danger",
-  CANCELLED: "neutral",
-} as const;
-
-const statusLabel = {
-  WAITING: "Waiting",
-  RECEIVED: "Delivered",
-  EXPIRED: "Expired",
-  CANCELLED: "Cancelled",
-} as const;
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -69,6 +56,13 @@ export default async function DashboardPage() {
           <p className="mt-1.5 text-3xl font-semibold tabular-nums text-white">
             {formatNaira(user.walletBalanceKobo)}
           </p>
+          {/* An empty wallet is stated plainly here rather than left for
+              the customer to discover at the moment they try to buy. */}
+          {user.walletBalanceKobo <= 0 ? (
+            <p className="mt-1 text-xs text-white/60">
+              Add funds to purchase a number.
+            </p>
+          ) : null}
         </div>
         <Button href="/dashboard/wallet" variant="onDark" size="sm">
           Add funds
@@ -159,8 +153,8 @@ export default async function DashboardPage() {
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                   {formatNaira(activation.priceKobo)}
                 </span>
-                <Badge variant={statusVariant[activation.status]}>
-                  {statusLabel[activation.status]}
+                <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
+                  {ACTIVATION_STATUS_LABEL[activation.status]}
                 </Badge>
               </li>
             ))}

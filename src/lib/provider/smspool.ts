@@ -366,10 +366,18 @@ export class SmsPoolProvider implements NumberProvider {
     );
   }
 
-  private usdToNaira(usd: number) {
-    // Kept on 5 Naira steps, same as the markup rounding elsewhere, so a
-    // provider price and an admin-marked-up price read consistently.
-    return Math.max(5, Math.round((usd * this.usdToNgnRate) / 5) * 5);
+  /**
+   * SMSPool's USD cost as exact kobo, rounded up to the next whole kobo.
+   *
+   * Deliberately not rounded to a tidy figure. A previous version rounded
+   * this to the nearest 5 Naira, which rounds *down* about half the time:
+   * a pair costing the equivalent of 1202 Naira was recorded as costing
+   * 1200, and every downstream margin check then worked from a cost lower
+   * than the provider actually bills. Rounding belongs on the customer
+   * price (see src/lib/pricing.ts), and only ever upward.
+   */
+  private usdToKobo(usd: number) {
+    return Math.ceil(usd * this.usdToNgnRate * 100);
   }
 
   private async call<T>(
@@ -465,6 +473,30 @@ export class SmsPoolProvider implements NumberProvider {
 
   async listOffersForService(serviceSlug: string): Promise<ProviderOffer[]> {
     return this.cachedOffersForService(serviceSlug);
+  }
+
+  /**
+   * Bypasses every price cache on this class on purpose. The two cached
+   * reads it does use (resolveServiceId, cachedCountries) are id lookups,
+   * not prices, and are safe to reuse; the /request/price call itself is
+   * always fresh. This is what a purchase is checked against just before
+   * charging, so a price that moved during the cache window cannot be
+   * sold at the stale figure.
+   */
+  async getLiveCostKobo(
+    serviceSlug: string,
+    countrySlug: string,
+  ): Promise<number | null> {
+    const serviceId = await this.resolveServiceId(serviceSlug);
+    if (!serviceId) return null;
+
+    const result = await this.call<RawPrice>("/request/price", {
+      country: countrySlug.replace(/^sp-/, ""),
+      service: serviceId,
+    });
+
+    const priceUsd = firstNumber(result.price);
+    return priceUsd !== undefined ? this.usdToKobo(priceUsd) : null;
   }
 
   private async fetchCountries(): Promise<ProviderCountry[]> {
@@ -583,7 +615,7 @@ export class SmsPoolProvider implements NumberProvider {
     return {
       serviceSlug,
       countrySlug,
-      priceNaira: this.usdToNaira(priceUsd),
+      costKobo: this.usdToKobo(priceUsd),
       // A quoted price is SMSPool's own signal that the pair is available.
       // No stock-count field exists on this response (confirmed live, see
       // RawPrice), so stockCount is simply never set here.
@@ -631,15 +663,20 @@ export class SmsPoolProvider implements NumberProvider {
     }
 
     if (data.status === STATUS_REFUNDED) {
-      // SMSPool has already refunded itself; Xencodes still needs to credit
-      // the customer's own wallet, which the caller does for "expired".
-      return { state: "expired" };
+      // SMSPool has refunded its side. Reported as its own state, not
+      // folded into "expired", so the order can be recorded as refunded
+      // rather than as a timeout that happened to cost nothing.
+      return { state: "refunded" };
     }
 
-    // Any other status (SMSPool has several for "pending", "resend
-    // requested" and similar) is treated as still waiting. The activation's
-    // own session timeout is the backstop that guarantees a refund even if
-    // an unrecognised status is returned indefinitely.
+    // Only two numeric codes are confirmed against real responses: 3 for a
+    // delivered code and 6 for a refund. SMSPool documents more states
+    // (pending, activating, processing, cancelled, expired) but not which
+    // integer each maps to, and guessing one here would silently settle a
+    // live activation on the wrong signal. So everything else is reported
+    // as still waiting, and the activation's own session timeout settles
+    // and refunds it. That is a local, certain fact about elapsed time
+    // rather than a guess at someone else's enum.
     return { state: "waiting" };
   }
 

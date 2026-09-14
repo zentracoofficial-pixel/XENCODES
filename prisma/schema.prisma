@@ -72,6 +72,9 @@ enum ActivationStatus {
   RECEIVED
   EXPIRED
   CANCELLED
+  /// Provider refunded the order on its side. Distinct from EXPIRED so the
+  /// admin can tell a timed-out activation apart from a provider refund.
+  REFUNDED
 }
 
 model Activation {
@@ -83,7 +86,15 @@ model Activation {
   countrySlug String
   countryName String
   phoneNumber String
+  /// What the customer paid.
   priceKobo  Int
+  /// What the provider billed Xencodes for this exact order, captured at
+  /// purchase time. Stored rather than recomputed because the provider's
+  /// price moves: an order's margin has to be answerable later from what
+  /// was true when it was placed.
+  providerCostKobo Int @default(0)
+  /// priceKobo minus providerCostKobo, stored for the same reason.
+  markupKobo Int @default(0)
   status      ActivationStatus @default(WAITING)
   code        String?
   /// The provider's own id for this activation, used to poll for the SMS.

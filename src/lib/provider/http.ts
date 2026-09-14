@@ -113,6 +113,24 @@ export class HttpProvider implements NumberProvider {
     return offers.filter((offer) => offer.serviceSlug === serviceSlug);
   }
 
+  /**
+   * Generic default, same caveat as listOffersForService(): it reads the
+   * cached full listing rather than making a genuinely uncached per-pair
+   * call. Fine for a small catalog. A provider large enough to need the
+   * on-demand override should get a real single-pair price endpoint wired
+   * in here before it is trusted to validate a purchase.
+   */
+  async getLiveCostKobo(
+    serviceSlug: string,
+    countrySlug: string,
+  ): Promise<number | null> {
+    const offers = await this.listOffersForService(serviceSlug);
+    const offer = offers.find(
+      (o) => o.countrySlug === countrySlug && o.stock !== "out_of_stock",
+    );
+    return offer?.costKobo ?? null;
+  }
+
   async requestNumber(
     serviceSlug: string,
     countrySlug: string,

@@ -5,22 +5,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatNaira, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "../activation-logo";
+import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
 export const metadata: Metadata = { title: "History" };
-
-const statusVariant = {
-  WAITING: "warning",
-  RECEIVED: "success",
-  EXPIRED: "danger",
-  CANCELLED: "neutral",
-} as const;
-
-const statusLabel = {
-  WAITING: "Waiting",
-  RECEIVED: "Delivered",
-  EXPIRED: "Expired",
-  CANCELLED: "Cancelled",
-} as const;
 
 const dateFormat: Intl.DateTimeFormatOptions = {
   day: "numeric",
@@ -107,8 +94,8 @@ export default async function HistoryPage() {
                     {activation.createdAt.toLocaleString("en-NG", dateFormat)}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant={statusVariant[activation.status]}>
-                      {statusLabel[activation.status]}
+                    <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
+                      {ACTIVATION_STATUS_LABEL[activation.status]}
                     </Badge>
                   </td>
                 </tr>
@@ -134,8 +121,8 @@ export default async function HistoryPage() {
                       {activation.createdAt.toLocaleString("en-NG", dateFormat)}
                     </p>
                   </div>
-                  <Badge variant={statusVariant[activation.status]}>
-                    {statusLabel[activation.status]}
+                  <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
+                    {ACTIVATION_STATUS_LABEL[activation.status]}
                   </Badge>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 pl-11">

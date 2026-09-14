@@ -44,9 +44,10 @@ export default async function AdminPricingPage() {
   const offers = await provider.listOffers().catch(() => []);
   const basePriceBySlug = new Map<string, number>();
   for (const offer of offers) {
+    const costNaira = offer.costKobo / 100;
     const current = basePriceBySlug.get(offer.serviceSlug);
-    if (current === undefined || offer.priceNaira < current) {
-      basePriceBySlug.set(offer.serviceSlug, offer.priceNaira);
+    if (current === undefined || costNaira < current) {
+      basePriceBySlug.set(offer.serviceSlug, costNaira);
     }
   }
 
