@@ -109,10 +109,19 @@ export class GrizzlySmsProvider implements NumberProvider {
   private readonly apiKey: string;
   private readonly usdToNgnRate: number;
 
-  private servicesCache?: CachedAt<ServiceEntry[]>;
-  private countriesCache?: CachedAt<Map<string, string>>; // slug -> provider id
-  private countryNamesCache?: Map<string, string>; // provider id -> display name
-  private priceListCache = new Map<
+  /**
+   * Static, not per-instance. getNumberProvider() builds a fresh
+   * GrizzlySmsProvider on every call (see provider/index.ts), so caching
+   * on `this` would reset on every single request and never actually
+   * cache anything. GrizzlySMS's catalog and price lists are the same
+   * regardless of which instance asks, so the cache belongs to the class
+   * (in effect, the module), where it survives across instances for as
+   * long as this serverless function stays warm.
+   */
+  private static servicesCache?: CachedAt<ServiceEntry[]>;
+  private static countriesCache?: CachedAt<Map<string, string>>; // slug -> provider id
+  private static countryNamesCache?: Map<string, string>; // provider id -> display name
+  private static priceListCache = new Map<
     string,
     CachedAt<Map<string, Map<string, { cost: number; count: number }>>>
   >();
@@ -171,32 +180,63 @@ export class GrizzlySmsProvider implements NumberProvider {
    * shape is the one thing about this adapter not confirmed against a real
    * reply (see the file header), so this parses tolerantly across the
    * handful of shapes this API family is known to use for list endpoints,
-   * an array of {code, name} style objects or an object keyed by code, and
-   * refuses to guess past that: an unrecognised shape throws rather than
-   * silently returning an empty or wrong catalog.
+   * an array of {code, name} style objects or an object keyed by code.
+   *
+   * If that still does not match, this falls back to the service codes
+   * that actually appear in getPrices, whose shape is well confirmed,
+   * rather than making every search and every purchase depend on the one
+   * endpoint this adapter is least sure about. In that fallback a
+   * service's "name" is its own provider code (for example "wa" rather
+   * than "WhatsApp"): less readable, but still a real, live, purchasable
+   * service, which is the honest trade to make rather than either
+   * fabricating a friendly name or refusing to list anything at all.
    */
   private async loadServices(): Promise<ServiceEntry[]> {
-    if (isFresh(this.servicesCache, CATALOG_TTL_MS)) return this.servicesCache!.value;
+    if (isFresh(GrizzlySmsProvider.servicesCache, CATALOG_TTL_MS)) return GrizzlySmsProvider.servicesCache!.value;
 
-    const data = await this.callJson({ action: "getServicesList" });
-    const entries = parseServiceEntries(data);
-    if (!entries) {
+    let entries: ServiceEntry[] | null = null;
+    try {
+      const data = await this.callJson({ action: "getServicesList" });
+      entries = parseServiceEntries(data);
+      if (!entries) {
+        console.error(
+          "[grizzlysms] getServicesList returned an unrecognised shape, falling back to codes from getPrices.",
+        );
+      }
+    } catch (error) {
+      console.error(
+        "[grizzlysms] getServicesList failed, falling back to codes from getPrices:",
+        error,
+      );
+    }
+
+    if (!entries) entries = await this.loadServiceCodesFromPrices();
+    if (entries.length === 0) {
       throw new ProviderError(
-        "GrizzlySMS returned an unrecognised shape for getServicesList.",
+        "GrizzlySMS returned no services from either getServicesList or getPrices.",
         "unknown",
       );
     }
 
-    this.servicesCache = { value: entries, fetchedAt: Date.now() };
+    GrizzlySmsProvider.servicesCache = { value: entries, fetchedAt: Date.now() };
     return entries;
+  }
+
+  private async loadServiceCodesFromPrices(): Promise<ServiceEntry[]> {
+    const prices = await this.fetchPrices({});
+    const codes = new Set<string>();
+    for (const byService of prices.values()) {
+      for (const code of byService.keys()) codes.add(code);
+    }
+    return Array.from(codes).map((code) => ({ code, name: code }));
   }
 
   /** Every country GrizzlySMS knows, mapped from its own id to a display
    *  name. Confirmed shape: an object keyed by numeric id, each value
    *  carrying at least an English name. */
   private async loadCountries(): Promise<{ idToName: Map<string, string> }> {
-    if (isFresh(this.countriesCache, CATALOG_TTL_MS)) {
-      return { idToName: this.countryNamesCache! };
+    if (isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) {
+      return { idToName: GrizzlySmsProvider.countryNamesCache! };
     }
 
     const data = await this.callJson({ action: "getCountries" });
@@ -213,8 +253,8 @@ export class GrizzlySmsProvider implements NumberProvider {
       slugToId.set(resolveCountryMeta(name).slug, id);
     }
 
-    this.countriesCache = { value: slugToId, fetchedAt: Date.now() };
-    this.countryNamesCache = idToName;
+    GrizzlySmsProvider.countriesCache = { value: slugToId, fetchedAt: Date.now() };
+    GrizzlySmsProvider.countryNamesCache = idToName;
     return { idToName };
   }
 
@@ -225,8 +265,8 @@ export class GrizzlySmsProvider implements NumberProvider {
   }
 
   private async resolveCountryId(countrySlug: string): Promise<string | null> {
-    if (!isFresh(this.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
-    for (const [id, name] of this.countryNamesCache ?? []) {
+    if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
+    for (const [id, name] of GrizzlySmsProvider.countryNamesCache ?? []) {
       if (resolveCountryMeta(name).slug === countrySlug) return id;
     }
     return null;
@@ -245,7 +285,7 @@ export class GrizzlySmsProvider implements NumberProvider {
   }): Promise<Map<string, Map<string, { cost: number; count: number }>>> {
     const cacheKey = `${params.serviceCode ?? "*"}::${params.countryId ?? "*"}`;
     if (!params.fresh) {
-      const cached = this.priceListCache.get(cacheKey);
+      const cached = GrizzlySmsProvider.priceListCache.get(cacheKey);
       if (isFresh(cached, PRICE_LIST_TTL_MS)) return cached!.value;
     }
 
@@ -263,7 +303,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
 
     if (!params.fresh) {
-      this.priceListCache.set(cacheKey, { value: parsed, fetchedAt: Date.now() });
+      GrizzlySmsProvider.priceListCache.set(cacheKey, { value: parsed, fetchedAt: Date.now() });
     }
     return parsed;
   }
@@ -322,7 +362,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     const entry = prices.get(countryId)?.get(code);
     if (!entry) return null;
 
-    const name = this.countryNamesCache?.get(countryId);
+    const name = GrizzlySmsProvider.countryNamesCache?.get(countryId);
     if (!name) return null;
 
     return {
