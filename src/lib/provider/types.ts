@@ -32,6 +32,14 @@ export interface ProviderService {
   color: string;
   /** Grouping used to organise the services directory. */
   category: string;
+  /**
+   * The supplier's own code for this service, for example "wa". Shown only
+   * in the admin panel, where an operator reconciling with the supplier's
+   * own dashboard needs it; never sent to a customer facing page. Optional
+   * because not every adapter necessarily has a separate code worth
+   * showing.
+   */
+  providerServiceId?: string;
 }
 
 export interface ProviderCountry {
@@ -151,6 +159,23 @@ export interface NumberProvider {
    *  supplier exposes it. Shown to the admin so a balance running out is
    *  visible before it stops sales. */
   getProviderBalanceKobo?(): Promise<number | null>;
+
+  /** When the service and country catalog was last actually fetched from
+   *  the supplier, or null before the first fetch. Read only, never
+   *  triggers a fetch itself: the admin panel uses this to show how fresh
+   *  what it is looking at is, without pretending every value is live to
+   *  the second. */
+  getCatalogSyncedAt?(): Date | null;
+
+  /**
+   * The cheapest cost, in kobo, at which each service is currently sold
+   * anywhere, keyed by our service slug. Optional and best effort: an
+   * adapter that already fetched pricing broadly for another reason can
+   * offer this for free; one that would need a dedicated call per service
+   * to build it should leave it undefined rather than making an admin
+   * listing page trigger one provider request per row.
+   */
+  getCheapestCostByService?(): Promise<Map<string, number>>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */

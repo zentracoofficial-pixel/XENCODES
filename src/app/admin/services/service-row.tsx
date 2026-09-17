@@ -4,6 +4,7 @@ import { useActionState, useTransition } from "react";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatNaira } from "@/lib/currency";
 import {
   setServiceEnabledAction,
   setServiceMarginAction,
@@ -17,6 +18,9 @@ export function ServiceRow({
   name,
   color,
   category,
+  providerServiceId,
+  cheapestCostKobo,
+  cheapestCustomerPriceKobo,
   enabled,
   /** The service's own margin, or null when it follows the platform rules. */
   overridePercent,
@@ -28,6 +32,16 @@ export function ServiceRow({
   name: string;
   color: string;
   category: string;
+  /** The supplier's own code for this service, when the adapter reports
+   *  one. Reconciliation detail for the admin, never shown to a customer. */
+  providerServiceId?: string | null;
+  /** Cheapest live cost anywhere for this service, in kobo. Null when the
+   *  provider has not priced it or is not connected. */
+  cheapestCostKobo: number | null;
+  /** What quotePrice() turns that cheapest cost into at the resolved
+   *  margin. Illustrative, since the country picked at purchase decides
+   *  the real price; never used to charge anyone. */
+  cheapestCustomerPriceKobo: number | null;
   enabled: boolean;
   overridePercent: number | null;
   effectivePercent: number;
@@ -51,6 +65,23 @@ export function ServiceRow({
             <p className="truncate text-xs text-muted-foreground">{category}</p>
           </div>
         </div>
+      </td>
+      <td className="px-3 py-3">
+        {providerServiceId ? (
+          <code className="rounded bg-background px-1.5 py-0.5 text-xs">
+            {providerServiceId}
+          </code>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-3 py-3 text-right text-sm tabular-nums">
+        {cheapestCostKobo !== null ? formatNaira(cheapestCostKobo) : "—"}
+      </td>
+      <td className="px-3 py-3 text-right text-sm tabular-nums">
+        {cheapestCustomerPriceKobo !== null
+          ? formatNaira(cheapestCustomerPriceKobo)
+          : "—"}
       </td>
       <td className="px-3 py-3">
         <Badge variant={ruleLabel === "Exclusive tier" ? "forest" : "neutral"}>

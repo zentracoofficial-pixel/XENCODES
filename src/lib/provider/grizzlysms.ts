@@ -315,6 +315,7 @@ export class GrizzlySmsProvider implements NumberProvider {
       name: service.name,
       color: "#63756F",
       category: "All services",
+      providerServiceId: service.code,
     }));
   }
 
@@ -475,6 +476,43 @@ export class GrizzlySmsProvider implements NumberProvider {
     } catch {
       return null;
     }
+  }
+
+  getCatalogSyncedAt(): Date | null {
+    return GrizzlySmsProvider.servicesCache
+      ? new Date(GrizzlySmsProvider.servicesCache.fetchedAt)
+      : null;
+  }
+
+  /**
+   * The cheapest live cost per service, derived from one unfiltered
+   * getPrices call rather than one call per service. That single payload
+   * is cached the same way any other price list is (see fetchPrices), so
+   * an admin page listing many services costs one provider request, not
+   * one per row.
+   */
+  async getCheapestCostByService(): Promise<Map<string, number>> {
+    const prices = await this.fetchPrices({});
+    const cheapestUsdByCode = new Map<string, number>();
+
+    for (const byService of prices.values()) {
+      for (const [code, entry] of byService) {
+        const current = cheapestUsdByCode.get(code);
+        if (current === undefined || entry.cost < current) {
+          cheapestUsdByCode.set(code, entry.cost);
+        }
+      }
+    }
+
+    const services = await this.loadServices();
+    const result = new Map<string, number>();
+    for (const service of services) {
+      const usd = cheapestUsdByCode.get(service.code);
+      if (usd !== undefined) {
+        result.set(slugify(service.name), usdToKobo(usd, this.usdToNgnRate));
+      }
+    }
+    return result;
   }
 }
 

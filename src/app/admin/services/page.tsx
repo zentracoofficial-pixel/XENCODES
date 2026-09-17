@@ -52,6 +52,16 @@ export default async function AdminServicesPage({
     ? await resolved.provider.getServices().catch(() => [])
     : [];
 
+  // Best effort and optional: an adapter offers this for free when it
+  // already has the pricing loaded, rather than one provider call per row.
+  const [cheapestCostByService, syncedAt] = resolved.connected
+    ? await Promise.all([
+        resolved.provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
+          Promise.resolve(new Map<string, number>()),
+        Promise.resolve(resolved.provider.getCatalogSyncedAt?.() ?? null),
+      ])
+    : [new Map<string, number>(), null];
+
   // Any service an admin has already configured stays listed even with no
   // provider connected, so overrides remain visible and editable rather
   // than disappearing along with the supplier that prompted them.
@@ -66,6 +76,8 @@ export default async function AdminServicesPage({
         // default otherwise.
         color: brandIcons[service.slug]?.hex ?? service.color,
         category: service.category,
+        providerServiceId: service.providerServiceId ?? null,
+        cheapestCostKobo: cheapestCostByService.get(service.slug) ?? null,
       },
     ]),
   );
@@ -76,6 +88,8 @@ export default async function AdminServicesPage({
       name: row.slug,
       color: brandIcons[row.slug]?.hex ?? FALLBACK_COLOR,
       category: "Configured, not currently offered",
+      providerServiceId: null,
+      cheapestCostKobo: null,
     });
   }
 
@@ -100,6 +114,12 @@ export default async function AdminServicesPage({
         <h1 className="text-2xl font-semibold tracking-tight">Services</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           What Xencodes sells, and the margin each one earns.
+          {resolved.connected ? ` Synchronized from ${resolved.provider.label}` : ""}
+          {syncedAt
+            ? `, last refreshed ${syncedAt.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit" })}.`
+            : resolved.connected
+              ? "."
+              : ""}
         </p>
       </div>
 
@@ -180,6 +200,9 @@ export default async function AdminServicesPage({
               <thead>
                 <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-5 py-2.5 font-medium">Service</th>
+                  <th className="px-3 py-2.5 font-medium">Provider ID</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Provider cost</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Customer price</th>
                   <th className="px-3 py-2.5 font-medium">Pricing rule</th>
                   <th className="px-3 py-2.5 text-right font-medium">Margin</th>
                   <th className="px-3 py-2.5 text-right font-medium">Override</th>
@@ -190,6 +213,9 @@ export default async function AdminServicesPage({
                 {services.slice(0, PAGE_SIZE).map((service) => {
                   const setting = settingBySlug.get(service.slug);
                   const resolvedRule = resolveMargin(rules, service.slug);
+                  const quote = service.cheapestCostKobo
+                    ? quotePrice(service.cheapestCostKobo, resolvedRule.percent)
+                    : null;
                   return (
                     <ServiceRow
                       key={service.slug}
@@ -197,6 +223,9 @@ export default async function AdminServicesPage({
                       name={service.name}
                       color={service.color}
                       category={service.category}
+                      providerServiceId={service.providerServiceId}
+                      cheapestCostKobo={service.cheapestCostKobo}
+                      cheapestCustomerPriceKobo={quote?.customerPriceKobo ?? null}
                       enabled={setting?.enabled ?? true}
                       overridePercent={setting?.grossMarginPercent ?? null}
                       effectivePercent={resolvedRule.percent}
