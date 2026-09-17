@@ -204,6 +204,74 @@ export async function searchServices(
   return ranked.slice(0, limit).map(toInventoryService);
 }
 
+/**
+ * Every live, enabled service with a real logo on file, unranked and
+ * uncapped.
+ *
+ * Built for the homepage marquee, which is meant to show whatever the
+ * supplier actually carries and Xencodes has real artwork for, not a fixed
+ * handful. The natural limit is how many logos are vendored in brandIcons,
+ * not an arbitrary page size, so this never truncates like searchServices()
+ * does for the combobox.
+ */
+export async function getBrandedServices(): Promise<InventoryService[]> {
+  const [resolved, disabledRows] = await Promise.all([
+    getNumberProvider(),
+    prisma.serviceSetting.findMany({ where: { enabled: false } }),
+  ]);
+  if (!resolved.connected) return [];
+
+  const disabled = new Set(disabledRows.map((row) => row.slug));
+  const services = await resolved.provider.getServices();
+  return services
+    .filter((service) => !disabled.has(service.slug) && Boolean(brandIcons[service.slug]))
+    .map(toInventoryService);
+}
+
+export interface CatalogHighlights {
+  /** The cheapest a customer can buy any number for right now, or null
+   *  with no supplier connected or no service currently priceable. */
+  startingPriceKobo: number | null;
+  /** How many countries the supplier can currently sell in, or null when
+   *  that could not be determined. */
+  countryCount: number | null;
+}
+
+/**
+ * The handful of figures the homepage hero states about the whole catalog:
+ * a starting price and a location count. Both go through the same
+ * provider methods and the same pricing engine as everywhere else, so
+ * neither can drift from what a customer would actually be quoted.
+ */
+export async function getCatalogHighlights(): Promise<CatalogHighlights> {
+  const empty: CatalogHighlights = { startingPriceKobo: null, countryCount: null };
+
+  const [resolved, rules, disabledRows] = await Promise.all([
+    getNumberProvider(),
+    loadMarginRules(),
+    prisma.serviceSetting.findMany({ where: { enabled: false } }),
+  ]);
+  if (!resolved.connected) return empty;
+
+  const disabled = new Set(disabledRows.map((row) => row.slug));
+  const [cheapestByService, countryCount] = await Promise.all([
+    resolved.provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
+      Promise.resolve(new Map<string, number>()),
+    resolved.provider.getCountryCount?.().catch(() => null) ?? Promise.resolve(null),
+  ]);
+
+  let startingPriceKobo: number | null = null;
+  for (const [slug, costKobo] of cheapestByService) {
+    if (disabled.has(slug) || !isUsableCost(costKobo)) continue;
+    const quote = quoteFor(rules, costKobo, slug);
+    if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
+      startingPriceKobo = quote.customerPriceKobo;
+    }
+  }
+
+  return { startingPriceKobo, countryCount };
+}
+
 /** How many services are on sale. Zero with no supplier connected, which
  *  is what the marketing pages render their empty state from. */
 export async function countServices(): Promise<number> {

@@ -514,6 +514,18 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
     return result;
   }
+
+  /**
+   * Reuses the same unfiltered getPrices call as getCheapestCostByService
+   * (same cache entry, so calling both in one request costs one HTTP call
+   * between them, not two). A country only appears in that response with
+   * at least one service actually priced in it, so its key count is
+   * exactly "countries with something in stock right now".
+   */
+  async getCountryCount(): Promise<number> {
+    const prices = await this.fetchPrices({});
+    return prices.size;
+  }
 }
 
 // ---- Response parsing -------------------------------------------------

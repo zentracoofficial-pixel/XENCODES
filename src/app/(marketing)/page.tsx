@@ -9,11 +9,17 @@ import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { ServicePicker } from "@/components/product/service-picker";
 import { ServiceMarquee } from "@/components/product/service-marquee";
 import { ActivationDemo } from "@/components/product/activation-demo";
-import { searchServices, countServices, getInventoryStatus } from "@/lib/inventory";
+import {
+  searchServices,
+  countServices,
+  getInventoryStatus,
+  getBrandedServices,
+  getCatalogHighlights,
+} from "@/lib/inventory";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
-import { brandIcons } from "@/data/brand-icons";
+import { formatNaira } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -38,17 +44,19 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, numbersDelivered] = await Promise.all([
-    getInventoryStatus(),
-    searchServices("").catch(() => []),
-    countServices().catch(() => 0),
-    // A real, live count, never invented: this is exactly what it says.
-    prisma.activation.count({ where: { status: "RECEIVED" } }),
-  ]);
-
-  // Only services with a real brand logo, not the lettermark fallback: this
-  // decorative row is meant to be instantly recognisable names.
-  const brandedServices = services.filter((service) => Boolean(brandIcons[service.slug]));
+  const [status, services, serviceCount, numbersDelivered, brandedServices, highlights] =
+    await Promise.all([
+      getInventoryStatus(),
+      searchServices("").catch(() => []),
+      countServices().catch(() => 0),
+      // A real, live count, never invented: this is exactly what it says.
+      prisma.activation.count({ where: { status: "RECEIVED" } }),
+      // Every live service with a real logo on file, not just the popular
+      // handful: this decorative row is meant to be instantly recognisable
+      // names, and there is no reason to cap how many can appear.
+      getBrandedServices().catch(() => []),
+      getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
+    ]);
 
   return (
     <>
@@ -90,14 +98,31 @@ export default async function HomePage() {
               </p>
 
               {/* Only figures that are true right now. With nothing on sale
-                  there is no service count and no starting price, so neither
-                  is shown rather than shown as zero. */}
+                  there is no service count, no starting price and no
+                  location count, so each is left out rather than shown as
+                  zero. */}
               <dl className="mt-7 flex flex-wrap gap-x-9 gap-y-4">
                 {serviceCount > 0 ? (
                   <div>
                     <dt className="text-xs text-muted-foreground">Services</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
                       {serviceCount.toLocaleString("en-NG")}
+                    </dd>
+                  </div>
+                ) : null}
+                {highlights.startingPriceKobo !== null ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Starting at</dt>
+                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
+                      {formatNaira(highlights.startingPriceKobo)}
+                    </dd>
+                  </div>
+                ) : null}
+                {highlights.countryCount !== null && highlights.countryCount > 0 ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Locations</dt>
+                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
+                      {highlights.countryCount.toLocaleString("en-NG")}
                     </dd>
                   </div>
                 ) : null}

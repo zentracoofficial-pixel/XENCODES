@@ -22,12 +22,34 @@ export interface MarqueeService {
   color: string;
 }
 
+/**
+ * Below this many items, a row is narrower than most screens, so the
+ * "shift by half the track's width" loop leaves a visible gap of empty
+ * space once a lap: it looks like the marquee has run out and stalled
+ * rather than looping. Repeating the list up to this floor keeps the track
+ * wide regardless of how few branded services exist, so the loop always
+ * has something to show and never visibly pauses.
+ */
+const MIN_ROW_ITEMS = 14;
+
+function padToMinimum(items: MarqueeService[]): MarqueeService[] {
+  if (items.length === 0 || items.length >= MIN_ROW_ITEMS) return items;
+  const copies = Math.ceil(MIN_ROW_ITEMS / items.length);
+  return Array.from({ length: copies }, () => items).flat();
+}
+
 function Row({
   services,
+  /** How many leading items are the real, distinct set; anything from here
+   *  on in the array is a repeat added only to keep the track wide enough
+   *  to loop cleanly, and stays out of the tab order and screen reader
+   *  output the same way the second pass already does. */
+  realCount,
   reverse = false,
   durationSeconds,
 }: {
   services: MarqueeService[];
+  realCount: number;
   reverse?: boolean;
   durationSeconds: number;
 }) {
@@ -50,25 +72,29 @@ function Row({
             aria-hidden={pass === 1}
             className="flex shrink-0 gap-2.5"
           >
-            {services.map((service) => (
-              <li key={service.slug}>
-                <Link
-                  href={`/buy?service=${service.slug}`}
-                  tabIndex={pass === 1 ? -1 : undefined}
-                  className="flex items-center gap-2.5 rounded-xl border border-border bg-surface py-2.5 pl-2.5 pr-4 transition-colors hover:border-mint hover:bg-mint-soft"
-                >
-                  <ServiceLogo
-                    slug={service.slug}
-                    name={service.name}
-                    color={service.color}
-                    size="sm"
-                  />
-                  <span className="whitespace-nowrap text-sm font-medium">
-                    {service.name}
-                  </span>
-                </Link>
-              </li>
-            ))}
+            {services.map((service, index) => {
+              const isRepeat = pass === 1 || index >= realCount;
+              return (
+                <li key={`${service.slug}-${index}`}>
+                  <Link
+                    href={`/buy?service=${service.slug}`}
+                    aria-hidden={isRepeat ? true : undefined}
+                    tabIndex={isRepeat ? -1 : undefined}
+                    className="flex items-center gap-2.5 rounded-xl border border-border bg-surface py-2.5 pl-2.5 pr-4 transition-colors hover:border-mint hover:bg-mint-soft"
+                  >
+                    <ServiceLogo
+                      slug={service.slug}
+                      name={service.name}
+                      color={service.color}
+                      size="sm"
+                    />
+                    <span className="whitespace-nowrap text-sm font-medium">
+                      {service.name}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         ))}
       </div>
@@ -82,17 +108,24 @@ export function ServiceMarquee({ services }: { services: MarqueeService[] }) {
   // Split down the middle so the two rows carry different services rather
   // than the same ones passing twice.
   const half = Math.ceil(services.length / 2);
-  const top = services.slice(0, half);
-  const bottom = services.slice(half);
+  const topReal = services.slice(0, half);
+  const bottomReal = services.slice(half);
+  const top = padToMinimum(topReal);
+  const bottom = padToMinimum(bottomReal);
 
   // Longer rows take proportionally longer, so both drift at the same speed.
   const secondsPerItem = 3.2;
 
   return (
     <div className="space-y-2.5">
-      <Row services={top} durationSeconds={top.length * secondsPerItem} />
+      <Row
+        services={top}
+        realCount={topReal.length}
+        durationSeconds={top.length * secondsPerItem}
+      />
       <Row
         services={bottom}
+        realCount={bottomReal.length}
         reverse
         durationSeconds={bottom.length * secondsPerItem}
       />

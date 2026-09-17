@@ -176,6 +176,18 @@ export interface NumberProvider {
    * listing page trigger one provider request per row.
    */
   getCheapestCostByService?(): Promise<Map<string, number>>;
+
+  /**
+   * How many countries currently have at least one service in stock,
+   * counted from the whole catalog in one pass rather than assembled by
+   * asking per service. Optional and best effort, for the same reason as
+   * getCheapestCostByService: a homepage "locations" figure is not worth
+   * one provider request per service. Does not subtract services an admin
+   * has disabled on the Xencodes side, since the supplier has no notion of
+   * that; treat it as "countries the supplier can sell in", not an exact
+   * count of what is on sale this second.
+   */
+  getCountryCount?(): Promise<number>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */
