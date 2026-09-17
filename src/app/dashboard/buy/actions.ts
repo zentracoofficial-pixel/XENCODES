@@ -89,7 +89,14 @@ export async function purchaseNumberAction(
 
   let assigned;
   try {
-    assigned = await resolved.provider.purchaseNumber(serviceSlug, countrySlug);
+    // The provider-side safety rail: an adapter that can enforce a price
+    // ceiling refuses the purchase itself if the live cost has risen past
+    // what was just quoted, rather than this silently paying more.
+    assigned = await resolved.provider.purchaseNumber(
+      serviceSlug,
+      countrySlug,
+      quote.providerCostKobo,
+    );
   } catch (error) {
     if (error instanceof ProviderError && error.code === "out_of_stock") {
       return { error: "unavailable" };

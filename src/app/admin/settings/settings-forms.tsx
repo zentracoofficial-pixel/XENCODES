@@ -1,10 +1,12 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   saveMarginSettingsAction,
   saveProviderSettingsAction,
+  saveUsdRateAction,
   type SettingsState,
 } from "./actions";
 
@@ -84,17 +86,23 @@ export function MarginForm({
   );
 }
 
+const ADAPTER_LABEL: Record<string, string> = {
+  grizzlysms: "GrizzlySMS",
+};
+
 export function ProviderForm({
   providerId,
-  providerBaseUrl,
   providerEnabled,
   availableAdapters,
+  credentialsConfigured,
 }: {
   providerId: string;
-  providerBaseUrl: string;
   providerEnabled: boolean;
   /** Adapter ids that actually have an integration behind them. */
   availableAdapters: string[];
+  /** Whether the selected adapter's environment variable is actually set
+   *  on this deployment. Only meaningful once a provider is selected. */
+  credentialsConfigured: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     saveProviderSettingsAction,
@@ -104,33 +112,18 @@ export function ProviderForm({
 
   return (
     <form action={formAction} className="space-y-4">
-      <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="providerId">
-            Provider
-          </label>
-          <input
-            id="providerId"
-            name="providerId"
-            type="text"
-            defaultValue={providerId}
-            placeholder="Not selected"
-            className={inputClass}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="providerBaseUrl">
-            API base URL
-          </label>
-          <input
-            id="providerBaseUrl"
-            name="providerBaseUrl"
-            type="text"
-            defaultValue={providerBaseUrl}
-            placeholder="https://api.provider.com"
-            className={inputClass}
-          />
-        </div>
+      <div className="max-w-xs space-y-1.5">
+        <label className={labelClass} htmlFor="providerId">
+          Provider
+        </label>
+        <select id="providerId" name="providerId" defaultValue={providerId} className={inputClass}>
+          <option value="">Not selected</option>
+          {availableAdapters.map((id) => (
+            <option key={id} value={id}>
+              {ADAPTER_LABEL[id] ?? id}
+            </option>
+          ))}
+        </select>
       </div>
 
       <label className="flex items-center gap-2.5 text-sm">
@@ -144,18 +137,25 @@ export function ProviderForm({
         Connection enabled, so numbers are purchased live from this provider
       </label>
 
-      {availableAdapters.length === 0 ? (
-        <p className="max-w-xl rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
-          No provider integration is built yet, so switching this on will not
-          put numbers on sale. Selecting a provider here records the choice;
-          the integration itself is a code change, and its API key belongs in
-          this deployment&apos;s environment variables, never in this form.
-        </p>
+      {providerId && !credentialsConfigured ? (
+        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            {ADAPTER_LABEL[providerId] ?? providerId} is selected but its API
+            key is not set as an environment variable on this deployment.
+            Numbers cannot be sold until{" "}
+            <code className="rounded bg-surface px-1 py-0.5">
+              {providerId.toUpperCase()}_API_KEY
+            </code>{" "}
+            is added there. Never type it into this form: it belongs only in
+            environment configuration.
+          </p>
+        </div>
       ) : (
         <p className="max-w-xl text-xs text-muted-foreground">
-          Integrations available: {availableAdapters.join(", ")}. Credentials
-          come from this deployment&apos;s environment variables, so there is
-          no API key to type here.
+          Credentials come from this deployment&apos;s environment variables,
+          so there is no API key to type here and nothing here can display
+          one.
         </p>
       )}
 
@@ -164,6 +164,85 @@ export function ProviderForm({
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save connection"}
+      </Button>
+    </form>
+  );
+}
+
+/** Naira depreciates against the dollar over time; a rate typed in once and
+ *  never revisited quietly understates real cost until margin erodes or
+ *  disappears. This is the one piece of "cost" in the whole pricing chain
+ *  that isn't live, so it is the one thing that needs a nag. */
+const STALE_AFTER_DAYS = 7;
+
+function daysSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function UsdRateForm({
+  usdToNgnRate,
+  usdToNgnRateUpdatedAt,
+}: {
+  usdToNgnRate: number;
+  /** ISO timestamp of the last time an admin actually saved this rate, or
+   *  null if it has never been set (still running on the code default). */
+  usdToNgnRateUpdatedAt: string | null;
+}) {
+  const [state, formAction, pending] = useActionState(saveUsdRateAction, initial);
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <div className="max-w-xs space-y-1.5">
+        <label className={labelClass} htmlFor="usdToNgnRate">
+          Naira per US dollar
+        </label>
+        <input
+          id="usdToNgnRate"
+          name="usdToNgnRate"
+          type="number"
+          step="0.01"
+          min="0"
+          defaultValue={usdToNgnRate}
+          className={inputClass}
+        />
+        <p className="text-xs text-muted-foreground">
+          GrizzlySMS prices in US dollars. This rate converts every cost to
+          Naira before margin is applied, so keep it current.
+        </p>
+      </div>
+
+      {usdToNgnRateUpdatedAt === null ? (
+        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            This rate has never actually been set, it is still the code
+            default above. Confirm today&apos;s rate and save it before
+            trusting the prices customers see.
+          </p>
+        </div>
+      ) : daysSince(usdToNgnRateUpdatedAt) >= STALE_AFTER_DAYS ? (
+        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Last updated {daysSince(usdToNgnRateUpdatedAt)} days ago. Every
+            other number in this chain is live or admin-set on purpose; this
+            rate is the one exception, and it is the whole reason a sale
+            could quietly go below cost. Check today&apos;s rate and update
+            it if the Naira has moved.
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Updated {daysSince(usdToNgnRateUpdatedAt)}{" "}
+          {daysSince(usdToNgnRateUpdatedAt) === 1 ? "day" : "days"} ago.
+        </p>
+      )}
+
+      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
+      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
+
+      <Button type="submit" disabled={pending}>
+        {pending ? "Saving" : "Save rate"}
       </Button>
     </form>
   );

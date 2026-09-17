@@ -61,7 +61,10 @@ export default async function AdminServicesPage({
       {
         slug: service.slug,
         name: service.name,
-        color: service.color,
+        // The same brand-colour rule as everywhere else a service appears:
+        // a real logo's own colour when one exists, the adapter's neutral
+        // default otherwise.
+        color: brandIcons[service.slug]?.hex ?? service.color,
         category: service.category,
       },
     ]),

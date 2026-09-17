@@ -1,13 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CreditCard, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
+import {
+  CreditCard,
+  Percent,
+  Plug,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { readSettings, SETTING_KEYS } from "@/lib/settings";
+import {
+  readSettings,
+  readNumber,
+  SETTING_KEYS,
+  DEFAULT_USD_TO_NGN_RATE,
+} from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
-import { availableAdapterIds } from "@/lib/provider";
+import { availableAdapterIds, getNumberProvider, hasCredentials } from "@/lib/provider";
 import { formatNaira } from "@/lib/currency";
 import {
   WALLET_CURRENCY,
@@ -15,7 +26,7 @@ import {
   MAX_TOPUP_KOBO,
   FUNDING_PROVIDER,
 } from "@/lib/funding-limits";
-import { MarginForm, ProviderForm } from "./settings-forms";
+import { MarginForm, ProviderForm, UsdRateForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -29,11 +40,16 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins] = await Promise.all([
+  const [settings, rules, admins, resolved, usdToNgnRateRow] = await Promise.all([
     readSettings(),
     loadMarginRules(),
     prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
+    getNumberProvider(),
+    prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
   ]);
+
+  const providerId = settings[SETTING_KEYS.providerId] ?? "";
+  const credentialsConfigured = !providerId || hasCredentials(providerId);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
     (email) => !admins.some((a) => a.email.toLowerCase() === email),
@@ -73,19 +89,38 @@ export default async function AdminSettingsPage() {
         <h2 className="flex items-center gap-2 font-semibold">
           <Plug className="h-4 w-4" />
           Number provider
+          <Badge variant={resolved.connected ? "success" : "warning"}>
+            {resolved.connected ? "Connected" : "Disconnected"}
+          </Badge>
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           Where Xencodes buys numbers from. Nothing can be sold until one is
           connected.
+          {resolved.connected ? ` Currently ${resolved.provider.label}.` : ""}
         </p>
         <div className="mt-4">
           <ProviderForm
-            providerId={settings[SETTING_KEYS.providerId] ?? ""}
-            providerBaseUrl={settings[SETTING_KEYS.providerBaseUrl] ?? ""}
+            providerId={providerId}
             providerEnabled={settings[SETTING_KEYS.providerEnabled] === "true"}
             availableAdapters={availableAdapterIds()}
+            credentialsConfigured={credentialsConfigured}
           />
         </div>
+        {providerId === "grizzlysms" ? (
+          <div className="mt-5 border-t border-border pt-5">
+            <h3 className="text-sm font-semibold">Dollar conversion</h3>
+            <div className="mt-3">
+              <UsdRateForm
+                usdToNgnRate={readNumber(
+                  settings,
+                  SETTING_KEYS.usdToNgnRate,
+                  DEFAULT_USD_TO_NGN_RATE,
+                )}
+                usdToNgnRateUpdatedAt={usdToNgnRateRow?.updatedAt.toISOString() ?? null}
+              />
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       <Card className="p-5">

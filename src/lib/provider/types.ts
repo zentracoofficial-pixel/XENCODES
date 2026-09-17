@@ -126,9 +126,19 @@ export interface NumberProvider {
     countrySlug: string,
   ): Promise<ProviderAvailability | null>;
 
+  /**
+   * Reserves a number. `maxCostKobo`, when given, is an additional
+   * provider-side safety rail on top of the cost check the caller already
+   * performed a moment earlier: an adapter that can pass a price ceiling to
+   * its supplier should, so a cost that rose in the instant between the
+   * quote and this call is refused by the supplier itself rather than
+   * silently paid. It is a backstop, not a substitute for the caller's own
+   * check.
+   */
   purchaseNumber(
     serviceSlug: string,
     countrySlug: string,
+    maxCostKobo?: number,
   ): Promise<PurchasedNumber>;
 
   /** Polled while a customer waits. Carries the code once it arrives. */

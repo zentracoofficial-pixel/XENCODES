@@ -19,9 +19,15 @@ export const SETTING_KEYS = {
   exclusiveGrossMarginPercent: "exclusive_gross_margin_percent",
   /** Which number provider adapter to use. See src/lib/provider/index.ts. */
   providerId: "provider_id",
-  providerBaseUrl: "provider_base_url",
   providerEnabled: "provider_enabled",
+  /** Naira per one US dollar, used to convert a USD-priced provider like
+   *  GrizzlySMS into the Naira prices this site charges in. */
+  usdToNgnRate: "usd_to_ngn_rate",
 } as const;
+
+/** A clearly-labelled placeholder, not a live rate. An admin must set the
+ *  real one in Settings before going live with a USD-priced provider. */
+export const DEFAULT_USD_TO_NGN_RATE = 1600;
 
 /**
  * Xencodes' standard gross margin, as a percentage of the customer price.

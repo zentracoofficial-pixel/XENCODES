@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
+import { availableAdapterIds } from "@/lib/provider";
 
 function refresh() {
   revalidatePath("/admin/settings");
@@ -69,27 +70,42 @@ export async function saveProviderSettingsAction(
   await requireAdmin();
 
   const providerId = (formData.get("providerId") as string)?.trim() ?? "";
-  const baseUrl = (formData.get("providerBaseUrl") as string)?.trim() ?? "";
   const enabled = formData.get("providerEnabled") === "on";
 
-  if (baseUrl) {
-    try {
-      new URL(baseUrl);
-    } catch {
-      return { error: "Enter a valid base URL, for example https://api.provider.com." };
-    }
+  if (providerId && !availableAdapterIds().includes(providerId)) {
+    return { error: "That provider has no integration built yet." };
   }
-
   if (enabled && !providerId) {
     return { error: "Choose a provider before switching the connection on." };
   }
 
   await Promise.all([
     writeSetting(SETTING_KEYS.providerId, providerId),
-    writeSetting(SETTING_KEYS.providerBaseUrl, baseUrl),
     writeSetting(SETTING_KEYS.providerEnabled, String(enabled)),
   ]);
 
+  refresh();
+  return { success: true };
+}
+
+/**
+ * The Naira per US dollar rate GrizzlySMS's dollar-denominated costs are
+ * converted at, before margin is applied. Kept separate from the provider
+ * form's submit so an admin nudging this number does not also have to
+ * retype the provider selection.
+ */
+export async function saveUsdRateAction(
+  _prev: SettingsState,
+  formData: FormData,
+): Promise<SettingsState> {
+  await requireAdmin();
+
+  const rate = Number(formData.get("usdToNgnRate"));
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return { error: "Enter a valid Naira per US dollar rate, greater than zero." };
+  }
+
+  await writeSetting(SETTING_KEYS.usdToNgnRate, String(rate));
   refresh();
   return { success: true };
 }

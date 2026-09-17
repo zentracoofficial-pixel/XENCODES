@@ -8,6 +8,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { ServicePicker } from "@/components/product/service-picker";
 import { ServiceMarquee } from "@/components/product/service-marquee";
+import { ActivationDemo } from "@/components/product/activation-demo";
 import { searchServices, countServices, getInventoryStatus } from "@/lib/inventory";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
@@ -156,28 +157,39 @@ export default async function HomePage() {
         </Section>
       ) : null}
 
-      {/* How it works. */}
+      {/* How it works, next to a preview of the interface itself. */}
       <section className="border-y border-border bg-surface">
         <Container className="py-14 sm:py-16">
-          <SectionHeading
-            title="How it works"
-            description="Three steps from landing here to pasting your code."
-          />
-          <ol className="mt-8 grid gap-6 sm:grid-cols-3 sm:gap-8">
-            {STEPS.map((step) => (
-              <li key={step.n} className="flex gap-4">
-                <span className="font-mono text-sm font-medium text-mint">
-                  {step.n}
-                </span>
-                <div>
-                  <p className="font-medium">{step.title}</p>
-                  <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
-                    {step.body}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] lg:gap-16">
+            <div>
+              <SectionHeading
+                title="How it works"
+                description="Three steps from landing here to pasting your code."
+              />
+              <ol className="mt-8 space-y-6">
+                {STEPS.map((step) => (
+                  <li key={step.n} className="flex gap-4">
+                    <span className="font-mono text-sm font-medium text-mint">
+                      {step.n}
+                    </span>
+                    <div>
+                      <p className="font-medium">{step.title}</p>
+                      <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+                        {step.body}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                What buying a number looks like
+              </p>
+              <ActivationDemo />
+            </div>
+          </div>
         </Container>
       </section>
 
