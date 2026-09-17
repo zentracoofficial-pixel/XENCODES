@@ -2,32 +2,40 @@
 
 import { useActionState, useTransition } from "react";
 import { ServiceLogo } from "@/components/marketing/service-logo";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatNairaFromNaira } from "@/lib/currency";
-import { setServiceEnabledAction, setServiceMarkupAction, type MarkupState } from "./actions";
+import {
+  setServiceEnabledAction,
+  setServiceMarginAction,
+  type MarginState,
+} from "./actions";
 
-const markupInitial: MarkupState = {};
+const initial: MarginState = {};
 
 export function ServiceRow({
   slug,
   name,
   color,
-  basePriceNaira,
+  category,
   enabled,
-  markupPercent,
-  livePriceNaira,
+  /** The service's own margin, or null when it follows the platform rules. */
+  overridePercent,
+  /** What actually applies right now, after the rules are resolved. */
+  effectivePercent,
+  ruleLabel,
 }: {
   slug: string;
   name: string;
   color: string;
-  basePriceNaira: number;
+  category: string;
   enabled: boolean;
-  markupPercent: number;
-  livePriceNaira: number;
+  overridePercent: number | null;
+  effectivePercent: number;
+  ruleLabel: string;
 }) {
   const [isPending, startTransition] = useTransition();
-  const boundMarkup = setServiceMarkupAction.bind(null, slug);
-  const [state, formAction, formPending] = useActionState(boundMarkup, markupInitial);
+  const bound = setServiceMarginAction.bind(null, slug);
+  const [state, formAction, formPending] = useActionState(bound, initial);
 
   return (
     <tr
@@ -38,23 +46,33 @@ export function ServiceRow({
       <td className="px-5 py-3">
         <div className="flex items-center gap-3">
           <ServiceLogo slug={slug} name={name} color={color} size="sm" />
-          <span className="truncate text-sm font-medium">{name}</span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{name}</p>
+            <p className="truncate text-xs text-muted-foreground">{category}</p>
+          </div>
         </div>
       </td>
-      <td className="px-5 py-3 text-right text-sm tabular-nums text-muted-foreground">
-        {formatNairaFromNaira(basePriceNaira)}
+      <td className="px-3 py-3">
+        <Badge variant={ruleLabel === "Exclusive tier" ? "forest" : "neutral"}>
+          {ruleLabel}
+        </Badge>
       </td>
-      <td className="px-5 py-3">
+      <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums">
+        {effectivePercent}%
+      </td>
+      <td className="px-3 py-3">
         <form action={formAction} className="flex items-center justify-end gap-2">
           <input
-            name="markupPercent"
+            name="grossMarginPercent"
             type="number"
             step="1"
-            defaultValue={markupPercent}
-            aria-label={`${name} markup percent`}
-            className="h-10 w-16 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+            min="0"
+            max="95"
+            defaultValue={overridePercent ?? ""}
+            placeholder="auto"
+            aria-label={`${name} gross margin percent`}
+            className="h-10 w-20 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
-          <span className="text-xs text-muted-foreground">%</span>
           <Button type="submit" variant="outline" size="sm" disabled={formPending}>
             {formPending ? "Saving" : "Save"}
           </Button>
@@ -62,13 +80,6 @@ export function ServiceRow({
         {state.error ? (
           <p className="mt-1 text-right text-xs text-danger">{state.error}</p>
         ) : null}
-      </td>
-      <td className="px-5 py-3 text-right text-sm font-semibold tabular-nums">
-        {enabled ? (
-          formatNairaFromNaira(livePriceNaira)
-        ) : (
-          <span className="font-normal text-muted-foreground">off</span>
-        )}
       </td>
       <td className="px-5 py-3 text-right">
         <Button

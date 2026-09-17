@@ -1,10 +1,17 @@
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import { services } from "@/data/services";
+import { brandIcons } from "@/data/brand-icons";
+
+/** Neutral tint for a service with no brand colour of its own. */
+const FALLBACK_COLOR = "#63756F";
 
 /**
- * Activations store their own service slug and name, so one that is later
- * removed from the catalog still renders. It falls back to a neutral
- * lettermark rather than breaking.
+ * The logo for an order.
+ *
+ * Orders store their own service slug and name, so one for a service that
+ * is no longer sold, or that came from a previous supplier, still renders.
+ * The brand colour comes from the shared icon set when there is one and
+ * falls back to a neutral tile otherwise, which is what keeps this working
+ * with no live provider connected at all.
  */
 export function ActivationLogo({
   serviceSlug,
@@ -15,13 +22,11 @@ export function ActivationLogo({
   serviceName: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const known = services.find((service) => service.slug === serviceSlug);
-
   return (
     <ServiceLogo
       slug={serviceSlug}
       name={serviceName}
-      color={known?.color ?? "#63756F"}
+      color={brandIcons[serviceSlug]?.hex ?? FALLBACK_COLOR}
       size={size}
     />
   );

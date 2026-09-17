@@ -7,10 +7,10 @@ import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatPhoneNumber } from "@/lib/currency";
 
 /**
- * What a customer looks at while their code is on the way, and the moment it
- * lands. Presentational on purpose: /buy drives it from real activation state,
- * and the homepage runs the same component through an illustrative sequence,
- * so the marketing page shows the actual interface rather than a picture of one.
+ * What a customer looks at while their code is on the way, and the moment
+ * it lands. Presentational on purpose: the buy flow drives it entirely
+ * from a real order's state, and nothing else renders it, so there is no
+ * path by which an invented number or code reaches this component.
  */
 
 export type PanelStatus =
@@ -25,7 +25,6 @@ export interface ActivationPanelProps {
   serviceName: string;
   serviceColor: string;
   countryName: string;
-  flag: string;
   phoneNumber: string;
   status: PanelStatus;
   code: string | null;
@@ -87,7 +86,6 @@ export function ActivationPanel({
   serviceName,
   serviceColor,
   countryName,
-  flag,
   phoneNumber,
   status,
   code,
@@ -110,9 +108,7 @@ export function ActivationPanel({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{serviceName}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            <span aria-hidden>{flag}</span> {countryName}
-          </p>
+          <p className="truncate text-xs text-muted-foreground">{countryName}</p>
         </div>
         {status === "WAITING" ? (
           <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
@@ -165,7 +161,7 @@ export function ActivationPanel({
             {status === "EXPIRED"
               ? "No code arrived"
               : status === "REFUNDED"
-                ? "Refunded by the provider"
+                ? "Refunded by the number provider"
                 : "Activation cancelled"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">

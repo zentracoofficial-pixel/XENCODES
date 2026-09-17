@@ -3,29 +3,33 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  CreditCard,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
   Package,
-  RotateCcw,
   Settings,
   ShoppingBag,
-  Tag,
   Users,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { XenMark } from "@/components/layout/wordmark";
 import { logoutAction } from "@/app/dashboard/actions";
 
+/**
+ * Seven screens, each of which does real work.
+ *
+ * Refunds live inside Orders, because a refund is something that happened
+ * to an order. Pricing lives inside Services, because a margin is a
+ * property of a service. Payments and wallet movements are one ledger, so
+ * they are one page. A category is not a reason for a page.
+ */
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/services", label: "Services", icon: Package },
-  { href: "/admin/pricing", label: "Pricing", icon: Tag },
-  { href: "/admin/payments", label: "Payments", icon: CreditCard },
-  { href: "/admin/refunds", label: "Refunds", icon: RotateCcw },
+  { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/support", label: "Support", icon: LifeBuoy },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
@@ -44,7 +48,7 @@ function NavItems() {
             key={link.href}
             href={link.href}
             className={cn(
-              "flex items-center gap-3 min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "flex shrink-0 items-center gap-3 min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               active
                 ? "bg-white/10 text-white"
                 : "text-white/55 hover:bg-white/5 hover:text-white/90",
@@ -76,21 +80,15 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
 
       <div className="border-t border-white/10 p-4">
         <p className="truncate text-xs text-white/40">{adminEmail}</p>
-        <Link
-          href="/dashboard"
-          className="mt-1.5 inline-block text-xs font-medium text-white/60 hover:text-white"
-        >
-          Back to customer app
-        </Link>
         {/* Ends the session itself, not just the admin view: signOut()
             clears the auth cookie, so the next request arrives
             unauthenticated rather than still holding a valid admin token. */}
-        <form action={logoutAction} className="mt-3">
+        <form action={logoutAction} className="mt-2">
           <button
             type="submit"
-            className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+            className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
           >
-            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            <LogOut className="h-4 w-4 shrink-0" />
             Log out
           </button>
         </form>
@@ -101,12 +99,11 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
 
 export function AdminTopBar() {
   return (
-    <header className="flex h-14 items-center gap-2 bg-forest-dark px-4 lg:hidden">
-      <XenMark className="h-5 w-5 text-white" />
-      <p className="text-sm font-semibold text-white">Admin</p>
-      <nav className="ml-auto flex items-center gap-1 overflow-x-auto">
-        <NavItems />
-        <form action={logoutAction}>
+    <header className="bg-forest-dark lg:hidden">
+      <div className="flex h-14 items-center gap-2 px-4">
+        <XenMark className="h-5 w-5 text-white" />
+        <p className="text-sm font-semibold text-white">Admin</p>
+        <form action={logoutAction} className="ml-auto">
           <button
             type="submit"
             aria-label="Log out"
@@ -115,6 +112,9 @@ export function AdminTopBar() {
             <LogOut className="h-4 w-4" />
           </button>
         </form>
+      </div>
+      <nav className="flex gap-1 overflow-x-auto px-3 pb-2">
+        <NavItems />
       </nav>
     </header>
   );

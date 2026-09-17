@@ -12,7 +12,7 @@ import {
   cancelActivationAction,
   getActivationStateAction,
   type ActivationState,
-} from "@/app/(marketing)/buy/actions";
+} from "@/app/dashboard/buy/actions";
 
 /**
  * A purchased number, and the wait for its code.
@@ -50,11 +50,10 @@ function useCountdown(expiresAt: string | undefined, active: boolean) {
 
 export function ActivationView({
   activation: initial,
-  backHref = "/buy",
+  backHref = "/dashboard/buy",
 }: {
   activation: ResumedActivation;
-  /** Where "buy another number" goes. The dashboard keeps the customer
-   *  inside its own shell rather than sending them to the public route. */
+  /** Where "buy another number" goes. */
   backHref?: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -114,7 +113,6 @@ export function ActivationView({
           serviceName={activation.serviceName}
           serviceColor={activation.serviceColor}
           countryName={activation.countryName}
-          flag={activation.flag}
           phoneNumber={activation.phoneNumber}
           status={activation.status}
           code={activation.code}

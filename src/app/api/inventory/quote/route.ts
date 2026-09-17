@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getLiveQuote } from "@/lib/inventory";
+import { quotePair } from "@/lib/inventory";
 
 /**
  * The live price for one pair, fetched with no cache in the way, so the
@@ -12,8 +12,11 @@ import { getLiveQuote } from "@/lib/inventory";
 export const dynamic = "force-dynamic";
 
 const UNAVAILABLE: Record<string, string> = {
+  no_provider: "Numbers are not on sale right now.",
   unavailable: "That country is out of stock for this service right now.",
   disabled: "That combination is not available for purchase.",
+  unpriceable:
+    "We could not confirm a price for that country, so it is not on sale.",
   provider_error: "The number provider is not responding. Try again in a moment.",
 };
 
@@ -29,7 +32,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const result = await getLiveQuote(serviceSlug, countrySlug);
+  const result = await quotePair(serviceSlug, countrySlug);
 
   if (!result.ok) {
     return NextResponse.json({
@@ -38,5 +41,8 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({ available: true, priceKobo: result.priceKobo });
+  return NextResponse.json({
+    available: true,
+    priceKobo: result.quote.customerPriceKobo,
+  });
 }

@@ -1,7 +1,11 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
-import { WALLET_CURRENCY, validateTopUpAmount } from "@/lib/funding-limits";
+import {
+  WALLET_CURRENCY,
+  FUNDING_PROVIDER,
+  validateTopUpAmount,
+} from "@/lib/funding-limits";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -14,7 +18,7 @@ import { WALLET_CURRENCY, validateTopUpAmount } from "@/lib/funding-limits";
  * called after a real verification, does, and it refuses to run twice for
  * the same reference.
  *
- * Korapay is the intended provider. Nothing here talks to it yet: the
+ * KoraPay is the intended provider. Nothing here talks to it yet: the
  * pieces it will need (a reference generated before checkout, a pending
  * row to match a webhook against, an idempotent completion) are in place
  * so that wiring it up is filling in one adapter rather than reworking the
@@ -23,6 +27,7 @@ import { WALLET_CURRENCY, validateTopUpAmount } from "@/lib/funding-limits";
 
 export {
   WALLET_CURRENCY,
+  FUNDING_PROVIDER,
   MIN_TOPUP_KOBO,
   MAX_TOPUP_KOBO,
   FUNDING_ERROR_COPY,
@@ -63,7 +68,7 @@ export async function createPendingTopUp(
       amountKobo,
       currency: WALLET_CURRENCY,
       status: "PENDING",
-      provider: "korapay",
+      provider: FUNDING_PROVIDER.id,
       providerReference: newReference(),
       description: "Wallet top up",
     },
@@ -74,8 +79,8 @@ export async function createPendingTopUp(
  * Credits a verified payment, exactly once.
  *
  * This is the only function in the codebase permitted to increase a wallet
- * balance from a customer payment, and the only one Korapay's webhook or
- * verification callback should ever call. The caller must have already
+ * balance from a customer payment, and the only one the payment provider's
+ * webhook or verification callback should ever call. The caller must have already
  * confirmed with the provider that the money was received: this function
  * trusts its caller about the payment and guarantees only that the credit
  * happens once and atomically.

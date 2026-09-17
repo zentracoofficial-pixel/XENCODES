@@ -1,23 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, CalendarClock, Mail, TrendingDown } from "lucide-react";
+import { Mail } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
-import { StatTile } from "../stat-tile";
+import {
+  ACTIVATION_STATUS_VARIANT,
+  ORDER_STATUS_LABEL,
+} from "@/lib/activation-status";
+import { Metric, MetricGrid } from "../metric";
 
 export const metadata: Metadata = { title: "Admin: Support" };
 
 export const dynamic = "force-dynamic";
 
-const reasonMeta = {
-  EXPIRED: { label: "No code received", variant: "danger" },
-  CANCELLED: { label: "Customer cancelled", variant: "neutral" },
-} as const;
+const FAILED_STATUSES = ["EXPIRED", "CANCELLED", "REFUNDED"] as const;
 
+/**
+ * The follow-up queue: orders that did not deliver.
+ *
+ * Every one of them was already refunded automatically, so this is not a
+ * list of money to return. It is a list of customers who did not get what
+ * they came for, and of services that may be failing repeatedly.
+ */
 export default async function AdminSupportPage() {
   await requireAdmin();
 
@@ -26,87 +34,122 @@ export default async function AdminSupportPage() {
   const startOfWeek = new Date(startOfToday);
   startOfWeek.setDate(startOfWeek.getDate() - 6);
 
-  const [failedToday, failedThisWeek, worstService, failures] = await Promise.all([
-    prisma.activation.count({
-      where: { status: { in: ["EXPIRED", "CANCELLED"] }, createdAt: { gte: startOfToday } },
-    }),
-    prisma.activation.count({
-      where: { status: { in: ["EXPIRED", "CANCELLED"] }, createdAt: { gte: startOfWeek } },
-    }),
-    prisma.activation.groupBy({
-      by: ["serviceName"],
-      where: { status: "EXPIRED", createdAt: { gte: startOfWeek } },
-      _count: { serviceName: true },
-      orderBy: { _count: { serviceName: "desc" } },
-      take: 1,
-    }),
-    prisma.activation.findMany({
-      where: { status: { in: ["EXPIRED", "CANCELLED"] } },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      include: { user: { select: { email: true } } },
-    }),
-  ]);
+  const [failedToday, failedThisWeek, worstService, refundedAgg, failures] =
+    await Promise.all([
+      prisma.activation.count({
+        where: {
+          status: { in: [...FAILED_STATUSES] },
+          createdAt: { gte: startOfToday },
+        },
+      }),
+      prisma.activation.count({
+        where: {
+          status: { in: [...FAILED_STATUSES] },
+          createdAt: { gte: startOfWeek },
+        },
+      }),
+      prisma.activation.groupBy({
+        by: ["serviceName"],
+        where: { status: "EXPIRED", createdAt: { gte: startOfWeek } },
+        _count: { serviceName: true },
+        orderBy: { _count: { serviceName: "desc" } },
+        take: 1,
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { type: "REFUND", createdAt: { gte: startOfWeek } },
+        _sum: { amountKobo: true },
+      }),
+      prisma.activation.findMany({
+        where: { status: { in: [...FAILED_STATUSES] } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: { user: { select: { email: true } } },
+      }),
+    ]);
 
   const worst = worstService[0];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Failed orders worth following up. Each one was already refunded automatically.
+          Orders that did not deliver. Each one was already refunded
+          automatically.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatTile label="Failed today" value={failedToday} icon={AlertTriangle} tone={failedToday > 0 ? "danger" : "default"} />
-        <StatTile label="Failed this week" value={failedThisWeek} icon={CalendarClock} />
-        <StatTile
-          label="Worth investigating"
-          value={worst ? worst.serviceName : "None"}
-          hint={worst ? `${worst._count.serviceName} no-code failures this week` : "No repeat failures this week"}
-          icon={TrendingDown}
-          tone={worst ? "danger" : "default"}
+      <MetricGrid>
+        <Metric
+          label="Failed today"
+          value={failedToday}
+          tone={failedToday > 0 ? "danger" : "default"}
         />
-      </div>
+        <Metric label="Failed this week" value={failedThisWeek} />
+        <Metric
+          label="Refunded this week"
+          value={formatNaira(refundedAgg._sum.amountKobo ?? 0)}
+        />
+        <Metric
+          label="Worth investigating"
+          value={worst ? worst.serviceName : "Nothing"}
+          hint={
+            worst
+              ? `${worst._count.serviceName} no-code failures this week`
+              : "No repeat failures this week"
+          }
+          tone={worst ? "warning" : "default"}
+        />
+      </MetricGrid>
 
       <Card className="overflow-hidden">
         {failures.length === 0 ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">No failed orders. Nothing to follow up on.</p>
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            No failed orders. Nothing to follow up on.
+          </p>
         ) : (
           <ul className="divide-y divide-border">
-            {failures.map((order) => {
-              const reason = reasonMeta[order.status as "EXPIRED" | "CANCELLED"];
-              return (
-                <li key={order.id} className="flex items-center gap-3 px-5 py-3.5">
-                  <ActivationLogo serviceSlug={order.serviceSlug} serviceName={order.serviceName} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{order.serviceName}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      <Link href={`/admin/users/${order.userId}`} className="hover:text-forest hover:underline">
-                        {order.user.email}
-                      </Link>
-                      {" "}· {order.countryName}
-                    </p>
-                  </div>
-                  <Badge variant={reason.variant}>{reason.label}</Badge>
-                  <span className="hidden shrink-0 text-sm tabular-nums text-muted-foreground sm:inline">
-                    {formatNaira(order.priceKobo)} refunded
+            {failures.map((order) => (
+              <li key={order.id} className="flex items-center gap-3 px-5 py-3">
+                <Link
+                  href={`/admin/orders/${order.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-3"
+                >
+                  <ActivationLogo
+                    serviceSlug={order.serviceSlug}
+                    serviceName={order.serviceName}
+                    size="sm"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium hover:text-forest">
+                      {order.serviceName}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {order.user.email} · {order.countryName}
+                    </span>
                   </span>
-                  <time className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:block">
-                    {order.createdAt.toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
-                  </time>
-                  <a
-                    href={`mailto:${order.user.email}?subject=${encodeURIComponent(`Your Xencodes order for ${order.serviceName}`)}`}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-mint-soft hover:text-foreground"
-                    title={`Email ${order.user.email}`}
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                  </a>
-                </li>
-              );
-            })}
+                </Link>
+                <Badge variant={ACTIVATION_STATUS_VARIANT[order.status]}>
+                  {ORDER_STATUS_LABEL[order.status]}
+                </Badge>
+                <span className="hidden shrink-0 text-sm tabular-nums text-muted-foreground sm:inline">
+                  {formatNaira(order.priceKobo)} refunded
+                </span>
+                <time className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground lg:block">
+                  {order.createdAt.toLocaleDateString("en-NG", {
+                    day: "numeric",
+                    month: "short",
+                  })}
+                </time>
+                <a
+                  href={`mailto:${order.user.email}?subject=${encodeURIComponent(`Your Xencodes order for ${order.serviceName}`)}`}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-mint-soft hover:text-foreground"
+                  title={`Email ${order.user.email}`}
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                </a>
+              </li>
+            ))}
           </ul>
         )}
       </Card>

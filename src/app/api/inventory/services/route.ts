@@ -6,8 +6,9 @@ import { searchServices } from "@/lib/inventory";
  *
  * Public on purpose: which services exist is exactly what the marketing
  * pages already show, and nothing here touches an account or reveals a
- * provider cost. The SMSPool key never leaves the server, because the
- * browser talks to this route and this route talks to SMSPool.
+ * provider cost. The provider's credentials never leave the server,
+ * because the browser talks to this route and this route talks to the
+ * provider.
  */
 export const dynamic = "force-dynamic";
 

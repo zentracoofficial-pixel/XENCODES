@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Container } from "@/components/ui/container";
-import { searchServices, getServiceMeta } from "@/lib/inventory";
+import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,10 @@ export default async function BuyPage({
 
   // The first page of services, so the picker is useful before a single
   // keystroke. Everything past this comes from the search endpoint.
-  const initialServices = await searchServices("").catch(() => []);
+  const [status, initialServices] = await Promise.all([
+    getInventoryStatus(),
+    searchServices("").catch(() => []),
+  ]);
 
   // A deep link to a service that is not on the first page still needs to
   // arrive selected, so fetch that one on its own.
@@ -56,6 +59,7 @@ export default async function BuyPage({
         initialServiceSlug={serviceSlug}
         signedIn={false}
         walletBalanceKobo={0}
+        unavailableMessage={status.connected ? undefined : status.message}
       />
     </Container>
   );

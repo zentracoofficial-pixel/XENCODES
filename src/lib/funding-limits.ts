@@ -8,9 +8,20 @@
  * matters.
  */
 
-/** The currency the wallet is denominated in, and the one Korapay will be
- *  charged in. Naira, matching the kobo amounts stored everywhere. */
+/** The currency the wallet is denominated in, and the one a payment will
+ *  be charged in. Naira, matching the kobo amounts stored everywhere. */
 export const WALLET_CURRENCY = "NGN";
+
+/**
+ * The intended payment provider.
+ *
+ * `id` is what gets written to a funding row's provider column, so it is
+ * recorded from the moment a request is created rather than backfilled
+ * later. Naming it here does not connect it: nothing in the codebase talks
+ * to this provider yet, and a wallet is credited only by completeTopUp()
+ * after a payment has been verified on the server.
+ */
+export const FUNDING_PROVIDER = { id: "korapay", label: "KoraPay" } as const;
 
 /** Bounds on a single funding attempt, in kobo. Low enough to top up for
  *  one number, high enough to be useful, and deliberately a range rather

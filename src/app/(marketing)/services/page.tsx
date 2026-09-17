@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
-import { getCatalog, getAllServices } from "@/lib/catalog";
-import { DevelopmentDataNotice } from "@/components/product/development-notice";
-import { ServicesList, type DirectoryEntry } from "./services-list";
+import { searchServices, getInventoryStatus } from "@/lib/inventory";
+import { UnavailableNotice } from "@/components/product/unavailable-notice";
+import { ServicesList } from "./services-list";
 
 export const dynamic = "force-dynamic";
+
+/** The whole directory, not a page of it. Capped well above any real
+ *  catalog so nothing is silently cut off. */
+const DIRECTORY_LIMIT = 5000;
 
 export const metadata: Metadata = {
   title: "Supported Services",
   description:
-    "Every service you can verify with a Xencodes virtual number, with live availability and Naira prices. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr, Upwork and more.",
+    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in Naira.",
   keywords: [
     "WhatsApp verification number Nigeria",
     "Telegram virtual number",
@@ -20,40 +24,13 @@ export const metadata: Metadata = {
 };
 
 export default async function ServicesPage() {
-  const [{ services: priced, categories, isLive }, allServices] = await Promise.all([
-    getCatalog(),
-    getAllServices(),
+  const [status, services] = await Promise.all([
+    getInventoryStatus(),
+    searchServices("", DIRECTORY_LIMIT).catch(() => []),
   ]);
 
-  const pricedBySlug = new Map(priced.map((service) => [service.slug, service]));
-
-  // Priced services (fast, precomputed) keep their real "from ₦X" and
-  // country count. Everything else the provider lists still shows up, just
-  // without a price until a customer actually selects it on /buy: pricing
-  // all of the provider's full catalog up front is not viable (see
-  // SmsPoolProvider's isCuratedService()), but that no longer means most of
-  // it is invisible.
-  const directory: DirectoryEntry[] = allServices.map((service) => {
-    const withPrice = pricedBySlug.get(service.slug);
-    return withPrice
-      ? {
-          slug: withPrice.slug,
-          name: withPrice.name,
-          color: withPrice.color,
-          category: withPrice.category,
-          priceFromNaira: withPrice.priceFromNaira,
-          offerCount: withPrice.offers.length,
-        }
-      : {
-          slug: service.slug,
-          name: service.name,
-          color: service.color,
-          category: service.category,
-        };
-  });
-
-  const allCategories = Array.from(
-    new Set([...categories, ...directory.map((d) => d.category)]),
+  const categories = Array.from(
+    new Set(services.map((service) => service.category)),
   ).sort();
 
   return (
@@ -62,15 +39,20 @@ export default async function ServicesPage() {
         Find your service
       </h1>
       <p className="mt-1.5 text-sm text-muted-foreground">
-        {directory.length} services available right now. Pick one to choose a
-        country and get a number.
+        {services.length > 0
+          ? `${services.length.toLocaleString("en-NG")} services available right now. Pick one to choose a country and see its price.`
+          : "Services appear here as soon as numbers are back on sale."}
       </p>
 
-      {!isLive ? <DevelopmentDataNotice className="mt-4 max-w-xl" /> : null}
+      {status.connected ? null : (
+        <UnavailableNotice message={status.message} className="mt-4 max-w-xl" />
+      )}
 
-      <div className="mt-6">
-        <ServicesList services={directory} categories={allCategories} />
-      </div>
+      {services.length > 0 ? (
+        <div className="mt-6">
+          <ServicesList services={services} categories={categories} />
+        </div>
+      ) : null}
     </Container>
   );
 }

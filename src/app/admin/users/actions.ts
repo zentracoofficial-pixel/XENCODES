@@ -65,6 +65,6 @@ export async function adminCreditWalletAction(
   await creditWallet(userId, kobo, "ADJUSTMENT", note);
 
   revalidatePath(`/admin/users/${userId}`);
-  revalidatePath("/admin/payments");
+  revalidatePath("/admin/wallet");
   return { success: true };
 }

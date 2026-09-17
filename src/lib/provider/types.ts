@@ -1,25 +1,36 @@
 /**
- * The contract between Xencodes and whichever external SMS provider supplies
- * the numbers.
+ * The contract between Xencodes and whichever external company supplies the
+ * phone numbers.
  *
- * Everything the product shows a customer (which services exist, which
- * countries have stock, what a number costs, what code arrived) comes through
- * this interface. Adding a real provider means writing one adapter, not
- * touching the pages.
+ * Nothing outside src/lib/provider knows which company that is. Pages, the
+ * purchase action, the admin panel and the pricing engine all deal in the
+ * types below, so choosing a supplier means writing one adapter rather than
+ * touching the product.
  *
- * Prices crossing this boundary are always whole Naira. Conversion to kobo
- * happens once, at purchase.
+ * Two rules the shape of this file exists to enforce:
+ *
+ * 1. Money crossing this boundary is always a COST, in kobo, never a
+ *    customer price. Turning a cost into a price is src/lib/pricing.ts's
+ *    job and only its job.
+ * 2. An adapter reports what the supplier actually said. Where the supplier
+ *    reports nothing, the field is absent. Filling in a plausible-looking
+ *    value reads to a customer as a measurement, and it is not one.
  */
 
 export type StockLevel = "in_stock" | "low" | "out_of_stock";
 
 export interface ProviderService {
-  /** Stable identifier used in URLs, for example "instagram". */
+  /**
+   * Our stable identifier, used in URLs and stored on orders, for example
+   * "instagram". Derived from the supplier's own service by the adapter.
+   * The supplier's identifier stays inside the adapter: it never reaches
+   * the browser, and it is never modified.
+   */
   slug: string;
   name: string;
   /** Brand colour for the logo glyph. */
   color: string;
-  /** Grouping used only to organise the services page. */
+  /** Grouping used to organise the services directory. */
   category: string;
 }
 
@@ -32,54 +43,51 @@ export interface ProviderCountry {
   nationalDigits: number;
 }
 
-/** One buyable combination: this service, in this country, right now. */
-export interface ProviderOffer {
+/**
+ * What one service costs in one country, right now.
+ *
+ * The country's display details travel with its availability rather than
+ * being looked up separately. A supplier that can quote a country can
+ * always name it, and keeping them together means no caller can end up
+ * holding a price it cannot label.
+ */
+export interface ProviderAvailability {
   serviceSlug: string;
-  countrySlug: string;
+  country: ProviderCountry;
   /**
-   * What the provider charges Xencodes for this pair, in kobo. This is a
-   * cost, never a customer price: turning it into something a customer
-   * pays is src/lib/pricing.ts's job and only its job. Kept exact rather
-   * than rounded to a tidy figure, because rounding a cost down is how a
-   * sale ends up below what the provider actually bills.
+   * What the supplier bills Xencodes for this pair, in kobo. Exact, never
+   * rounded to a tidy figure: rounding a cost down is how an order ends up
+   * billing the business.
    */
   costKobo: number;
   stock: StockLevel;
-  /** How many numbers the provider reports, when it reports a count. */
+  /** How many numbers the supplier reports, when it reports a count. */
   stockCount?: number;
-  /**
-   * Typical time from purchase to code, in seconds. Optional on purpose:
-   * only set it from a figure the provider actually reports. An adapter
-   * that has no such figure must leave it undefined rather than filling in
-   * a plausible-looking constant, which would read to a customer as a
-   * measurement of this exact country when it is nothing of the sort.
-   */
-  avgDeliverySeconds?: number;
-  /** Share of recent activations that received a code, 0 to 100. Optional
-   *  for the same reason as avgDeliverySeconds: never invented. */
+  /** Share of recent activations that received a code, 0 to 100. Absent
+   *  unless the supplier actually reports it. */
   successRate?: number;
 }
 
-export interface RequestedNumber {
-  /** The provider's own id for this activation, kept for later polling. */
-  externalId: string;
+export interface PurchasedNumber {
+  /** The supplier's own id for this order, kept for status polling. */
+  providerOrderId: string;
   phoneNumber: string;
   /** How long the number stays held for this customer. */
   sessionSeconds: number;
 }
 
 /**
- * Providers report more than "worked" and "did not". SMSPool alone
- * documents pending, activating, processing, completed, expired,
- * cancelled and refunded, and folding those into a single failure state
- * loses the distinction that matters most: whether the provider already
- * refunded itself, which changes what Xencodes owes the customer.
+ * Suppliers report more than "worked" and "did not", and folding those into
+ * one failure state loses the distinction that matters most: whether the
+ * supplier has already refunded itself, which changes what Xencodes owes
+ * the customer.
  *
- * "refunded" is kept separate from "expired" for exactly that reason.
- * Both end the activation and both return the customer's money, but only
- * one of them means the provider has already returned ours.
+ * The received state carries the code, so asking for an order's status and
+ * asking for its verification code are the same call. Every supplier
+ * answers both in one response, and splitting them into two methods would
+ * mean two round trips for one fact.
  */
-export type SmsStatus =
+export type ProviderOrderStatus =
   | { state: "waiting" }
   | { state: "received"; code: string; text?: string }
   | { state: "expired" }
@@ -90,49 +98,52 @@ export interface NumberProvider {
   /** Identifies the adapter in the admin panel and in logs. */
   readonly id: string;
   readonly label: string;
-  /** False for the development adapter, so the UI can say so plainly. */
-  readonly isLive: boolean;
 
-  listServices(): Promise<ProviderService[]>;
-  listCountries(): Promise<ProviderCountry[]>;
-  /** Every buyable combination. Callers filter by service or country. */
-  listOffers(): Promise<ProviderOffer[]>;
-  /**
-   * Offers for just this one service, across every country. For a provider
-   * whose catalog is far larger than what listOffers() eagerly prices (see
-   * SmsPoolProvider), this is how a service outside that eagerly-priced set
-   * still becomes buyable: fetched live, on demand, only when a customer
-   * actually selects it, rather than upfront for the entire catalog.
-   */
-  listOffersForService(serviceSlug: string): Promise<ProviderOffer[]>;
+  getServices(): Promise<ProviderService[]>;
 
   /**
-   * The provider's current cost for one pair, in kobo, fetched fresh with
-   * no caching, or null when the pair cannot be bought right now.
+   * The countries this one service can be bought in, priced. Pairs with no
+   * stock are omitted rather than returned as unavailable, so a picker
+   * built from this cannot offer something that fails at purchase.
    *
-   * Every other lookup here is cached for minutes at a time so pages stay
-   * fast. This one deliberately is not: it is what a purchase is validated
-   * against immediately before money moves, so that a cached price that
-   * has since gone up cannot be sold at the old figure.
+   * An adapter is free to cache this for a few minutes so pages stay fast.
    */
-  getLiveCostKobo(
+  getCountries(serviceSlug: string): Promise<ProviderAvailability[]>;
+
+  /**
+   * One exact pair, with its cost, fetched fresh with no cache in the way.
+   * Null when it cannot be bought right now.
+   *
+   * This is the one call an adapter must never cache: it is what a purchase
+   * is validated against in the moment before money moves, so a cached cost
+   * that has since risen cannot be sold at the old figure. It answers both
+   * "can this be bought" and "what does it cost", because every supplier
+   * answers both in one response and asking twice would mean two round
+   * trips for one fact.
+   */
+  getAvailability(
     serviceSlug: string,
     countrySlug: string,
-  ): Promise<number | null>;
+  ): Promise<ProviderAvailability | null>;
 
-  requestNumber(
+  purchaseNumber(
     serviceSlug: string,
     countrySlug: string,
-  ): Promise<RequestedNumber>;
+  ): Promise<PurchasedNumber>;
 
-  /** Polled by the activation view until a code arrives or time runs out. */
-  checkSms(externalId: string): Promise<SmsStatus>;
+  /** Polled while a customer waits. Carries the code once it arrives. */
+  getOrderStatus(providerOrderId: string): Promise<ProviderOrderStatus>;
 
-  /** Releases the number early. Providers usually refund on cancel. */
-  cancelNumber(externalId: string): Promise<void>;
+  /** Releases the number early. Suppliers usually refund on cancel. */
+  cancelOrder(providerOrderId: string): Promise<void>;
+
+  /** Xencodes' remaining credit with the supplier, in kobo, when the
+   *  supplier exposes it. Shown to the admin so a balance running out is
+   *  visible before it stops sales. */
+  getProviderBalanceKobo?(): Promise<number | null>;
 }
 
-/** Thrown when the provider refuses a request, so callers can react. */
+/** Thrown when the supplier refuses a request, so callers can react. */
 export class ProviderError extends Error {
   constructor(
     message: string,

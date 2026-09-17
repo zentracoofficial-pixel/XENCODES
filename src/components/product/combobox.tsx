@@ -7,11 +7,12 @@ import { cn } from "@/lib/utils";
 /**
  * A search-and-select field for lists too long to render as a menu.
  *
- * The buy page picks from SMSPool's full catalog, which runs to well over
- * a thousand services and more than a hundred countries. Options are
- * therefore supplied already filtered and capped by the caller, which for
- * services means the server does the filtering: typing is the way through
- * the list, and scrolling is for the shortlist that typing produces.
+ * The buy page picks from a provider's full catalog, which typically runs
+ * to well over a thousand services and more than a hundred countries.
+ * Options are therefore supplied already filtered and capped by the
+ * caller, which for services means the server does the filtering: typing
+ * is the way through the list, and scrolling is for the shortlist that
+ * typing produces.
  */
 
 export interface ComboboxOption {

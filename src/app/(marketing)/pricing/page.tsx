@@ -3,10 +3,10 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
-import { ServiceLogo } from "@/components/marketing/service-logo";
-import { DevelopmentDataNotice } from "@/components/product/development-notice";
-import { getCatalog } from "@/lib/catalog";
-import { formatNairaFromNaira } from "@/lib/currency";
+import { UnavailableNotice } from "@/components/product/unavailable-notice";
+import { getInventoryStatus, countServices } from "@/lib/inventory";
+import { formatNaira } from "@/lib/currency";
+import { MIN_TOPUP_KOBO } from "@/lib/funding-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ const FACTORS = [
   },
   {
     title: "The country",
-    body: "Local carrier rates differ. Nigerian numbers are usually the cheapest option.",
+    body: "Local carrier rates differ, so the same service costs a different amount in each country.",
   },
   {
     title: "Availability",
@@ -32,14 +32,19 @@ const FACTORS = [
   },
 ];
 
+/**
+ * How pricing works, not a price list.
+ *
+ * Deliberately quotes no figures. A number's price depends on the exact
+ * service and country pair, and it is resolved live at the moment of
+ * purchase. Any figure printed here would be a second, staler answer to a
+ * question the buy page already answers correctly.
+ */
 export default async function PricingPage() {
-  const { services, countries, floorNaira, isLive } = await getCatalog();
-
-  // Cheapest few, straight from the live catalog.
-  const cheapest = [...services]
-    .filter((service) => service.priceFromNaira > 0)
-    .sort((a, b) => a.priceFromNaira - b.priceFromNaira)
-    .slice(0, 8);
+  const [status, serviceCount] = await Promise.all([
+    getInventoryStatus(),
+    countServices().catch(() => 0),
+  ]);
 
   return (
     <Container className="py-10 sm:py-14">
@@ -49,94 +54,32 @@ export default async function PricingPage() {
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground text-pretty">
           No plans and no subscription. You add funds to your wallet, then pay
-          per number. Prices start at{" "}
-          <span className="font-semibold text-foreground">
-            {floorNaira > 0 ? formatNairaFromNaira(floorNaira) : "a low rate"}
-          </span>{" "}
-          and you always see the exact price before you buy.
+          per number. The price depends on the service and the country, and you
+          always see the exact figure before you buy.
         </p>
       </div>
 
-      {!isLive ? <DevelopmentDataNotice className="mt-5 max-w-xl" /> : null}
+      {status.connected ? null : (
+        <UnavailableNotice message={status.message} className="mt-5 max-w-xl" />
+      )}
 
-      <dl className="mt-8 grid gap-2.5 sm:grid-cols-3">
-        {FACTORS.map((factor) => (
-          <div
-            key={factor.title}
-            className="rounded-xl border border-border bg-surface p-5"
-          >
-            <dt className="font-medium">{factor.title}</dt>
-            <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              {factor.body}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <div className="mt-10">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">
-              Current prices
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Cheapest country for each service, live from the catalog.
-            </p>
-          </div>
-          <Link
-            href="/services"
-            className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
-          >
-            All {services.length} services
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-surface">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[30rem] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Service</th>
-                <th className="hidden px-4 py-3 font-medium sm:table-cell">
-                  Cheapest country
-                </th>
-                <th className="px-4 py-3 text-right font-medium">From</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cheapest.map((service) => (
-                <tr
-                  key={service.slug}
-                  className="border-b border-border last:border-0"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/buy?service=${service.slug}`}
-                      className="flex min-h-10 items-center gap-3 font-medium hover:text-forest"
-                    >
-                      <ServiceLogo
-                        slug={service.slug}
-                        name={service.name}
-                        color={service.color}
-                        size="sm"
-                      />
-                      {service.name}
-                    </Link>
-                  </td>
-                  <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                    <span aria-hidden>{service.offers[0]?.flag}</span>{" "}
-                    {service.offers[0]?.countryName}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                    {formatNairaFromNaira(service.priceFromNaira)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="mt-8">
+        <h2 className="text-xl font-semibold tracking-tight">
+          What sets the price
+        </h2>
+        <dl className="mt-4 grid gap-2.5 sm:grid-cols-3">
+          {FACTORS.map((factor) => (
+            <div
+              key={factor.title}
+              className="rounded-xl border border-border bg-surface p-5"
+            >
+              <dt className="font-medium">{factor.title}</dt>
+              <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                {factor.body}
+              </dd>
             </div>
-        </div>
+          ))}
+        </dl>
       </div>
 
       <div className="mt-10 grid gap-2.5 sm:grid-cols-2">
@@ -149,10 +92,10 @@ export default async function PricingPage() {
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="font-medium">{countries.length} countries</h2>
+          <h2 className="font-medium">Top up what you want</h2>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            Each service shows only the countries that can receive its codes
-            right now, with the price and typical delivery time for each.
+            There are no fixed funding packages. Add any amount from{" "}
+            {formatNaira(MIN_TOPUP_KOBO)} and spend it a number at a time.
           </p>
         </div>
       </div>
@@ -160,17 +103,32 @@ export default async function PricingPage() {
       <div className="mt-10 flex flex-wrap items-center justify-between gap-5 rounded-2xl bg-forest px-6 py-7 sm:px-8">
         <div>
           <h2 className="text-lg font-semibold text-white">
-            Ready for your number?
+            See the price for your service
           </h2>
           <p className="mt-1 text-sm text-white/70">
-            Search for your service and get started.
+            {serviceCount > 0
+              ? `Search ${serviceCount.toLocaleString("en-NG")} services and pick a country.`
+              : "Search for your service and pick a country."}
           </p>
         </div>
-        <Button href="/buy" variant="accent">
-          Get a Number
-          <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-2">
+          <Button href="/buy" variant="accent">
+            Get a Number
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
+
+      <p className="mt-6 text-sm text-muted-foreground">
+        Looking for the full list of services?{" "}
+        <Link
+          href="/services"
+          className="text-forest underline-offset-4 hover:underline"
+        >
+          Browse services
+        </Link>
+        .
+      </p>
     </Container>
   );
 }

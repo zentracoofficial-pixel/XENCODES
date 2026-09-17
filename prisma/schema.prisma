@@ -68,15 +68,21 @@ model PasswordResetToken {
 }
 
 enum ActivationStatus {
+  /// Bought, waiting on the code. "Pending" in the admin.
   WAITING
+  /// Code delivered. "Completed" in the admin.
   RECEIVED
+  /// Session ended with no code. "Failed" in the admin.
   EXPIRED
   CANCELLED
-  /// Provider refunded the order on its side. Distinct from EXPIRED so the
-  /// admin can tell a timed-out activation apart from a provider refund.
+  /// The supplier refunded the order on its side. Distinct from EXPIRED so
+  /// the admin can tell a timed-out order apart from a supplier refund.
   REFUNDED
 }
 
+/// One number purchase. Carries its own economics: an order Xencodes cannot
+/// answer "what did this cost, what did it earn" for should never have been
+/// placed, so every figure that answers it is written at purchase time.
 model Activation {
   id          String           @id @default(cuid())
   userId      String
@@ -86,25 +92,37 @@ model Activation {
   countrySlug String
   countryName String
   phoneNumber String
+  /// Which supplier filled this order. Named generically and stored per
+  /// order so historical orders stay readable after a supplier change,
+  /// without the old one's name leaking into new business logic.
+  provider    String
+  /// The supplier's own id for this order, used to poll for the SMS.
+  providerOrderId String?
   /// What the customer paid.
   priceKobo  Int
-  /// What the provider billed Xencodes for this exact order, captured at
-  /// purchase time. Stored rather than recomputed because the provider's
+  /// What the supplier billed Xencodes for this exact order, captured at
+  /// purchase time. Stored rather than recomputed because a supplier's
   /// price moves: an order's margin has to be answerable later from what
   /// was true when it was placed.
   providerCostKobo Int @default(0)
-  /// priceKobo minus providerCostKobo, stored for the same reason.
-  markupKobo Int @default(0)
+  /// priceKobo minus providerCostKobo, stored for the same reason. Gross
+  /// margin is derived from these two rather than stored, so it can never
+  /// disagree with the money.
+  grossProfitKobo Int @default(0)
+  /// The margin the pricing rule asked for, and which rule that was, so an
+  /// order's price stays explainable after the rules change.
+  targetMarginPercent Int @default(0)
+  pricingRule String @default("legacy")
   status      ActivationStatus @default(WAITING)
   code        String?
-  /// The provider's own id for this activation, used to poll for the SMS.
-  externalId  String?
   expiresAt   DateTime
   receivedAt  DateTime?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([userId])
+  @@index([status])
+  @@index([createdAt])
   @@map("activations")
 }
 
@@ -151,33 +169,34 @@ model WalletTransaction {
   /// When the money actually landed, as distinct from when it was asked for.
   completedAt DateTime?
   failureReason String?
+  /// The order this movement belongs to, for a purchase or its refund. Null
+  /// for a top up or an admin adjustment, which are not about one order.
+  /// Not a relation: an order can be deleted with its customer while the
+  /// ledger row stays as history.
+  activationId String?
   createdAt   DateTime              @default(now())
 
   @@index([userId])
   @@index([status])
+  @@index([activationId])
   @@map("wallet_transactions")
 }
 
-/// Admin override for a catalog service. Absent row means default (enabled, no markup).
+/// Admin override for one service. An absent row, or a null margin, means
+/// the service follows the platform rules in src/lib/pricing.ts.
 model ServiceSetting {
-  slug          String   @id
-  enabled       Boolean  @default(true)
-  markupPercent Int      @default(0)
-  updatedAt     DateTime @updatedAt
+  slug              String   @id
+  enabled           Boolean  @default(true)
+  /// Explicit gross margin for this service, as a percent of the customer
+  /// price. Null rather than zero for "no override": zero is a real and
+  /// very different instruction, namely sell at cost.
+  grossMarginPercent Int?
+  updatedAt         DateTime @updatedAt
 
   @@map("service_settings")
 }
 
-/// Admin override for a catalog country.
-model CountrySetting {
-  slug      String   @id
-  enabled   Boolean  @default(true)
-  updatedAt DateTime @updatedAt
-
-  @@map("country_settings")
-}
-
-/// Small key/value store for platform settings (global markup, provider config).
+/// Small key/value store for platform settings (pricing defaults, provider config).
 model Setting {
   key       String   @id
   value     String

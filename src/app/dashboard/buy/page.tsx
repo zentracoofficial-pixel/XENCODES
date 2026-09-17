@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { searchServices, getServiceMeta } from "@/lib/inventory";
+import { brandIcons } from "@/data/brand-icons";
+import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
 import { ActivationView } from "@/components/product/activation-view";
 
@@ -20,6 +21,8 @@ export const metadata: Metadata = { title: "Buy a Number" };
 
 export const dynamic = "force-dynamic";
 
+const FALLBACK_COLOR = "#063B2D";
+
 export default async function DashboardBuyPage({
   searchParams,
 }: {
@@ -32,13 +35,13 @@ export default async function DashboardBuyPage({
 
   // A live activation takes over the page: the number and the code the
   // customer is waiting on matter more than the form that produced them.
+  // Scoped to this customer's own orders by the query itself.
   if (activationId) {
     const row = await prisma.activation.findFirst({
       where: { id: activationId, userId },
     });
 
     if (row) {
-      const meta = await getServiceMeta(row.serviceSlug);
       return (
         <ActivationView
           backHref="/dashboard/buy"
@@ -46,9 +49,8 @@ export default async function DashboardBuyPage({
             id: row.id,
             serviceSlug: row.serviceSlug,
             serviceName: row.serviceName,
-            serviceColor: meta?.color ?? "#063B2D",
+            serviceColor: brandIcons[row.serviceSlug]?.hex ?? FALLBACK_COLOR,
             countryName: row.countryName,
-            flag: "",
             phoneNumber: row.phoneNumber,
             priceKobo: row.priceKobo,
             status: row.status,
@@ -60,7 +62,8 @@ export default async function DashboardBuyPage({
     }
   }
 
-  const [initialServices, user] = await Promise.all([
+  const [status, initialServices, user] = await Promise.all([
+    getInventoryStatus(),
     searchServices("").catch(() => []),
     prisma.user.findUnique({
       where: { id: userId },
@@ -82,6 +85,7 @@ export default async function DashboardBuyPage({
       initialServiceSlug={serviceSlug}
       signedIn
       walletBalanceKobo={user?.walletBalanceKobo ?? 0}
+      unavailableMessage={status.connected ? undefined : status.message}
       basePath="/dashboard/buy"
       walletHref="/dashboard/wallet"
     />

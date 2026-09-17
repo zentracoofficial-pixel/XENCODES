@@ -5,14 +5,10 @@ import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ServiceLogo } from "@/components/marketing/service-logo";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
-import { NumberSearch } from "@/components/product/number-search";
-import { ActivationDemo } from "@/components/product/activation-demo";
+import { ServicePicker } from "@/components/product/service-picker";
 import { ServiceMarquee } from "@/components/product/service-marquee";
-import { DevelopmentDataNotice } from "@/components/product/development-notice";
-import { getCatalog } from "@/lib/catalog";
-import { formatNairaFromNaira } from "@/lib/currency";
+import { searchServices, countServices, getInventoryStatus } from "@/lib/inventory";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
@@ -35,14 +31,16 @@ export const metadata: Metadata = {
 };
 
 const STEPS = [
-  { n: "01", title: "Search", body: "Find the service you need." },
-  { n: "02", title: "Choose", body: "Select an available country and number." },
-  { n: "03", title: "Receive", body: "Get your SMS verification code." },
+  { n: "01", title: "Search", body: "Find the service you need a number for." },
+  { n: "02", title: "Choose", body: "Pick an available country and see the exact price." },
+  { n: "03", title: "Receive", body: "Your SMS verification code appears on its own." },
 ];
 
 export default async function HomePage() {
-  const [{ services, countries, floorNaira, isLive }, numbersDelivered] = await Promise.all([
-    getCatalog(),
+  const [status, services, serviceCount, numbersDelivered] = await Promise.all([
+    getInventoryStatus(),
+    searchServices("").catch(() => []),
+    countServices().catch(() => 0),
     // A real, live count, never invented: this is exactly what it says.
     prisma.activation.count({ where: { status: "RECEIVED" } }),
   ]);
@@ -50,13 +48,6 @@ export default async function HomePage() {
   // Only services with a real brand logo, not the lettermark fallback: this
   // decorative row is meant to be instantly recognisable names.
   const brandedServices = services.filter((service) => Boolean(brandIcons[service.slug]));
-
-  // Three real examples straight from the catalog, never invented.
-  const priceExamples = ["instagram", "telegram", "facebook"]
-    .map((slug) => services.find((s) => s.slug === slug))
-    .filter((service) => service !== undefined)
-    .map((service) => ({ service, offer: service.offers[0] }))
-    .filter((row) => row.offer !== undefined);
 
   return (
     <>
@@ -97,28 +88,21 @@ export default async function HomePage() {
                 your verification SMS in real time.
               </p>
 
+              {/* Only figures that are true right now. With nothing on sale
+                  there is no service count and no starting price, so neither
+                  is shown rather than shown as zero. */}
               <dl className="mt-7 flex flex-wrap gap-x-9 gap-y-4">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Numbers from</dt>
-                  <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                    {floorNaira > 0 ? formatNairaFromNaira(floorNaira) : "Coming soon"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Services</dt>
-                  <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                    {services.length}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Countries</dt>
-                  <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                    {countries.length}
-                  </dd>
-                </div>
+                {serviceCount > 0 ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Services</dt>
+                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
+                      {serviceCount.toLocaleString("en-NG")}
+                    </dd>
+                  </div>
+                ) : null}
                 {numbersDelivered > 0 ? (
                   <div>
-                    <dt className="text-xs text-muted-foreground">Delivered</dt>
+                    <dt className="text-xs text-muted-foreground">Codes delivered</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
                       {numbersDelivered.toLocaleString("en-NG")}
                     </dd>
@@ -136,120 +120,108 @@ export default async function HomePage() {
             </div>
 
             <div>
-              <NumberSearch services={services} />
-              {!isLive ? <DevelopmentDataNotice className="mt-3" /> : null}
-            </div>
-          </div>
-        </Container>
-      </section>
-
-      {/* Everything you can verify, drifting past. Full width on purpose,
-          so the rows run past the edges of the page rather than stopping.
-          Limited to services with a real brand logo, not the lettermark
-          fallback: this row is meant to read as recognisable names at a
-          glance, and the full catalog (lettermarks included) is what
-          /services is for. */}
-      <Section className="py-12 sm:py-14">
-        <Container>
-          <SectionHeading
-            title="Services we cover"
-            description={`${services.length} services and counting. Tap any one to pick a country.`}
-            action={
-              <Link
-                href="/services"
-                className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
-              >
-                View all services
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            }
-          />
-        </Container>
-
-        <div className="mt-6">
-          <ServiceMarquee services={brandedServices} />
-        </div>
-      </Section>
-
-      {/* How it works, and what receiving a code looks like. */}
-      <section className="border-y border-border bg-surface">
-        <Container className="py-14 sm:py-20">
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] lg:gap-16">
-            <div>
-              <SectionHeading
-                title="How it works"
-                description="Three steps from landing here to pasting your code."
+              <ServicePicker
+                initialServices={services}
+                unavailableMessage={status.connected ? undefined : status.message}
               />
-              <ol className="mt-8 space-y-6">
-                {STEPS.map((step) => (
-                  <li key={step.n} className="flex gap-4">
-                    <span className="font-mono text-sm font-medium text-mint">
-                      {step.n}
-                    </span>
-                    <div>
-                      <p className="font-medium">{step.title}</p>
-                      <p className="mt-0.5 text-sm text-muted-foreground">
-                        {step.body}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Your activation page
-              </p>
-              <ActivationDemo />
-              <p className="mt-3 text-xs text-muted-foreground">
-                Example of the live interface. Codes appear on their own, with
-                no refreshing.
-              </p>
             </div>
           </div>
         </Container>
       </section>
 
-      {/* Pricing preview. */}
+      {/* Everything you can verify, drifting past. Full width on purpose, so
+          the rows run past the edges of the page rather than stopping.
+          Renders nothing at all when there is nothing to show. */}
+      {brandedServices.length > 0 ? (
+        <Section className="py-12 sm:py-14">
+          <Container>
+            <SectionHeading
+              title="Services we cover"
+              description="Tap any one to pick a country and see its price."
+              action={
+                <Link
+                  href="/services"
+                  className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
+                >
+                  View all services
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              }
+            />
+          </Container>
+
+          <div className="mt-6">
+            <ServiceMarquee services={brandedServices} />
+          </div>
+        </Section>
+      ) : null}
+
+      {/* How it works. */}
+      <section className="border-y border-border bg-surface">
+        <Container className="py-14 sm:py-16">
+          <SectionHeading
+            title="How it works"
+            description="Three steps from landing here to pasting your code."
+          />
+          <ol className="mt-8 grid gap-6 sm:grid-cols-3 sm:gap-8">
+            {STEPS.map((step) => (
+              <li key={step.n} className="flex gap-4">
+                <span className="font-mono text-sm font-medium text-mint">
+                  {step.n}
+                </span>
+                <div>
+                  <p className="font-medium">{step.title}</p>
+                  <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+                    {step.body}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Container>
+      </section>
+
+      {/* Pricing. Described, never quoted: a number's price depends on the
+          service and the country, and the only figure worth showing is the
+          live one on the buy page. */}
       <Section className="py-12 sm:py-14">
         <Container>
           <SectionHeading
             title="Simple pay as you go pricing"
-            description="You pay per number. The price depends on the service and the country, and you see it before you buy."
+            description="You pay per number. The price depends on the service and the country, and you see the exact figure before you buy."
             action={
               <Link
                 href="/pricing"
                 className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
               >
-                View pricing
+                How pricing works
                 <ArrowRight className="h-4 w-4" />
               </Link>
             }
           />
 
           <ul className="mt-6 grid gap-2.5 sm:grid-cols-3">
-            {priceExamples.map(({ service, offer }) => (
+            {[
+              {
+                title: "No plans",
+                body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
+              },
+              {
+                title: "Priced in Naira",
+                body: "Every price is shown in Naira, with nothing added at checkout.",
+              },
+              {
+                title: "No code, no charge",
+                body: "If no code arrives before the session ends, the full amount returns to your wallet.",
+              },
+            ].map((item) => (
               <li
-                key={service.slug}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3.5"
+                key={item.title}
+                className="rounded-xl border border-border bg-surface px-4 py-4"
               >
-                <div className="flex min-w-0 items-center gap-3">
-                  <ServiceLogo
-                    slug={service.slug}
-                    name={service.name}
-                    color={service.color}
-                    size="sm"
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{service.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      <span aria-hidden>{offer.flag}</span> {offer.countryName}
-                    </p>
-                  </div>
-                </div>
-                <p className="shrink-0 text-sm font-semibold tabular-nums">
-                  from {formatNairaFromNaira(offer.priceNaira)}
+                <p className="text-sm font-medium">{item.title}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                  {item.body}
                 </p>
               </li>
             ))}

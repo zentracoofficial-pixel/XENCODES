@@ -11,24 +11,28 @@ import { formatNaira } from "@/lib/currency";
 import {
   purchaseNumberAction,
   type PurchaseError,
-} from "@/app/(marketing)/buy/actions";
+} from "@/app/dashboard/buy/actions";
 
 /**
- * The dedicated buy interface: search the provider's full catalog, pick a
- * country that service is really available in, see the live price for
- * that exact pair, then buy it.
+ * The buy interface: search the live catalog, pick a country that service
+ * is really available in, see the live price for that exact pair, then buy
+ * it.
  *
- * Deliberately not the homepage component. That one renders a small
- * pre-priced set for speed and browsing. This one asks the server for
- * real inventory at each step, so what is offered here is what can
- * actually be bought.
+ * Every step asks the server for real inventory, so what is offered here
+ * is what can actually be bought. When no number provider is connected the
+ * same structure renders with everything disabled and the reason stated,
+ * rather than a form that looks ready and fails on submit.
  */
 
 const errorCopy: Record<PurchaseError, string> = {
   login_required: "Log in to buy a number.",
   admin_account:
     "Admin accounts do not buy numbers. Use a customer account to shop.",
+  no_provider:
+    "Numbers are not on sale right now. Nothing was charged to your wallet.",
   unavailable: "That number just went out of stock. Try another country.",
+  unpriceable:
+    "We could not confirm the price for that number, so the order was not placed. Try another country.",
   insufficient_balance:
     "Your wallet does not have enough for this number. Add funds and try again.",
   provider_unavailable:
@@ -75,6 +79,7 @@ export function BuyPanel({
   initialServiceSlug,
   signedIn,
   walletBalanceKobo,
+  unavailableMessage,
   basePath = "/buy",
   walletHref = "/dashboard/wallet",
 }: {
@@ -82,6 +87,10 @@ export function BuyPanel({
   initialServiceSlug?: string;
   signedIn: boolean;
   walletBalanceKobo: number;
+  /** Set when no number provider is connected. Every control is disabled
+   *  and this is shown, so the page never looks ready to sell something
+   *  there is no supplier behind. */
+  unavailableMessage?: string;
   /** Where an activation is shown once bought. The dashboard keeps the
    *  customer inside its own shell, the public route does not. */
   basePath?: string;
@@ -313,8 +322,9 @@ export function BuyPanel({
       }
     : null;
 
+  const unavailable = Boolean(unavailableMessage);
   const affordable = priceKobo !== undefined && walletBalanceKobo >= priceKobo;
-  const canBuy = priceKobo !== undefined && (!signedIn || affordable);
+  const canBuy = !unavailable && priceKobo !== undefined && (!signedIn || affordable);
 
   return (
     <div className="mx-auto max-w-lg">
@@ -325,6 +335,21 @@ export function BuyPanel({
         Search any service, pick a country, and see the exact price before you
         buy.
       </p>
+
+      {unavailableMessage ? (
+        <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-warning-soft px-4 py-3.5">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <div>
+            <p className="text-sm font-medium text-warning">
+              Number service temporarily unavailable
+            </p>
+            <p className="mt-0.5 text-sm text-warning">
+              {unavailableMessage} Nothing can be purchased until it is, and
+              your wallet balance is untouched.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {signedIn ? (
         <div className="mt-5 flex items-center justify-between gap-3 border-b border-border pb-4">
@@ -367,7 +392,9 @@ export function BuyPanel({
           options={serviceOptions}
           value={selectedServiceOption}
           loading={servicesLoading}
-          autoFocus={!initialServiceSlug}
+          disabled={unavailable}
+          disabledMessage="No numbers on sale right now"
+          autoFocus={!initialServiceSlug && !unavailable}
           onQueryChange={searchServices}
           onChange={(option) => {
             const next = services.find((s) => s.slug === option.value);
@@ -390,8 +417,10 @@ export function BuyPanel({
           options={countryOptions}
           value={selectedCountryOption}
           loading={countriesLoading}
-          disabled={!service}
-          disabledMessage="Choose a service first"
+          disabled={!service || unavailable}
+          disabledMessage={
+            unavailable ? "No numbers on sale right now" : "Choose a service first"
+          }
           onChange={(option) => {
             const next = countries.find((c) => c.slug === option.value);
             if (next) {
