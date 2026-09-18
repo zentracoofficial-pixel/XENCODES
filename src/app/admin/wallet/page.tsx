@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
+import { isUnverifiedTopup } from "@/lib/funding";
 import type {
   Prisma,
   WalletTransactionType,
@@ -76,7 +77,7 @@ export default async function AdminWalletPage({
       : {}),
   };
 
-  const [transactions, count, fundedAgg, pendingAgg] = await Promise.all([
+  const [transactions, count, fundedAgg, pendingAgg, unverifiedCount] = await Promise.all([
     prisma.walletTransaction.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -94,6 +95,12 @@ export default async function AdminWalletPage({
       where: { type: "TOPUP", status: "PENDING" },
       _sum: { amountKobo: true },
       _count: true,
+    }),
+    // A SUCCESSFUL top up with no provider transaction id: the current
+    // architecture cannot produce one, so any that exist predate it. See
+    // isUnverifiedTopup() in src/lib/funding.ts.
+    prisma.walletTransaction.count({
+      where: { type: "TOPUP", status: "SUCCESSFUL", providerTransactionId: null },
     }),
   ]);
 
@@ -125,6 +132,21 @@ export default async function AdminWalletPage({
             : "."}
         </p>
       </div>
+
+      {unverifiedCount > 0 ? (
+        <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3 text-sm text-danger">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {unverifiedCount} successful funding{" "}
+            {unverifiedCount === 1 ? "record has" : "records have"} no KoraPay
+            transaction behind {unverifiedCount === 1 ? "it" : "them"} — the
+            current architecture cannot create one of these, so they predate
+            it. Marked with{" "}
+            <AlertTriangle className="inline h-3.5 w-3.5 align-text-bottom" />{" "}
+            below; open one to review and void it.
+          </span>
+        </div>
+      ) : null}
 
       <form className="relative max-w-md">
         {activeType === "ALL" ? null : (
@@ -200,6 +222,7 @@ export default async function AdminWalletPage({
               <tbody>
                 {transactions.map((tx) => {
                   const settled = tx.status === "SUCCESSFUL";
+                  const unverified = isUnverifiedTopup(tx);
                   return (
                     <tr
                       key={tx.id}
@@ -242,9 +265,17 @@ export default async function AdminWalletPage({
                         {tx.providerReference ?? "None"}
                       </td>
                       <td className="px-3 py-3">
-                        <Badge variant={WALLET_STATUS_VARIANT[tx.status]}>
-                          {tx.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant={WALLET_STATUS_VARIANT[tx.status]}>
+                            {tx.status}
+                          </Badge>
+                          {unverified ? (
+                            <AlertTriangle
+                              className="h-3.5 w-3.5 shrink-0 text-danger"
+                              aria-label="No KoraPay transaction behind this credit"
+                            />
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-5 py-3 text-right text-xs text-muted-foreground">
                         {tx.createdAt.toLocaleDateString("en-NG", {

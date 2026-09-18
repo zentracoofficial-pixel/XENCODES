@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,8 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
+import { isUnverifiedTopup } from "@/lib/funding";
+import { VoidTopupButton } from "../void-topup-button";
 
 export const metadata: Metadata = { title: "Admin: Transaction" };
 
@@ -46,6 +48,7 @@ export default async function AdminTransactionPage({
     : null;
 
   const settled = tx.status === "SUCCESSFUL";
+  const unverified = isUnverifiedTopup(tx);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -83,6 +86,22 @@ export default async function AdminTransactionPage({
           and the customer&apos;s balance has not changed. It settles only when
           a payment is verified with the payment provider.
         </p>
+      ) : null}
+
+      {unverified ? (
+        <div className="space-y-3 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3">
+          <p className="flex items-start gap-2 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This top up was marked successful with no KoraPay transaction
+              behind it (no provider reference below). The current payment
+              architecture cannot produce that; this record predates it. It
+              is very likely the source of a wallet balance that was never
+              actually paid for.
+            </span>
+          </p>
+          <VoidTopupButton transactionId={tx.id} />
+        </div>
       ) : null}
 
       <Card className="overflow-hidden">

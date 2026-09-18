@@ -95,6 +95,14 @@ async function call<T>(
   }
 
   if (!response.ok || !json.status) {
+    // The one place KoraPay's own rejection reason (bad field, wrong
+    // amount bounds, a channel not enabled on this account) is captured
+    // in full. Never includes the request body, so the secret key and a
+    // customer's email never end up in a log line.
+    console.error(
+      `[korapay] ${method} ${path} rejected (HTTP ${response.status}):`,
+      JSON.stringify(json),
+    );
     throw new KorapayError(
       json.message || `KoraPay rejected the request to ${path} (HTTP ${response.status}).`,
       "rejected",

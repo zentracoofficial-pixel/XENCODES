@@ -66,6 +66,12 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     revalidatePath("/dashboard/wallet");
     return { reference, amountKobo: pending.amountKobo, checkoutUrl };
   } catch (error) {
+    // Logged, not just recorded on the row: this is the one place a real
+    // KoraPay rejection reason (bad credentials, a malformed field, an
+    // account not yet enabled for a channel) is visible at all, since the
+    // customer is deliberately shown a generic message rather than a raw
+    // provider error.
+    console.error(`[wallet] KoraPay checkout failed to start for ${reference}:`, error);
     // The request was never opened at KoraPay's end, so there is nothing
     // to reconcile later: close it out now rather than leaving a pending
     // row a customer can never actually pay.

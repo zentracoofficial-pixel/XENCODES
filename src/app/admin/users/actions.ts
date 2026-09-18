@@ -63,12 +63,26 @@ export async function getUserDeletionImpact(userId: string): Promise<UserDeletio
 /**
  * "Permanently deletes" an account the way a business that has to keep
  * financial records is actually allowed to: the account can never sign in
- * or be recovered, and its name, email and credentials are gone, but its
- * orders and wallet ledger stay intact under an anonymised row rather than
- * being destroyed. Activation and WalletTransaction both reference this
- * user with onDelete: Restrict specifically so a real SQL delete here would
- * fail loudly instead of silently taking a customer's purchase and
- * financial history with it.
+ * or be recovered, and its name, email, credentials and any standing
+ * verification/reset tokens are gone, but its orders and wallet ledger
+ * stay intact under an anonymised row rather than being destroyed.
+ * Activation and WalletTransaction both reference this user with
+ * onDelete: Restrict specifically so a real SQL delete here would fail
+ * loudly instead of silently taking a customer's purchase and financial
+ * history with it. Support tickets are left exactly the same way, for the
+ * same reason: a past support conversation is not junk to sweep away just
+ * because the account behind it is gone.
+ *
+ * EmailVerificationToken and PasswordResetToken rows are different: they
+ * are not records of anything that happened, only latent capabilities
+ * (verify this email, reset this password), and one left behind after the
+ * email on the account has already been overwritten is pure debris, not
+ * financial or audit history. Deleted here rather than left to expire on
+ * their own.
+ *
+ * All of this runs in one transaction: a half-anonymised account with its
+ * old tokens still standing, or the reverse, is not an acceptable partial
+ * state for what is meant to be a single, atomic "delete".
  *
  * There is no undo: the real email is not recoverable once overwritten, so
  * the client requires typing it back before calling this.
@@ -82,18 +96,22 @@ export async function deleteUserAction(userId: string) {
 
   const anonymizedEmail = `deleted-${target.id}-${randomUUID().slice(0, 8)}@deleted.xencodes`;
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      email: anonymizedEmail,
-      name: null,
-      passwordHash: randomUUID(),
-      twoFactorSecret: null,
-      twoFactorEnabled: false,
-      status: "SUSPENDED",
-      deletedAt: new Date(),
-    },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: anonymizedEmail,
+        name: null,
+        passwordHash: randomUUID(),
+        twoFactorSecret: null,
+        twoFactorEnabled: false,
+        status: "SUSPENDED",
+        deletedAt: new Date(),
+      },
+    }),
+    prisma.emailVerificationToken.deleteMany({ where: { userId } }),
+    prisma.passwordResetToken.deleteMany({ where: { userId } }),
+  ]);
 
   await recordAudit({
     actor: admin,

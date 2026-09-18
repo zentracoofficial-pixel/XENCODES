@@ -146,6 +146,69 @@ export async function settleFailedTopUp(
   });
 }
 
+/**
+ * Whether a SUCCESSFUL TOPUP could only exist because of the exact bug
+ * this architecture no longer allows: a wallet credited without a payment
+ * ever being verified. completeTopUp() is the only function that can move
+ * a TOPUP to SUCCESSFUL, and it always writes the provider's own
+ * transaction id when it does that, so a SUCCESSFUL TOPUP with no
+ * providerTransactionId could not be created today. One that exists
+ * anyway predates this and is what voidUnverifiedTopup() below reverses.
+ *
+ * This only flags; it never deletes or changes anything by itself, and it
+ * can never match a real payment, since a real one always has this field.
+ */
+export function isUnverifiedTopup(tx: {
+  type: string;
+  status: string;
+  providerTransactionId: string | null;
+}): boolean {
+  return tx.type === "TOPUP" && tx.status === "SUCCESSFUL" && !tx.providerTransactionId;
+}
+
+export type VoidUnverifiedTopupResult =
+  | { voided: true; amountKobo: number; userId: string }
+  | { voided: false; reason: "not_found" | "not_an_unverified_topup" };
+
+/**
+ * Reverses exactly the failure mode isUnverifiedTopup() detects: a TOPUP
+ * that was marked SUCCESSFUL and credited a balance without a real
+ * payment behind it. Refuses everything else, including a TOPUP that does
+ * carry a providerTransactionId (that one was actually verified and must
+ * never be touched by this) and any non-TOPUP row, so this cannot be used
+ * to alter a purchase, refund, or admin adjustment.
+ *
+ * The reversing decrement and the status change happen in one
+ * transaction: a balance is never left debited without the row that
+ * explains why, or vice versa.
+ */
+export async function voidUnverifiedTopup(
+  transactionId: string,
+): Promise<VoidUnverifiedTopupResult> {
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.walletTransaction.findUnique({ where: { id: transactionId } });
+    if (!row) return { voided: false, reason: "not_found" };
+    if (!isUnverifiedTopup(row)) {
+      return { voided: false, reason: "not_an_unverified_topup" };
+    }
+
+    await tx.walletTransaction.update({
+      where: { id: row.id },
+      data: {
+        status: "FAILED",
+        failureReason:
+          "Voided by an admin: this credit had no verified KoraPay transaction behind it and predates payment verification.",
+      },
+    });
+    await tx.user.update({
+      where: { id: row.userId },
+      data: { walletBalanceKobo: { decrement: row.amountKobo } },
+    });
+
+    return { voided: true, amountKobo: row.amountKobo, userId: row.userId };
+  });
+}
+
 export type TopUpOutcome =
   | { state: "credited" }
   | { state: "failed" }
