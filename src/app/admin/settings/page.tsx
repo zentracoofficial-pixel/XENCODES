@@ -4,6 +4,7 @@ import {
   CreditCard,
   Percent,
   Plug,
+  RefreshCw,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
 import { availableAdapterIds, getNumberProvider, hasCredentials } from "@/lib/provider";
+import { getProviderSyncStatus } from "@/lib/provider-sync";
 import { formatNaira } from "@/lib/currency";
 import {
   WALLET_CURRENCY,
@@ -26,7 +28,9 @@ import {
   MAX_TOPUP_KOBO,
   FUNDING_PROVIDER,
 } from "@/lib/funding-limits";
+import { isKorapayConfigured } from "@/lib/korapay";
 import { MarginForm, ProviderForm, UsdRateForm } from "./settings-forms";
+import { SyncNowButton } from "./sync-now-button";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -40,12 +44,13 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, usdToNgnRateRow] = await Promise.all([
+  const [settings, rules, admins, resolved, usdToNgnRateRow, syncStatus] = await Promise.all([
     readSettings(),
     loadMarginRules(),
     prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
     getNumberProvider(),
     prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
+    getProviderSyncStatus(),
   ]);
 
   const providerId = settings[SETTING_KEYS.providerId] ?? "";
@@ -125,20 +130,86 @@ export default async function AdminSettingsPage() {
 
       <Card className="p-5">
         <h2 className="flex items-center gap-2 font-semibold">
-          <CreditCard className="h-4 w-4" />
-          Payment provider
-          <Badge variant="warning">Not connected</Badge>
+          <RefreshCw className="h-4 w-4" />
+          Catalog synchronization
+          <Badge variant={syncStatus.isFresh ? "success" : "warning"}>
+            {syncStatus.isFresh ? "Fresh" : syncStatus.lastSuccessAt ? "Stale" : "Never synced"}
+          </Badge>
         </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-          {FUNDING_PROVIDER.label} is the intended provider for customer
-          funding. It is not integrated: customers can create a funding
-          request, and it stays pending, because a balance only moves once a
-          payment has been verified with the provider on the server. No
-          credentials are stored here; when it is built they belong in this
-          deployment&apos;s environment variables.
+          A background job pulls the full service and country catalog from
+          the connected provider roughly every hour, prices it through the
+          same margin rules as everywhere else, and that is what search and
+          browsing read from. A purchase never reads this cache: it always
+          asks the provider directly, right before charging, so a slow or
+          failed sync can only make browsing stale, never make a purchase
+          wrong.
+        </p>
+        <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Last successful sync
+            </dt>
+            <dd className="mt-1 text-sm font-medium">
+              {syncStatus.lastSuccessAt
+                ? syncStatus.lastSuccessAt.toLocaleString("en-NG")
+                : "Never"}
+            </dd>
+          </div>
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Last failed sync
+            </dt>
+            <dd className="mt-1 text-sm font-medium">
+              {syncStatus.lastFailureAt
+                ? syncStatus.lastFailureAt.toLocaleString("en-NG")
+                : "None recorded"}
+            </dd>
+          </div>
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Services synchronized
+            </dt>
+            <dd className="mt-1 text-sm font-medium tabular-nums">
+              {syncStatus.servicesSynced ?? "—"}
+            </dd>
+          </div>
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Countries synchronized
+            </dt>
+            <dd className="mt-1 text-sm font-medium tabular-nums">
+              {syncStatus.countriesSynced ?? "—"}
+            </dd>
+          </div>
+        </dl>
+        {syncStatus.lastFailureError ? (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+            Last error: {syncStatus.lastFailureError}
+          </p>
+        ) : null}
+        <div className="mt-4">
+          <SyncNowButton />
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <CreditCard className="h-4 w-4" />
+          Payment provider
+          <Badge variant={isKorapayConfigured() ? "success" : "warning"}>
+            {isKorapayConfigured() ? "Connected" : "Not connected"}
+          </Badge>
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+          {isKorapayConfigured()
+            ? `${FUNDING_PROVIDER.label} is connected: a top up opens a real checkout page, and the wallet is credited only after this server verifies the payment directly with ${FUNDING_PROVIDER.label}, from its own webhook and from the customer's return to the wallet page. Neither ever trusts the other alone.`
+            : `${FUNDING_PROVIDER.label} is the provider for customer funding, but KORAPAY_SECRET_KEY is not set on this deployment. Customers can create a funding request, and it stays pending, because a balance only moves once a payment has been verified with the provider on the server.`}
         </p>
         <p className="mt-3 text-xs text-muted-foreground">
-          Pending requests are visible on{" "}
+          No credentials are stored here; they belong only in this
+          deployment&apos;s environment variables. Pending requests are
+          visible on{" "}
           <Link href="/admin/wallet?status=PENDING" className="text-forest hover:underline">
             Wallet
           </Link>

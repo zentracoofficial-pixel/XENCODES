@@ -6,6 +6,7 @@ import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
 import { availableAdapterIds } from "@/lib/provider";
 import { recordAudit } from "@/lib/audit";
+import { runProviderSync, type ProviderSyncResult } from "@/lib/provider-sync";
 
 function refresh() {
   revalidatePath("/admin/settings");
@@ -131,4 +132,25 @@ export async function saveUsdRateAction(
 
   refresh();
   return { success: true };
+}
+
+/**
+ * Runs the same sync the hourly cron job runs, on demand. For confirming a
+ * price change landed, or recovering from a run the schedule missed,
+ * without waiting for the next scheduled tick.
+ */
+export async function runSyncNowAction(): Promise<ProviderSyncResult> {
+  const admin = await requireAdmin();
+
+  const result = await runProviderSync();
+  await recordAudit({
+    actor: admin,
+    action: "settings.sync_now",
+    targetType: "settings",
+    targetId: "provider_sync",
+    metadata: { ...result },
+  });
+
+  refresh();
+  return result;
 }

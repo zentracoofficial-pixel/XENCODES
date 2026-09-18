@@ -1,0 +1,42 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
+import { runSyncNowAction } from "./actions";
+
+/**
+ * Runs the same job the hourly cron calls, right now. useTransition (not
+ * useActionState): this has no form and nothing to bind a <form action>
+ * to, just a button firing a server action and showing what it returned.
+ */
+export function SyncNowButton() {
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  function run() {
+    startTransition(async () => {
+      const result = await runSyncNowAction();
+      setMessage(
+        result.ok
+          ? {
+              ok: true,
+              text: `Synced ${result.servicesSynced} services, ${result.countriesSynced} countries, ${result.offersSynced} priced offers.`,
+            }
+          : { ok: false, text: result.error ?? "Sync failed." },
+      );
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button type="button" variant="outline" onClick={run} disabled={pending}>
+        {pending ? "Syncing…" : "Sync now"}
+      </Button>
+      {message ? (
+        <p className={`text-xs ${message.ok ? "text-success" : "text-danger"}`}>
+          {message.text}
+        </p>
+      ) : null}
+    </div>
+  );
+}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -65,7 +66,9 @@ export default async function WalletPage() {
         </p>
       </div>
 
-      <AddFunds />
+      <Suspense fallback={null}>
+        <AddFunds />
+      </Suspense>
 
       <section>
         <h2 className="text-sm font-semibold">Recent transactions</h2>

@@ -309,6 +309,68 @@ enum EmailCampaignStatus {
   FAILED
 }
 
+/// The one row describing the health of the background provider sync (see
+/// src/lib/provider-sync.ts). Read by the admin Settings page and by the
+/// browse-side cache in src/lib/inventory.ts to decide whether SyncedOffer
+/// is fresh enough to serve. A purchase never reads this: quotePair() in
+/// inventory.ts always asks the live provider directly, so a stale or
+/// failed sync can make browsing degrade but can never make a purchase
+/// wrong.
+model ProviderSyncStatus {
+  /// Always "singleton": one row, upserted in place.
+  id                 String    @id
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  lastFailureError   String?
+  servicesSynced     Int?
+  countriesSynced    Int?
+  /// How many service/country pairs were priced and written to
+  /// SyncedOffer on the last successful run.
+  offersSynced       Int?
+  updatedAt          DateTime  @updatedAt
+
+  @@map("provider_sync_status")
+}
+
+/// A cached, already-priced service/country offer, written by the
+/// background sync (src/lib/provider-sync.ts) and read by the browse and
+/// search paths in src/lib/inventory.ts so a page view or a search
+/// keystroke does not call the live supplier. Replaced wholesale on every
+/// successful sync run, never partially patched, so a row here is never
+/// older than the last full sync and never mixes two runs.
+///
+/// Never read at purchase time. The price a customer is actually charged
+/// always comes from a fresh, uncached call to the provider in
+/// quotePair(), which is what keeps a sync outage or a stale cache from
+/// ever being able to overcharge, undercharge, or sell something no
+/// longer in stock.
+model SyncedOffer {
+  id             String   @id @default(cuid())
+  serviceSlug    String
+  serviceName    String
+  serviceColor   String
+  category       String
+  countrySlug    String
+  countryName    String
+  countryFlag    String
+  dialCode       String
+  nationalDigits Int
+  /// What the supplier billed, at sync time. Never shown to a customer.
+  costKobo       Int
+  /// What the customer would pay, already run through the same margin
+  /// rules quotePair() uses, so a displayed price and a charged price
+  /// never come from two different formulas.
+  priceKobo      Int
+  stock          String
+  stockCount     Int
+  syncedAt       DateTime @default(now())
+
+  @@unique([serviceSlug, countrySlug])
+  @@index([serviceSlug])
+  @@index([countrySlug])
+  @@map("synced_offers")
+}
+
 /// One send of a marketing/announcement email to a targeted audience.
 /// History only: an admin composes and sends from src/app/admin/email, and
 /// this is the record of what was sent, to how many people, and by whom.

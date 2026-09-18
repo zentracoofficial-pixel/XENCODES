@@ -6,6 +6,7 @@ import {
   FUNDING_PROVIDER,
   validateTopUpAmount,
 } from "@/lib/funding-limits";
+import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -18,11 +19,11 @@ import {
  * called after a real verification, does, and it refuses to run twice for
  * the same reference.
  *
- * KoraPay is the intended provider. Nothing here talks to it yet: the
- * pieces it will need (a reference generated before checkout, a pending
- * row to match a webhook against, an idempotent completion) are in place
- * so that wiring it up is filling in one adapter rather than reworking the
- * wallet.
+ * KoraPay is the provider (src/lib/korapay.ts). Both the webhook and the
+ * customer's return from checkout route through verifyAndSettleTopUp()
+ * below, so there is exactly one place that decides a payment is real: a
+ * webhook body's own claims are never trusted for crediting, only used to
+ * know which reference to go ask KoraPay about directly.
  */
 
 export {
@@ -143,4 +144,49 @@ export async function settleFailedTopUp(
     where: { id: row.id },
     data: { status, failureReason, completedAt: new Date() },
   });
+}
+
+export type TopUpOutcome =
+  | { state: "credited" }
+  | { state: "failed" }
+  | { state: "still_pending" }
+  | { state: "unknown_reference" };
+
+/**
+ * Asks KoraPay directly what a charge's status actually is, and settles
+ * our own row to match. This is the one function both the webhook and the
+ * customer's redirect back from checkout call: a webhook event or a
+ * `?reference=` query parameter only ever says which reference to check,
+ * never what happened to it, so calling this twice for the same reference
+ * (webhook and return page racing each other, or a retried webhook) is
+ * safe and simply does nothing the second time, since completeTopUp() and
+ * settleFailedTopUp() are both idempotent against a row that already left
+ * PENDING.
+ */
+export async function verifyAndSettleTopUp(providerReference: string): Promise<TopUpOutcome> {
+  const row = await prisma.walletTransaction.findUnique({ where: { providerReference } });
+  if (!row) return { state: "unknown_reference" };
+  if (row.status === "SUCCESSFUL") return { state: "credited" };
+  if (row.status !== "PENDING") return { state: "failed" };
+
+  let charge;
+  try {
+    charge = await verifyKorapayCharge(providerReference);
+  } catch (error) {
+    if (error instanceof KorapayError) {
+      console.error(`[funding] KoraPay verify failed for ${providerReference}:`, error.message);
+      return { state: "still_pending" };
+    }
+    throw error;
+  }
+
+  if (charge.status === "success") {
+    const result = await completeTopUp(providerReference, charge.providerTransactionId);
+    return { state: result.credited || result.reason === "already_credited" ? "credited" : "failed" };
+  }
+  if (charge.status === "failed" || charge.status === "expired") {
+    await settleFailedTopUp(providerReference, "FAILED", `KoraPay reported "${charge.status}"`);
+    return { state: "failed" };
+  }
+  return { state: "still_pending" };
 }

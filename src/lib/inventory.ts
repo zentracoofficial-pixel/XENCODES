@@ -11,6 +11,7 @@ import {
   isUsableCost,
   type PriceQuote,
 } from "@/lib/pricing";
+import { getProviderSyncStatus } from "@/lib/provider-sync";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -150,6 +151,37 @@ export async function getInventoryStatus(): Promise<InventoryStatus> {
 }
 
 /**
+ * The service catalog to search or browse, from the synced cache when it
+ * is fresh, otherwise a live call.
+ *
+ * This is the only place that distinction is made for services: everyone
+ * downstream (searchServices, countServices, getServiceMeta) gets the same
+ * list regardless of where it came from, so there is exactly one service
+ * list, not one per page and not one per cache state.
+ */
+async function loadServiceCatalog(): Promise<ProviderService[] | null> {
+  const status = await getProviderSyncStatus();
+  if (status.isFresh) {
+    const cached = await prisma.syncedOffer.findMany({
+      distinct: ["serviceSlug"],
+      select: { serviceSlug: true, serviceName: true, serviceColor: true, category: true },
+    });
+    if (cached.length > 0) {
+      return cached.map((row) => ({
+        slug: row.serviceSlug,
+        name: row.serviceName,
+        color: row.serviceColor,
+        category: row.category,
+      }));
+    }
+  }
+
+  const resolved = await getNumberProvider();
+  if (!resolved.connected) return null;
+  return resolved.provider.getServices();
+}
+
+/**
  * Services matching a search, or the first page of them when the query is
  * empty. Filtered and capped server side: a supplier's catalog runs to
  * thousands of names, and shipping all of them to a combobox is what makes
@@ -159,16 +191,14 @@ export async function searchServices(
   query: string,
   limit = SERVICE_RESULT_LIMIT,
 ): Promise<InventoryService[]> {
-  const [resolved, disabledRows] = await Promise.all([
-    getNumberProvider(),
+  const [catalog, disabledRows] = await Promise.all([
+    loadServiceCatalog(),
     prisma.serviceSetting.findMany({ where: { enabled: false } }),
   ]);
-  if (!resolved.connected) return [];
+  if (!catalog) return [];
 
   const disabled = new Set(disabledRows.map((row) => row.slug));
-  const services = (await resolved.provider.getServices()).filter(
-    (service) => !disabled.has(service.slug),
-  );
+  const services = catalog.filter((service) => !disabled.has(service.slug));
 
   const q = query.trim().toLowerCase();
   // Match on the slug as well as the display name: suppliers list several
@@ -222,14 +252,41 @@ export interface CatalogHighlights {
 export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   const empty: CatalogHighlights = { startingPriceKobo: null, countryCount: null };
 
-  const [resolved, rules, disabledRows] = await Promise.all([
-    getNumberProvider(),
+  const [rules, disabledRows, syncStatus] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findMany({ where: { enabled: false } }),
+    getProviderSyncStatus(),
   ]);
+  const disabled = new Set(disabledRows.map((row) => row.slug));
+
+  // The homepage renders this for every visitor, so it reads the synced
+  // cache rather than calling the live supplier on every page view. The
+  // one live call this file makes unconditionally is quotePair(), for the
+  // one thing that must never be cached: what a customer is actually
+  // charged.
+  if (syncStatus.isFresh) {
+    const rows = await prisma.syncedOffer.findMany({
+      where: { serviceSlug: { notIn: [...disabled] } },
+      select: { serviceSlug: true, costKobo: true, countrySlug: true },
+    });
+    if (rows.length > 0) {
+      let startingPriceKobo: number | null = null;
+      const countrySlugs = new Set<string>();
+      for (const row of rows) {
+        countrySlugs.add(row.countrySlug);
+        if (!isUsableCost(row.costKobo)) continue;
+        const quote = quoteFor(rules, row.costKobo, row.serviceSlug);
+        if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
+          startingPriceKobo = quote.customerPriceKobo;
+        }
+      }
+      return { startingPriceKobo, countryCount: countrySlugs.size };
+    }
+  }
+
+  const resolved = await getNumberProvider();
   if (!resolved.connected) return empty;
 
-  const disabled = new Set(disabledRows.map((row) => row.slug));
   const [cheapestByService, countryCount] = await Promise.all([
     resolved.provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
       Promise.resolve(new Map<string, number>()),
@@ -251,30 +308,27 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
 /** How many services are on sale. Zero with no supplier connected, which
  *  is what the marketing pages render their empty state from. */
 export async function countServices(): Promise<number> {
-  const [resolved, disabledRows] = await Promise.all([
-    getNumberProvider(),
+  const [catalog, disabledRows] = await Promise.all([
+    loadServiceCatalog(),
     prisma.serviceSetting.findMany({ where: { enabled: false } }),
   ]);
-  if (!resolved.connected) return 0;
+  if (!catalog) return 0;
 
   const disabled = new Set(disabledRows.map((row) => row.slug));
-  const services = await resolved.provider.getServices();
-  return services.filter((service) => !disabled.has(service.slug)).length;
+  return catalog.filter((service) => !disabled.has(service.slug)).length;
 }
 
 /** Display metadata for one service, or null when it cannot be sold. */
 export async function getServiceMeta(
   serviceSlug: string,
 ): Promise<InventoryService | null> {
-  const [resolved, setting] = await Promise.all([
-    getNumberProvider(),
+  const [catalog, setting] = await Promise.all([
+    loadServiceCatalog(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
   ]);
-  if (!resolved.connected || setting?.enabled === false) return null;
+  if (!catalog || setting?.enabled === false) return null;
 
-  const service = (await resolved.provider.getServices()).find(
-    (row) => row.slug === serviceSlug,
-  );
+  const service = catalog.find((row) => row.slug === serviceSlug);
   return service ? toInventoryService(service) : null;
 }
 
@@ -292,15 +346,53 @@ export async function getServiceMeta(
 export async function getServiceCountries(
   serviceSlug: string,
 ): Promise<InventoryCountry[]> {
-  const [resolved, rules, serviceSetting] = await Promise.all([
-    getNumberProvider(),
+  const [rules, serviceSetting, syncStatus] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
+    getProviderSyncStatus(),
   ]);
+  if (serviceSetting?.enabled === false) return [];
 
-  if (!resolved.connected || serviceSetting?.enabled === false) return [];
+  // Priced from cost read at read time, not from the price the sync wrote:
+  // availability and cost only need to be as fresh as the last sync, but a
+  // margin rule an admin changes a minute ago should not wait for the next
+  // sync to take effect anywhere it is shown.
+  type CostOffer = {
+    country: {
+      slug: string;
+      name: string;
+      flag: string;
+      dialCode: string;
+      nationalDigits: number;
+    };
+    costKobo: number;
+    stock: string;
+    successRate?: number;
+  };
 
-  const offers = await resolved.provider.getCountries(serviceSlug);
+  let offers: CostOffer[] | null = null;
+  if (syncStatus.isFresh) {
+    const cached = await prisma.syncedOffer.findMany({ where: { serviceSlug } });
+    if (cached.length > 0) {
+      offers = cached.map((row) => ({
+        country: {
+          slug: row.countrySlug,
+          name: row.countryName,
+          flag: row.countryFlag,
+          dialCode: row.dialCode,
+          nationalDigits: row.nationalDigits,
+        },
+        costKobo: row.costKobo,
+        stock: row.stock,
+      }));
+    }
+  }
+
+  if (!offers) {
+    const resolved = await getNumberProvider();
+    if (!resolved.connected) return [];
+    offers = await resolved.provider.getCountries(serviceSlug);
+  }
 
   return offers
     .filter((offer) => offer.stock !== "out_of_stock")

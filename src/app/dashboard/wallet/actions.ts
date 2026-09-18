@@ -2,28 +2,36 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { createPendingTopUp } from "@/lib/funding";
+import { prisma } from "@/lib/prisma";
+import { createPendingTopUp, settleFailedTopUp, verifyAndSettleTopUp } from "@/lib/funding";
 import {
   validateTopUpAmount,
   FUNDING_ERROR_COPY,
   type FundingError,
 } from "@/lib/funding-limits";
+import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
 
 export interface StartTopUpResult {
   error?: string;
-  /** Our reference for the pending attempt, which the payment provider
-   *  will be given once Korapay is connected. */
+  /** Our reference for the pending attempt, kept so the wallet page can
+   *  poll it after a checkout redirect. */
   reference?: string;
   amountKobo?: number;
+  /** Set only when KoraPay is connected: the browser is sent here to pay.
+   *  Absent means the request was recorded but there is nowhere to send
+   *  the customer yet, which the UI shows plainly rather than pretending
+   *  a checkout is coming. */
+  checkoutUrl?: string;
 }
 
 /**
  * Begins a funding attempt.
  *
- * Records the intent and stops there. No balance moves, because no money
- * has arrived: the customer has told us what they want to pay, not paid
- * it. Crediting happens only in completeTopUp(), after Korapay confirms
- * the payment server side.
+ * Records the intent and stops there: no balance moves, because no money
+ * has arrived yet. When KoraPay is connected this also asks it to open a
+ * checkout page and hands back the URL for the browser to go pay at;
+ * crediting still only ever happens in completeTopUp(), after that
+ * payment is verified server side, never here.
  *
  * An earlier version of this called creditWallet() directly, which meant
  * clicking a top up amount granted balance for free. That is the specific
@@ -39,11 +47,58 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
   if (invalid) return { error: FUNDING_ERROR_COPY[invalid] };
 
   const pending = await createPendingTopUp(session.user.id, amountKobo);
+  const reference = pending.providerReference ?? undefined;
 
+  if (!isKorapayConfigured() || !reference) {
+    revalidatePath("/dashboard/wallet");
+    return { reference, amountKobo: pending.amountKobo };
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+
+  try {
+    const { checkoutUrl } = await initializeKorapayCharge({
+      reference,
+      amountKobo: pending.amountKobo,
+      email: user?.email ?? session.user.email ?? "",
+      name: user?.name,
+    });
+    revalidatePath("/dashboard/wallet");
+    return { reference, amountKobo: pending.amountKobo, checkoutUrl };
+  } catch (error) {
+    // The request was never opened at KoraPay's end, so there is nothing
+    // to reconcile later: close it out now rather than leaving a pending
+    // row a customer can never actually pay.
+    await settleFailedTopUp(
+      reference,
+      "FAILED",
+      error instanceof KorapayError ? error.message : "Failed to start checkout.",
+    );
+    revalidatePath("/dashboard/wallet");
+    return { error: "We could not start checkout. Nothing was charged; please try again." };
+  }
+}
+
+export interface TopUpStatus {
+  state: "credited" | "failed" | "still_pending" | "unknown_reference";
+}
+
+/**
+ * Called when the customer lands back on the wallet page from KoraPay's
+ * checkout, so they see the outcome immediately rather than waiting on
+ * the webhook. Safe to call any number of times for the same reference:
+ * verifyAndSettleTopUp() only ever acts once on a row that leaves PENDING.
+ */
+export async function checkTopUpStatusAction(reference: string): Promise<TopUpStatus> {
+  const session = await auth();
+  if (!session?.user?.id) return { state: "unknown_reference" };
+
+  const row = await prisma.walletTransaction.findFirst({
+    where: { providerReference: reference, userId: session.user.id },
+  });
+  if (!row) return { state: "unknown_reference" };
+
+  const outcome = await verifyAndSettleTopUp(reference);
   revalidatePath("/dashboard/wallet");
-
-  return {
-    reference: pending.providerReference ?? undefined,
-    amountKobo: pending.amountKobo,
-  };
+  return { state: outcome.state };
 }
