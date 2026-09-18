@@ -3,12 +3,36 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+/**
+ * `prisma migrate deploy` holds a session-scoped postgres advisory lock
+ * for the length of the migration. A pooled connection (PgBouncer in
+ * transaction mode, which is what Neon's DATABASE_URL is on Vercel by
+ * default) cannot reliably hold that lock, since the pooler can hand
+ * different statements to different underlying connections, so the lock
+ * acquire call itself times out with P1002.
+ *
+ * The CLI (this file) is the only thing that needs the direct, unpooled
+ * connection: the app's own runtime queries (src/lib/prisma.ts) keep
+ * using the pooled DATABASE_URL, which is what you want under concurrent
+ * serverless invocations. DIRECT_DATABASE_URL is what you add yourself in
+ * Vercel; the other two are the names Vercel's own Postgres/Neon
+ * integrations already use for the unpooled connection, checked in case
+ * one of those is already set. Falling back to DATABASE_URL keeps local
+ * development working unchanged, since a local Postgres has no pooler to
+ * route around.
+ */
+const migrationDatabaseUrl =
+  process.env["DIRECT_DATABASE_URL"] ??
+  process.env["DATABASE_URL_UNPOOLED"] ??
+  process.env["POSTGRES_URL_NON_POOLING"] ??
+  process.env["DATABASE_URL"];
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: migrationDatabaseUrl,
   },
 });
