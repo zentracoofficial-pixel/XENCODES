@@ -135,7 +135,7 @@ export async function saveUsdRateAction(
 }
 
 /**
- * Runs the same sync the hourly cron job runs, on demand. For confirming a
+ * Runs the same sync the daily cron job runs, on demand. For confirming a
  * price change landed, or recovering from a run the schedule missed,
  * without waiting for the next scheduled tick.
  */

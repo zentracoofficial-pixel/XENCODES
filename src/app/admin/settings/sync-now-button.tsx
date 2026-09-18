@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { runSyncNowAction } from "./actions";
 
 /**
- * Runs the same job the hourly cron calls, right now. useTransition (not
+ * Runs the same job the daily cron calls, right now. useTransition (not
  * useActionState): this has no form and nothing to bind a <form action>
  * to, just a button firing a server action and showing what it returned.
  */

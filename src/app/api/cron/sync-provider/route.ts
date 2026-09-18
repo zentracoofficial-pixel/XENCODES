@@ -11,7 +11,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Triggered by Vercel Cron on the schedule in vercel.json (hourly).
+ * Triggered by Vercel Cron on the schedule in vercel.json: once daily, the
+ * most frequent a Hobby-plan project is allowed to declare (Vercel refuses
+ * to deploy a more frequent one at all, which is exactly the config error
+ * that silently blocked every deployment before this comment was fixed to
+ * say so).
  *
  * Vercel signs its own cron requests with a bearer token equal to
  * CRON_SECRET, documented at vercel.com/docs/cron-jobs/manage-cron-jobs.

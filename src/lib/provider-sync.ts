@@ -161,11 +161,15 @@ async function recordFailure(message: string): Promise<void> {
 }
 
 /** How stale SyncedOffer is allowed to get before the browse/search path
- *  in inventory.ts stops trusting it and falls back to a live call. Three
- *  times the intended ~60 minute schedule, so one missed run does not
- *  immediately degrade every page view, but a genuinely stuck sync does
- *  not go unnoticed for long either. */
-export const SYNC_STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+ *  in inventory.ts stops trusting it and falls back to a live call. The
+ *  schedule itself (vercel.json) is once daily: Vercel's Hobby plan
+ *  refuses to deploy a project whose cron runs more than once a day, so
+ *  that is the ceiling here too, not a choice. 36 hours, one and a half
+ *  times that interval, so one missed run does not immediately degrade
+ *  every page view, but a genuinely stuck sync does not go unnoticed for
+ *  more than a day and a half either. Move this back down once the
+ *  project is on a plan that allows a tighter cron schedule. */
+export const SYNC_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
 
 export interface ProviderSyncStatusView {
   lastSuccessAt: Date | null;

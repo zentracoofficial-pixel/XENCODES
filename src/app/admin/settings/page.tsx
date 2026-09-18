@@ -138,12 +138,14 @@ export default async function AdminSettingsPage() {
         </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
           A background job pulls the full service and country catalog from
-          the connected provider roughly every hour, prices it through the
-          same margin rules as everywhere else, and that is what search and
-          browsing read from. A purchase never reads this cache: it always
-          asks the provider directly, right before charging, so a slow or
-          failed sync can only make browsing stale, never make a purchase
-          wrong.
+          the connected provider once a day (the most frequent a cron job
+          can run on this deployment&apos;s current Vercel plan), prices it
+          through the same margin rules as everywhere else, and that is
+          what search and browsing read from. A purchase never reads this
+          cache: it always asks the provider directly, right before
+          charging, so a slow or failed sync can only make browsing stale,
+          never make a purchase wrong. Use &quot;Sync now&quot; below for an
+          immediate refresh between scheduled runs.
         </p>
         <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border border-border px-4 py-3">
