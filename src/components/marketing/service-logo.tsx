@@ -54,7 +54,7 @@ export function ServiceLogo({
       )}
     >
       {icon ? (
-        <svg width={glyph} height={glyph} viewBox="0 0 24 24" fill="currentColor">
+        <svg width={glyph} height={glyph} viewBox={icon.viewBox ?? "0 0 24 24"} fill="currentColor">
           <path d={icon.path} />
         </svg>
       ) : (

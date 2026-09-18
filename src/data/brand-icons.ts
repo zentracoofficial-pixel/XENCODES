@@ -2,10 +2,23 @@
 // vendored here, so no icon library ships to the browser at runtime.
 // Brand names and marks are trademarks of their respective owners; Xencodes is
 // not affiliated with them.
+//
+// A handful of entries near the end of this file (amazon, microsoft,
+// linkedin, yahoo) come from Font Awesome Free instead: those four brands
+// were withdrawn from simple-icons after trademark requests, and Font
+// Awesome's icon set (CC BY 4.0, see the footer credit this license
+// requires) still carries them with a verified path, which is why this file
+// carries a viewBox per entry rather than assuming simple-icons' fixed
+// 24x24 for everything.
 
 export interface BrandIcon {
   hex: string;
   path: string;
+  /** Defaults to simple-icons' "0 0 24 24" when absent. Font Awesome ships
+   *  its brand glyphs on a 448x512 (or 512x512) grid, so an icon sourced
+   *  from there must say so rather than being silently misdrawn inside a
+   *  24x24 box. */
+  viewBox?: string;
 }
 
 export const brandIcons: Record<string, BrandIcon> = {
@@ -208,5 +221,32 @@ export const brandIcons: Record<string, BrandIcon> = {
   "kakaotalk": {
     hex: "#FFCD00",
     path: "M22.125 0H1.875C.8394 0 0 .8394 0 1.875v20.25C0 23.1606.8394 24 1.875 24h20.25C23.1606 24 24 23.1606 24 22.125V1.875C24 .8394 23.1606 0 22.125 0zM12 18.75c-.591 0-1.1697-.0413-1.7317-.1209-.5626.3965-3.813 2.6797-4.1198 2.7225 0 0-.1258.0489-.2328-.0141s-.0876-.2282-.0876-.2282c.0322-.2198.8426-3.0183.992-3.5333-2.7452-1.36-4.5701-3.7686-4.5701-6.5135C2.25 6.8168 6.6152 3.375 12 3.375s9.75 3.4418 9.75 7.6875c0 4.2457-4.3652 7.6875-9.75 7.6875zM8.0496 9.8672h-.8777v3.3417c0 .2963-.2523.5372-.5625.5372s-.5625-.2409-.5625-.5372V9.8672h-.8777c-.3044 0-.552-.2471-.552-.5508s.2477-.5508.552-.5508h2.8804c.3044 0 .552.2471.552.5508s-.2477.5508-.552.5508zm10.9879 2.9566a.558.558 0 0 1 .108.4167.5588.5588 0 0 1-.2183.371.5572.5572 0 0 1-.3383.1135.558.558 0 0 1-.4493-.2236l-1.3192-1.7479-.1952.1952v1.2273a.5635.5635 0 0 1-.5627.5628.563.563 0 0 1-.5625-.5625V9.3281c0-.3102.2523-.5625.5625-.5625s.5625.2523.5625.5625v1.209l1.5694-1.5694c.0807-.0807.1916-.1252.312-.1252.1404 0 .2814.0606.3871.1661.0985.0984.1573.2251.1654.3566.0082.1327-.036.2542-.1241.3425l-1.2818 1.2817 1.3845 1.8344zm-8.3502-3.5023c-.095-.2699-.3829-.5475-.7503-.5557-.3663.0083-.6542.2858-.749.5551l-1.3455 3.5415c-.1708.5305-.0217.7272.1333.7988a.8568.8568 0 0 0 .3576.0776c.2346 0 .4139-.0952.4678-.2481l.2787-.7297 1.7152.0001.2785.7292c.0541.1532.2335.2484.4681.2484a.8601.8601 0 0 0 .3576-.0775c.1551-.0713.3041-.2681.1329-.7999l-1.3449-3.5398zm-1.3116 2.4433l.5618-1.5961.5618 1.5961H9.3757zm5.9056 1.3836c0 .2843-.2418.5156-.5391.5156h-1.8047c-.2973 0-.5391-.2314-.5391-.5156V9.3281c0-.3102.2576-.5625.5742-.5625s.5742.2523.5742.5625v3.3047h1.1953c.2974 0 .5392.2314.5392.5156z",
+  },
+
+  // Font Awesome Free (CC BY 4.0, https://fontawesome.com/license/free).
+  // simple-icons no longer carries these four after trademark takedown
+  // requests; Font Awesome's brand set still does, with a verified path
+  // pulled directly from its published package. Colours are each brand's
+  // own current, widely published brand colour, since Font Awesome ships
+  // its glyphs colourless (fill: currentColor) and does not bundle one.
+  "amazon": {
+    hex: "#FF9900",
+    viewBox: "0 0 448 512",
+    path: "M257.7 162.7c-48.7 1.8-169.5 15.5-169.5 117.5 0 109.5 138.3 114 183.5 43.2 6.5 10.2 35.4 37.5 45.3 46.8l56.8-56s-32.3-25.3-32.3-52.8l0-147.1C341.5 89 317 32 229.2 32 141.2 32 94.5 87 94.5 136.3l73.5 6.8c16.3-49.5 54.2-49.5 54.2-49.5 40.7-.1 35.5 29.8 35.5 69.1zm0 86.8c0 80-84.2 68-84.2 17.2 0-47.2 50.5-56.7 84.2-57.8l0 40.6zM393.7 413c-7.7 10-70 67-174.5 67S34.7 408.5 10.2 379c-6.8-7.7 1-11.3 5.5-8.3 73.3 44.5 187.8 117.8 372.5 30.3 7.5-3.7 13.3 2 5.5 12zm39.8 2.2c-6.5 15.8-16 26.8-21.2 31-5.5 4.5-9.5 2.7-6.5-3.8s19.3-46.5 12.7-55c-6.5-8.3-37-4.3-48-3.2-10.8 1-13 2-14-.3-2.3-5.7 21.7-15.5 37.5-17.5 15.7-1.8 41-.8 46 5.7 3.7 5.1 0 27.1-6.5 43.1z",
+  },
+  "microsoft": {
+    hex: "#0078D4",
+    viewBox: "0 0 448 512",
+    path: "M0 32l214.6 0 0 214.6-214.6 0 0-214.6zm233.4 0l214.6 0 0 214.6-214.6 0 0-214.6zM0 265.4l214.6 0 0 214.6-214.6 0 0-214.6zm233.4 0l214.6 0 0 214.6-214.6 0 0-214.6z",
+  },
+  "linkedin": {
+    hex: "#0A66C2",
+    viewBox: "0 0 448 512",
+    path: "M100.3 448l-92.9 0 0-299.1 92.9 0 0 299.1zM53.8 108.1C24.1 108.1 0 83.5 0 53.8 0 39.5 5.7 25.9 15.8 15.8s23.8-15.8 38-15.8 27.9 5.7 38 15.8 15.8 23.8 15.8 38c0 29.7-24.1 54.3-53.8 54.3zM447.9 448l-92.7 0 0-145.6c0-34.7-.7-79.2-48.3-79.2-48.3 0-55.7 37.7-55.7 76.7l0 148.1-92.8 0 0-299.1 89.1 0 0 40.8 1.3 0c12.4-23.5 42.7-48.3 87.9-48.3 94 0 111.3 61.9 111.3 142.3l0 164.3-.1 0z",
+  },
+  "yahoo": {
+    hex: "#6001D2",
+    viewBox: "0 0 512 512",
+    path: "M223.8 141.1l-56.7 143.2-56-143.2-96.1 0 105.8 249.1-38.6 89.8 94.2 0 140.9-338.9-93.6 0zM329.2 276.9a58.2 58.2 0 1 0 0 116.4 58.2 58.2 0 1 0 0-116.4zM394.7 32l-93 223.5 104.8 0 92.6-223.5-104.4 0z",
   },
 };

@@ -39,7 +39,25 @@ export function Footer() {
         <Container className="py-5">
           <p className="text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} Xencodes. Numbers are for receiving
-            verification codes on accounts you own.
+            verification codes on accounts you own. Some brand icons by{" "}
+            <a
+              href="https://fontawesome.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              Font Awesome
+            </a>
+            , licensed{" "}
+            <a
+              href="https://creativecommons.org/licenses/by/4.0/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              CC BY 4.0
+            </a>
+            .
           </p>
         </Container>
       </div>

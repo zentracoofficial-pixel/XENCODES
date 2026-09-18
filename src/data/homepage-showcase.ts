@@ -18,23 +18,13 @@ import { brandIcons } from "./brand-icons";
  */
 
 /**
- * Real, verified logos come from brandIcons, itself vendored from
- * simple-icons (CC0). Amazon, Microsoft, LinkedIn and Yahoo are not in
- * that set: all four have been removed from simple-icons after brand
- * takedown requests, so there is no verified glyph to vendor. Reproducing
- * one from memory risks shipping a subtly wrong trademarked mark, which
- * is worse than not having one, so these four instead render with the
- * same deliberate initials-on-a-tint fallback ServiceLogo already uses
- * for the hundreds of provider services with no vendored icon, tinted
- * with the brand's own well-published colour rather than a guessed shape.
+ * Every service listed below has a real, verified logo in brandIcons
+ * (mostly simple-icons, CC0; four of them from Font Awesome Free, CC BY
+ * 4.0, since simple-icons no longer carries those after trademark
+ * takedown requests — see brand-icons.ts for which and why). The fallback
+ * colour below only matters if a slug is ever added here ahead of its
+ * brandIcons entry.
  */
-const UNVENDORED_BRAND_COLOR: Record<string, string> = {
-  amazon: "#FF9900",
-  microsoft: "#0078D4",
-  linkedin: "#0A66C2",
-  yahoo: "#6001D2",
-};
-
 export interface ShowcaseService {
   slug: string;
   name: string;
@@ -45,7 +35,7 @@ function showcase(slug: string, name: string): ShowcaseService {
   return {
     slug,
     name,
-    color: brandIcons[slug]?.hex ?? UNVENDORED_BRAND_COLOR[slug] ?? "#63756F",
+    color: brandIcons[slug]?.hex ?? "#63756F",
   };
 }
 
