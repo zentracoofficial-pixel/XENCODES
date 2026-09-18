@@ -13,9 +13,9 @@ import {
   searchServices,
   countServices,
   getInventoryStatus,
-  getBrandedServices,
   getCatalogHighlights,
 } from "@/lib/inventory";
+import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
@@ -44,19 +44,14 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, numbersDelivered, brandedServices, highlights] =
-    await Promise.all([
-      getInventoryStatus(),
-      searchServices("").catch(() => []),
-      countServices().catch(() => 0),
-      // A real, live count, never invented: this is exactly what it says.
-      prisma.activation.count({ where: { status: "RECEIVED" } }),
-      // Every live service with a real logo on file, not just the popular
-      // handful: this decorative row is meant to be instantly recognisable
-      // names, and there is no reason to cap how many can appear.
-      getBrandedServices().catch(() => []),
-      getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
-    ]);
+  const [status, services, serviceCount, numbersDelivered, highlights] = await Promise.all([
+    getInventoryStatus(),
+    searchServices("").catch(() => []),
+    countServices().catch(() => 0),
+    // A real, live count, never invented: this is exactly what it says.
+    prisma.activation.count({ where: { status: "RECEIVED" } }),
+    getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
+  ]);
 
   return (
     <>
@@ -155,32 +150,32 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      {/* Everything you can verify, drifting past. Full width on purpose, so
-          the rows run past the edges of the page rather than stopping.
-          Renders nothing at all when there is nothing to show. */}
-      {brandedServices.length > 0 ? (
-        <Section className="py-12 sm:py-14">
-          <Container>
-            <SectionHeading
-              title="Services we cover"
-              description="Tap any one to pick a country and see its price."
-              action={
-                <Link
-                  href="/services"
-                  className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
-                >
-                  View all services
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              }
-            />
-          </Container>
+      {/* A curated, static showcase, not a view onto the live catalog: it
+          renders the same way whether or not the provider is reachable
+          right now, and it never claims a brand shown here is on sale.
+          See data/homepage-showcase.ts for why the list is fixed and the
+          logos are not links. */}
+      <Section className="py-12 sm:py-14">
+        <Container>
+          <SectionHeading
+            title="Built for the services people verify most"
+            description="A sample of what people commonly need a number for. Search above, or browse the live catalog, to see exactly what's available and priced right now."
+            action={
+              <Link
+                href="/services"
+                className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline"
+              >
+                View live catalog
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            }
+          />
+        </Container>
 
-          <div className="mt-6">
-            <ServiceMarquee services={brandedServices} />
-          </div>
-        </Section>
-      ) : null}
+        <div className="mt-6">
+          <ServiceMarquee rows={[...HOMEPAGE_SHOWCASE_ROWS]} />
+        </div>
+      </Section>
 
       {/* How it works, next to a preview of the interface itself. */}
       <section className="border-y border-border bg-surface">
