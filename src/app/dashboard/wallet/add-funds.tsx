@@ -23,7 +23,7 @@ import { startTopUpAction, checkTopUpStatusAction } from "./actions";
  * customer arrived back at this URL.
  */
 
-const SUGGESTIONS_KOBO = [10_000, 50_000, 100_000, 500_000, 1_000_000];
+const SUGGESTIONS_KOBO = [50_000, 100_000, 200_000, 500_000];
 
 export function AddFunds() {
   const router = useRouter();
