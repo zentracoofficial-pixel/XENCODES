@@ -79,6 +79,10 @@ export async function purchaseNumberAction(
   // number, so a customer who cannot pay never consumes inventory.
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user) return { error: "unknown" };
+  // A session issued before a suspension or deletion stays valid until it
+  // expires on its own (JWT strategy), so this is the check that actually
+  // stops it from spending money in the meantime.
+  if (user.deletedAt || user.status !== "ACTIVE") return { error: "unknown" };
   // The proxy already keeps admins out of the buy flow; this is the
   // authoritative check, in case someone calls this action directly.
   if (user.role === "ADMIN") return { error: "admin_account" };

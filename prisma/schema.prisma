@@ -31,6 +31,16 @@ model User {
   walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
   twoFactorEnabled   Boolean   @default(false)
+  /// Set the moment a sign-in succeeds. Used for "last active" in the admin
+  /// user profile and for email targeting ("hasn't logged in recently");
+  /// null means never recorded, either because the account has never signed
+  /// in since this field was added, or has never signed in at all.
+  lastLoginAt        DateTime?
+  /// Set instead of removing the row. Financial and order history
+  /// (Activation, WalletTransaction) reference this user and must survive
+  /// account deletion intact, so "permanently delete" anonymises this row
+  /// rather than removing it. Null means the account is live.
+  deletedAt          DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -38,6 +48,7 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   activations             Activation[]
   walletTransactions      WalletTransaction[]
+  supportTickets          SupportTicket[]
 
   @@map("users")
 }
@@ -86,7 +97,11 @@ enum ActivationStatus {
 model Activation {
   id          String           @id @default(cuid())
   userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Restrict, not cascade: an order is financial history and must outlive
+  /// the account it was placed under. A user is never SQL-deleted (see
+  /// User.deletedAt); this is a safety rail against that ever changing by
+  /// accident, since a cascade here would silently erase profit history.
+  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
   serviceSlug String
   serviceName String
   countrySlug String
@@ -146,7 +161,8 @@ enum WalletTransactionStatus {
 model WalletTransaction {
   id          String                @id @default(cuid())
   userId      String
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Restrict, not cascade: see the matching note on Activation.user.
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
   type        WalletTransactionType
   amountKobo Int
   description String
@@ -203,4 +219,123 @@ model Setting {
   updatedAt DateTime @updatedAt
 
   @@map("settings")
+}
+
+/// A record of a destructive or otherwise sensitive action an admin took.
+/// Append-only from the app's side: nothing in src/app or src/lib updates or
+/// deletes a row here once written.
+model AuditLog {
+  id         String   @id @default(cuid())
+  /// The admin who performed the action. Not a relation to User: an audit
+  /// row must remain legible even after the admin account itself is later
+  /// suspended, changed, or (in principle) removed, so the identifying
+  /// details are captured as plain values at the moment of the action.
+  actorId    String
+  actorEmail String
+  /// A short, stable verb, e.g. "user.suspend", "user.delete",
+  /// "wallet.adjust", "email.send", "settings.update".
+  action     String
+  /// What the action was performed on, e.g. "user", "wallet_transaction",
+  /// "email_campaign", "settings".
+  targetType String
+  /// The affected row's id, when the action has one specific target.
+  targetId   String?
+  /// Free-form detail specific to the action (previous/new values, amounts,
+  /// audience definitions, and so on), kept as JSON rather than one column
+  /// per possible action so this table does not need a migration every time
+  /// a new kind of admin action is added.
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+enum SupportTicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+}
+
+enum SupportMessageAuthor {
+  USER
+  ADMIN
+}
+
+/// A support conversation with one customer. Deliberately thin: a subject,
+/// a status, an optional link to the order it is about, and a thread of
+/// messages. Not a full helpdesk — see SupportMessage.
+model SupportTicket {
+  id                 String              @id @default(cuid())
+  userId             String
+  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subject            String
+  status             SupportTicketStatus @default(OPEN)
+  /// The order this ticket is about, if any. Not a relation, matching
+  /// WalletTransaction.activationId: a ticket must stay readable even if the
+  /// order it references is ever removed.
+  relatedActivationId String?
+  messages           SupportMessage[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id        String                @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    SupportMessageAuthor
+  /// The admin who wrote this message, when the author is ADMIN. Plain
+  /// value rather than a relation, for the same reason as AuditLog.actorId.
+  adminEmail String?
+  body      String
+  createdAt DateTime              @default(now())
+
+  @@index([ticketId])
+  @@map("support_messages")
+}
+
+enum EmailCampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+  FAILED
+}
+
+/// One send of a marketing/announcement email to a targeted audience.
+/// History only: an admin composes and sends from src/app/admin/email, and
+/// this is the record of what was sent, to how many people, and by whom.
+/// Individual per-recipient delivery is not tracked as separate rows, to
+/// keep this proportional to what an early-stage product needs; sentCount
+/// and failedCount are the delivery summary.
+model EmailCampaign {
+  id             String              @id @default(cuid())
+  adminId        String
+  adminEmail     String
+  subject        String
+  previewText    String?
+  /// Human-readable label for who this was sent to, e.g. "All users" or
+  /// "Funded, never purchased". Kept alongside the machine definition so
+  /// the history reads clearly even if the targeting rules change later.
+  audienceLabel  String
+  /// The targeting rule actually used, e.g. {"segment":"never_purchased"}
+  /// or {"segment":"selected","userIds":[...]}. Kept for reference, not
+  /// re-evaluated after the fact.
+  audienceFilter Json
+  recipientCount Int
+  sentCount      Int                 @default(0)
+  failedCount    Int                 @default(0)
+  status         EmailCampaignStatus @default(DRAFT)
+  sentAt         DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([createdAt])
+  @@map("email_campaigns")
 }

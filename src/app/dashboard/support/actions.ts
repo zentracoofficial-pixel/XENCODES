@@ -13,8 +13,9 @@ export interface ReportState {
 const SUPPORT_INBOX = process.env.SUPPORT_EMAIL ?? "support@xencodes.com";
 
 /**
- * Sends an activation problem to the support inbox. Deliberately not a ticket
- * system: at this stage a clear email with the activation attached is enough.
+ * Turns an activation problem into a support ticket the admin panel can
+ * actually track (open, reply, resolve), and also emails the support inbox
+ * so nothing depends on someone remembering to check the admin panel.
  */
 export async function reportIssueAction(
   _prev: ReportState,
@@ -39,8 +40,18 @@ export async function reportIssueAction(
   });
   if (!activation) return { error: "We could not find that activation." };
 
+  const ticket = await prisma.supportTicket.create({
+    data: {
+      userId: session.user.id,
+      subject: `Activation issue: ${activation.serviceName}`,
+      relatedActivationId: activation.id,
+      messages: { create: { author: "USER", body: details } },
+    },
+  });
+
   const summary = [
     `Customer: ${session.user.email}`,
+    `Ticket: ${ticket.id}`,
     `Activation: ${activation.id}`,
     `Service: ${activation.serviceName}`,
     `Country: ${activation.countryName}`,

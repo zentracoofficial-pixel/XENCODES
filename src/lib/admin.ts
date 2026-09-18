@@ -32,7 +32,7 @@ export async function requireAdmin(): Promise<User> {
     user = await prisma.user.update({ where: { id: user.id }, data: { role: "ADMIN" } });
   }
 
-  if (user.role !== "ADMIN" || user.status !== "ACTIVE") {
+  if (user.role !== "ADMIN" || user.status !== "ACTIVE" || user.deletedAt) {
     // Don't reveal that /admin exists to non-admins.
     redirect("/dashboard");
   }

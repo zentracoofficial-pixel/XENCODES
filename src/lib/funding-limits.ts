@@ -26,7 +26,7 @@ export const FUNDING_PROVIDER = { id: "korapay", label: "KoraPay" } as const;
 /** Bounds on a single funding attempt, in kobo. Low enough to top up for
  *  one number, high enough to be useful, and deliberately a range rather
  *  than a set of packages: the amount is the customer's choice. */
-export const MIN_TOPUP_KOBO = 100_000; // 1,000 Naira
+export const MIN_TOPUP_KOBO = 10_000; // 100 Naira
 export const MAX_TOPUP_KOBO = 50_000_000; // 500,000 Naira
 
 export type FundingError =

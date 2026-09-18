@@ -19,12 +19,17 @@ export const dynamic = "force-dynamic";
 
 const FAILED_STATUSES = ["EXPIRED", "CANCELLED", "REFUNDED"] as const;
 
+const TICKET_STATUS_VARIANT = {
+  OPEN: "danger",
+  PENDING: "warning",
+  RESOLVED: "success",
+} as const;
+
 /**
- * The follow-up queue: orders that did not deliver.
- *
- * Every one of them was already refunded automatically, so this is not a
- * list of money to return. It is a list of customers who did not get what
- * they came for, and of services that may be failing repeatedly.
+ * Two things an admin comes here for: tickets that need a reply, and orders
+ * that failed but no one has necessarily looked at yet. Kept on one page,
+ * since both are "things a customer is waiting on" and splitting them would
+ * just mean checking two pages instead of one.
  */
 export default async function AdminSupportPage() {
   await requireAdmin();
@@ -34,75 +39,96 @@ export default async function AdminSupportPage() {
   const startOfWeek = new Date(startOfToday);
   startOfWeek.setDate(startOfWeek.getDate() - 6);
 
-  const [failedToday, failedThisWeek, worstService, refundedAgg, failures] =
-    await Promise.all([
-      prisma.activation.count({
-        where: {
-          status: { in: [...FAILED_STATUSES] },
-          createdAt: { gte: startOfToday },
-        },
-      }),
-      prisma.activation.count({
-        where: {
-          status: { in: [...FAILED_STATUSES] },
-          createdAt: { gte: startOfWeek },
-        },
-      }),
-      prisma.activation.groupBy({
-        by: ["serviceName"],
-        where: { status: "EXPIRED", createdAt: { gte: startOfWeek } },
-        _count: { serviceName: true },
-        orderBy: { _count: { serviceName: "desc" } },
-        take: 1,
-      }),
-      prisma.walletTransaction.aggregate({
-        where: { type: "REFUND", createdAt: { gte: startOfWeek } },
-        _sum: { amountKobo: true },
-      }),
-      prisma.activation.findMany({
-        where: { status: { in: [...FAILED_STATUSES] } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        include: { user: { select: { email: true } } },
-      }),
-    ]);
-
-  const worst = worstService[0];
+  const [
+    openCount,
+    pendingCount,
+    resolvedCount,
+    tickets,
+    failedToday,
+    failures,
+  ] = await Promise.all([
+    prisma.supportTicket.count({ where: { status: "OPEN" } }),
+    prisma.supportTicket.count({ where: { status: "PENDING" } }),
+    prisma.supportTicket.count({ where: { status: "RESOLVED" } }),
+    prisma.supportTicket.findMany({
+      where: { status: { in: ["OPEN", "PENDING"] } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      include: { user: { select: { email: true } } },
+    }),
+    prisma.activation.count({
+      where: { status: { in: [...FAILED_STATUSES] }, createdAt: { gte: startOfToday } },
+    }),
+    prisma.activation.findMany({
+      where: { status: { in: [...FAILED_STATUSES] } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: { user: { select: { email: true } } },
+    }),
+  ]);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Orders that did not deliver. Each one was already refunded
-          automatically.
+          Tickets waiting on a reply, and orders that did not deliver.
         </p>
       </div>
 
       <MetricGrid>
-        <Metric
-          label="Failed today"
-          value={failedToday}
-          tone={failedToday > 0 ? "danger" : "default"}
-        />
-        <Metric label="Failed this week" value={failedThisWeek} />
-        <Metric
-          label="Refunded this week"
-          value={formatNaira(refundedAgg._sum.amountKobo ?? 0)}
-        />
-        <Metric
-          label="Worth investigating"
-          value={worst ? worst.serviceName : "Nothing"}
-          hint={
-            worst
-              ? `${worst._count.serviceName} no-code failures this week`
-              : "No repeat failures this week"
-          }
-          tone={worst ? "warning" : "default"}
-        />
+        <Metric label="Open tickets" value={openCount} tone={openCount > 0 ? "danger" : "default"} />
+        <Metric label="Pending tickets" value={pendingCount} />
+        <Metric label="Resolved tickets" value={resolvedCount} />
+        <Metric label="Failed orders today" value={failedToday} tone={failedToday > 0 ? "warning" : "default"} />
       </MetricGrid>
 
       <Card className="overflow-hidden">
+        <div className="border-b border-border px-5 py-3.5">
+          <h2 className="text-sm font-semibold">Tickets needing attention</h2>
+        </div>
+        {tickets.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            Nothing open or pending. All caught up.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {tickets.map((ticket) => (
+              <li key={ticket.id}>
+                <Link
+                  href={`/admin/support/${ticket.id}`}
+                  className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-background"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{ticket.subject}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {ticket.user.email}
+                    </p>
+                  </div>
+                  <time className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                    {ticket.createdAt.toLocaleDateString("en-NG", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </time>
+                  <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>
+                    {ticket.status}
+                  </Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-border px-5 py-3.5">
+          <h2 className="text-sm font-semibold">Recent failed orders</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Already refunded automatically; listed for pattern-spotting, not
+            money owed.
+          </p>
+        </div>
         {failures.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
             No failed orders. Nothing to follow up on.

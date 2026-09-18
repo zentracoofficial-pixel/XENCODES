@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   LogOut,
+  Mail,
   Package,
   Settings,
   ShoppingBag,
@@ -17,12 +18,14 @@ import { XenMark } from "@/components/layout/wordmark";
 import { logoutAction } from "@/app/dashboard/actions";
 
 /**
- * Seven screens, each of which does real work.
+ * Eight screens, each of which does real work.
  *
  * Refunds live inside Orders, because a refund is something that happened
  * to an order. Pricing lives inside Services, because a margin is a
  * property of a service. Payments and wallet movements are one ledger, so
- * they are one page. A category is not a reason for a page.
+ * they are one page. Email campaign history lives inside Email as a tab,
+ * not a page of its own, for the same reason. A category is not a reason
+ * for a page.
  */
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -30,6 +33,7 @@ const links = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/services", label: "Services", icon: Package },
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
+  { href: "/admin/email", label: "Email", icon: Mail },
   { href: "/admin/support", label: "Support", icon: LifeBuoy },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];

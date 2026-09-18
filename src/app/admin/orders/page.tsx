@@ -52,18 +52,61 @@ type SortKey = keyof typeof SORTS;
 export default async function AdminOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; sort?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    q?: string;
+    sort?: string;
+    service?: string;
+    country?: string;
+    provider?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   await requireAdmin();
 
-  const { status, q, sort } = await searchParams;
+  const { status, q, sort, service, country, provider, from, to } = await searchParams;
   const activeFilter =
     STATUS_FILTERS.find((f) => f.value === status)?.value ?? "ALL";
   const activeSort: SortKey = sort && sort in SORTS ? (sort as SortKey) : "newest";
   const query = q?.trim();
+  const fromDate = from ? new Date(`${from}T00:00:00`) : null;
+  const toDate = to ? new Date(`${to}T23:59:59.999`) : null;
+
+  // Distinct facet values are read from the orders that actually exist,
+  // not from the live provider catalog: a filter should only ever offer a
+  // value that can actually return a result.
+  const [serviceFacets, countryFacets, providerFacets] = await Promise.all([
+    prisma.activation.findMany({
+      distinct: ["serviceSlug"],
+      select: { serviceSlug: true, serviceName: true },
+      orderBy: { serviceName: "asc" },
+    }),
+    prisma.activation.findMany({
+      distinct: ["countrySlug"],
+      select: { countrySlug: true, countryName: true },
+      orderBy: { countryName: "asc" },
+    }),
+    prisma.activation.findMany({
+      distinct: ["provider"],
+      select: { provider: true },
+      orderBy: { provider: "asc" },
+    }),
+  ]);
 
   const where: Prisma.ActivationWhereInput = {
     ...(activeFilter === "ALL" ? {} : { status: activeFilter }),
+    ...(service ? { serviceSlug: service } : {}),
+    ...(country ? { countrySlug: country } : {}),
+    ...(provider ? { provider } : {}),
+    ...(fromDate || toDate
+      ? {
+          createdAt: {
+            ...(fromDate ? { gte: fromDate } : {}),
+            ...(toDate ? { lte: toDate } : {}),
+          },
+        }
+      : {}),
     ...(query
       ? {
           OR: [
@@ -94,6 +137,11 @@ export default async function AdminOrdersPage({
       status: activeFilter === "ALL" ? undefined : activeFilter,
       q: query,
       sort: activeSort === "newest" ? undefined : activeSort,
+      service,
+      country,
+      provider,
+      from,
+      to,
       ...extra,
     };
     for (const [key, value] of Object.entries(merged)) {
@@ -113,7 +161,7 @@ export default async function AdminOrdersPage({
         </p>
       </div>
 
-      <form className="relative max-w-md">
+      <form className="space-y-3">
         {/* Filters ride along so searching does not silently reset them. */}
         {activeFilter === "ALL" ? null : (
           <input type="hidden" name="status" value={activeFilter} />
@@ -121,14 +169,87 @@ export default async function AdminOrdersPage({
         {activeSort === "newest" ? null : (
           <input type="hidden" name="sort" value={activeSort} />
         )}
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          name="q"
-          defaultValue={query}
-          placeholder="Search email, number, service, country or order id"
-          className="h-11 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
-        />
+        <div className="relative max-w-md">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            name="q"
+            defaultValue={query}
+            placeholder="Search email, number, service, country or order id"
+            className="h-11 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            name="service"
+            defaultValue={service ?? ""}
+            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+          >
+            <option value="">All services</option>
+            {serviceFacets.map((row) => (
+              <option key={row.serviceSlug} value={row.serviceSlug}>
+                {row.serviceName}
+              </option>
+            ))}
+          </select>
+          <select
+            name="country"
+            defaultValue={country ?? ""}
+            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+          >
+            <option value="">All countries</option>
+            {countryFacets.map((row) => (
+              <option key={row.countrySlug} value={row.countrySlug}>
+                {row.countryName}
+              </option>
+            ))}
+          </select>
+          <select
+            name="provider"
+            defaultValue={provider ?? ""}
+            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+          >
+            <option value="">All providers</option>
+            {providerFacets.map((row) => (
+              <option key={row.provider} value={row.provider}>
+                {row.provider}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            From
+            <input
+              type="date"
+              name="from"
+              defaultValue={from ?? ""}
+              className="h-10 rounded-lg border border-border bg-surface px-2.5 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            To
+            <input
+              type="date"
+              name="to"
+              defaultValue={to ?? ""}
+              className="h-10 rounded-lg border border-border bg-surface px-2.5 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+            />
+          </label>
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors hover:border-mint hover:bg-mint-soft"
+          >
+            Apply
+          </button>
+          {service || country || provider || from || to ? (
+            <Link
+              href={keep({ service: undefined, country: undefined, provider: undefined, from: undefined, to: undefined })}
+              className="text-xs text-muted-foreground hover:text-forest hover:underline"
+            >
+              Clear filters
+            </Link>
+          ) : null}
+        </div>
       </form>
 
       <div className="flex flex-wrap items-center gap-2">

@@ -1,6 +1,18 @@
+import { requireActiveUser } from "@/lib/session";
 import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Runs before every dashboard page. See requireActiveUser(): this is what
+ * stops a suspended or deleted account from continuing to use a session
+ * issued before that happened, since the proxy only ever checked the JWT.
+ */
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  await requireActiveUser();
+
   return (
     <div className="flex min-h-screen bg-background">
       <DashboardSidebar />

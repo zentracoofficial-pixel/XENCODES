@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
 import { availableAdapterIds } from "@/lib/provider";
+import { recordAudit } from "@/lib/audit";
 
 function refresh() {
   revalidatePath("/admin/settings");
@@ -30,7 +31,7 @@ export async function saveMarginSettingsAction(
   _prev: SettingsState,
   formData: FormData,
 ): Promise<SettingsState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const defaultPercent = Number(formData.get("defaultMargin"));
   const exclusivePercent = Number(formData.get("exclusiveMargin"));
@@ -50,6 +51,13 @@ export async function saveMarginSettingsAction(
       String(exclusivePercent),
     ),
   ]);
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "margins",
+    metadata: { defaultPercent, exclusivePercent },
+  });
 
   refresh();
   return { success: true };
@@ -67,7 +75,7 @@ export async function saveProviderSettingsAction(
   _prev: SettingsState,
   formData: FormData,
 ): Promise<SettingsState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const providerId = (formData.get("providerId") as string)?.trim() ?? "";
   const enabled = formData.get("providerEnabled") === "on";
@@ -83,6 +91,13 @@ export async function saveProviderSettingsAction(
     writeSetting(SETTING_KEYS.providerId, providerId),
     writeSetting(SETTING_KEYS.providerEnabled, String(enabled)),
   ]);
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "provider",
+    metadata: { providerId, enabled },
+  });
 
   refresh();
   return { success: true };
@@ -98,7 +113,7 @@ export async function saveUsdRateAction(
   _prev: SettingsState,
   formData: FormData,
 ): Promise<SettingsState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const rate = Number(formData.get("usdToNgnRate"));
   if (!Number.isFinite(rate) || rate <= 0) {
@@ -106,6 +121,14 @@ export async function saveUsdRateAction(
   }
 
   await writeSetting(SETTING_KEYS.usdToNgnRate, String(rate));
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "usd_to_ngn_rate",
+    metadata: { rate },
+  });
+
   refresh();
   return { success: true };
 }

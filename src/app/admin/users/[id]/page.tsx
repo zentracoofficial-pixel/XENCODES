@@ -15,6 +15,7 @@ import {
 } from "@/lib/activation-status";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
 import { Metric, MetricGrid } from "../../metric";
+import { getUserDeletionImpact } from "../actions";
 
 export const metadata: Metadata = { title: "Admin: User" };
 
@@ -51,26 +52,33 @@ export default async function AdminUserDetailPage({
 
   if (!user) notFound();
 
-  const [funding, movements, spendAgg, fundedAgg] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where: { userId: id, type: "TOPUP" },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-    }),
-    prisma.walletTransaction.findMany({
-      where: { userId: id, type: { in: ["PURCHASE", "REFUND", "ADJUSTMENT"] } },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-    }),
-    prisma.walletTransaction.aggregate({
-      where: { userId: id, type: "PURCHASE", status: "SUCCESSFUL" },
-      _sum: { amountKobo: true },
-    }),
-    prisma.walletTransaction.aggregate({
-      where: { userId: id, type: "TOPUP", status: "SUCCESSFUL" },
-      _sum: { amountKobo: true },
-    }),
-  ]);
+  const [funding, movements, spendAgg, fundedAgg, supportTickets, deletionImpact] =
+    await Promise.all([
+      prisma.walletTransaction.findMany({
+        where: { userId: id, type: "TOPUP" },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+      prisma.walletTransaction.findMany({
+        where: { userId: id, type: { in: ["PURCHASE", "REFUND", "ADJUSTMENT"] } },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { userId: id, type: "PURCHASE", status: "SUCCESSFUL" },
+        _sum: { amountKobo: true },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { userId: id, type: "TOPUP", status: "SUCCESSFUL" },
+        _sum: { amountKobo: true },
+      }),
+      prisma.supportTicket.findMany({
+        where: { userId: id },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+      getUserDeletionImpact(id),
+    ]);
 
   return (
     <div className="space-y-5">
@@ -84,8 +92,24 @@ export default async function AdminUserDetailPage({
               month: "long",
               year: "numeric",
             })}
-            <Badge variant={user.status === "ACTIVE" ? "success" : "danger"}>
-              {user.status}
+            {user.lastLoginAt ? (
+              <>
+                · Last active{" "}
+                {user.lastLoginAt.toLocaleDateString("en-NG", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </>
+            ) : (
+              <>· Never signed in since activity tracking began</>
+            )}
+            <Badge
+              variant={
+                user.deletedAt ? "neutral" : user.status === "ACTIVE" ? "success" : "danger"
+              }
+            >
+              {user.deletedAt ? "DELETED" : user.status}
             </Badge>
             {user.role === "ADMIN" ? <Badge variant="default">Admin</Badge> : null}
           </p>
@@ -110,8 +134,16 @@ export default async function AdminUserDetailPage({
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
           <Card className="overflow-hidden">
-            <div className="border-b border-border px-5 py-3.5">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <h2 className="text-sm font-semibold">Recent orders</h2>
+              {user._count.activations > 0 ? (
+                <Link
+                  href={`/admin/orders?q=${encodeURIComponent(user.email)}`}
+                  className="text-xs font-medium text-forest hover:underline"
+                >
+                  View all {user._count.activations}
+                </Link>
+              ) : null}
             </div>
             {user.activations.length === 0 ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
@@ -236,6 +268,50 @@ export default async function AdminUserDetailPage({
               </ul>
             )}
           </Card>
+
+          <Card className="overflow-hidden">
+            <div className="border-b border-border px-5 py-3.5">
+              <h2 className="text-sm font-semibold">Support history</h2>
+            </div>
+            {supportTickets.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                No support tickets.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {supportTickets.map((ticket) => (
+                  <li key={ticket.id}>
+                    <Link
+                      href={`/admin/support/${ticket.id}`}
+                      className="flex items-center justify-between gap-4 px-5 py-3 transition-colors hover:bg-background"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{ticket.subject}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {ticket.createdAt.toLocaleDateString("en-NG", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          ticket.status === "OPEN"
+                            ? "danger"
+                            : ticket.status === "PENDING"
+                              ? "warning"
+                              : "success"
+                        }
+                      >
+                        {ticket.status}
+                      </Badge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
 
         <UserActions
@@ -244,6 +320,8 @@ export default async function AdminUserDetailPage({
           status={user.status}
           role={user.role}
           isSelf={admin.id === user.id}
+          isDeleted={Boolean(user.deletedAt)}
+          deletionImpact={deletionImpact}
         />
       </div>
     </div>

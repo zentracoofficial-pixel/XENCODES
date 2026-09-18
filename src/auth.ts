@@ -13,7 +13,7 @@ import type { User } from "@/generated/prisma/client";
  * get its first admin without shell access.
  */
 async function completeSignIn(user: User) {
-  if (user.status === "SUSPENDED") return null;
+  if (user.status === "SUSPENDED" || user.deletedAt) return null;
 
   let role = user.role;
   if (role !== "ADMIN" && isBootstrapAdmin(user.email)) {
@@ -23,6 +23,11 @@ async function completeSignIn(user: User) {
     });
     role = promoted.role;
   }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  });
 
   return { id: user.id, email: user.email, name: user.name, role };
 }
