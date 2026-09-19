@@ -15,15 +15,30 @@ export function SyncNowButton() {
 
   function run() {
     startTransition(async () => {
-      const result = await runSyncNowAction();
-      setMessage(
-        result.ok
-          ? {
-              ok: true,
-              text: `Synced ${result.servicesSynced} services, ${result.countriesSynced} countries, ${result.offersSynced} priced offers.`,
-            }
-          : { ok: false, text: result.error ?? "Sync failed." },
-      );
+      // Without this, an exception the action itself did not catch and
+      // convert to a result (a platform-level timeout, a dropped
+      // connection) would leave this callback rejecting with nothing ever
+      // calling setMessage: the button flips back to "Sync now" with no
+      // explanation, which reads exactly like nothing happened.
+      try {
+        const result = await runSyncNowAction();
+        setMessage(
+          result.ok
+            ? {
+                ok: true,
+                text: `Synced ${result.servicesSynced} services, ${result.countriesSynced} countries, ${result.offersSynced} priced offers.`,
+              }
+            : { ok: false, text: result.error ?? "Sync failed." },
+        );
+      } catch (error) {
+        setMessage({
+          ok: false,
+          text:
+            error instanceof Error
+              ? `Sync request failed: ${error.message}`
+              : "Sync request failed unexpectedly.",
+        });
+      }
     });
   }
 

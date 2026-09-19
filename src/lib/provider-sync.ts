@@ -169,9 +169,17 @@ export async function runProviderSync(): Promise<ProviderSyncResult> {
           await tx.syncedOffer.createMany({ data: rows.slice(i, i + WRITE_CHUNK_SIZE) });
         }
       },
-      // A full catalog is a large write, and the default transaction budget
-      // is tuned for ordinary request-path work rather than this.
-      { timeout: 120_000, maxWait: 15_000 },
+      // Bounded to fit inside the 60s function ceiling (Vercel Hobby's
+      // hard cap; see maxDuration on the route/page that calls this), with
+      // headroom left for the provider fetch that already ran and the
+      // admin/audit checks around this call. A transaction timeout set
+      // longer than the function is allowed to run is not a longer grace
+      // period, it is a race the platform always wins: Vercel kills the
+      // function outright at 60s, mid-write, before Prisma's own timeout
+      // ever gets to fire cleanly. That looks like a hang with no error to
+      // the caller, not a reported failure, which is the specific failure
+      // mode this bound exists to turn into a real one.
+      { timeout: 35_000, maxWait: 10_000 },
     );
 
     const stats = {

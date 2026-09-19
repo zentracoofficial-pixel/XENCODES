@@ -37,6 +37,19 @@ import { resolveCountryMeta, slugify } from "./country-meta";
 const API_ORIGIN = "https://api.grizzlysms.com";
 const HANDLER_PATH = "/stubs/handler_api.php";
 
+/**
+ * How long any single request to GrizzlySMS is allowed to hang before this
+ * gives up on it. `fetch()` has no timeout of its own: a supplier that
+ * accepts the connection but never answers (or answers very slowly under
+ * load) would otherwise hold the request open indefinitely, which on a
+ * serverless deployment means "Sync now" or a purchase attempt sits on
+ * "loading" forever, with no error to react to, until the platform's own
+ * function timeout kills it from outside with no useful message. A
+ * deliberate, shorter timeout here turns that into a real ProviderError the
+ * caller can show and retry.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
+
 /** Used only if a purchase response omits its own timing, which the
  *  confirmed getNumberV2 shape does not appear to do in the documentation
  *  found for this API family. Kept as an explicit fallback, not a silent
@@ -140,14 +153,25 @@ export class GrizzlySmsProvider implements NumberProvider {
     url.searchParams.set("api_key", this.apiKey);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     let response: Response;
     try {
-      response = await fetch(url.toString(), { cache: "no-store" });
+      response = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new ProviderError(
+          `GrizzlySMS did not respond to "${params.action}" within ${REQUEST_TIMEOUT_MS / 1000}s.`,
+          "network",
+        );
+      }
       throw new ProviderError(
         `GrizzlySMS request failed: ${error instanceof Error ? error.message : "network error"}`,
         "network",
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const text = await response.text();
