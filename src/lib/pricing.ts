@@ -152,20 +152,54 @@ export function isExclusiveService(serviceSlug: string) {
   return EXCLUSIVE_SERVICE_SLUGS.has(serviceSlug);
 }
 
+/** Postgres INTEGER's own ceiling. Every kobo column this app writes
+ *  (SyncedOffer.costKobo/priceKobo, Activation.providerCostKobo/priceKobo)
+ *  is a 32-bit int, in both the synced-catalog cache and the live purchase
+ *  path, since both eventually store whatever quotePrice() returns. */
+const POSTGRES_INT4_MAX = 2_147_483_647;
+
+/**
+ * The highest cost this app will ever price from, chosen so that no
+ * margin quotePrice() can apply (up to MAX_MARGIN_PERCENT) produces a
+ * customer price past POSTGRES_INT4_MAX. At the loosest margin (95%),
+ * price = cost / 0.05 = cost x 20, so dividing the ceiling by 20 keeps
+ * every possible quote in range by construction, not by hoping a
+ * supplier never sends something this large. PRICE_STEP_KOBO is
+ * subtracted first as headroom for quotePrice()'s own round-up-to-the-
+ * nearest-step: rounding up can add close to a full step to the exact
+ * quotient, and a bound computed without that margin let a
+ * ceiling-adjacent cost round up just past POSTGRES_INT4_MAX in testing.
+ *
+ * A real cost from a live supplier landing anywhere near this is not
+ * expected: at roughly ₦1,073,741 per unit, this is already far above any
+ * realistic SMS verification price. One appearing anyway (a supplier data
+ * quirk, a decimal-place bug on their end, or a field this adapter
+ * misread) is exactly the "unknown cost" isUsableCost() exists to refuse,
+ * confirmed as a real failure mode in production: a sync attempt failed
+ * outright with a raw Postgres "value out of range for type integer"
+ * error on a cost this check would have instead just skipped.
+ */
+const MAX_USABLE_COST_KOBO = Math.floor(
+  (POSTGRES_INT4_MAX - PRICE_STEP_KOBO) / (100 / (100 - MAX_MARGIN_PERCENT)),
+);
+
 /**
  * A cost we are willing to price from.
  *
  * Checked at the boundary where a supplier's answer arrives, because a
- * cost that is missing, zero, negative or not a whole number of kobo is
- * not a cheap number, it is an unknown one. An order priced from an
- * unknown cost has an unknown margin, so there is no safe way to sell it.
+ * cost that is missing, zero, negative, not a whole number of kobo, or
+ * large enough to overflow the database column a price is eventually
+ * stored in, is not a cheap number, it is an unknown one. An order priced
+ * from an unknown cost has an unknown margin, so there is no safe way to
+ * sell it.
  */
 export function isUsableCost(costKobo: number | null | undefined): costKobo is number {
   return (
     typeof costKobo === "number" &&
     Number.isFinite(costKobo) &&
     Number.isInteger(costKobo) &&
-    costKobo > 0
+    costKobo > 0 &&
+    costKobo <= MAX_USABLE_COST_KOBO
   );
 }
 
