@@ -331,8 +331,15 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (params.countryId) query.country = params.countryId;
 
     const data = await this.callJson(query);
-    const parsed = parsePricesResponse(data);
+    const parsed = parsePricesResponse(data, params.serviceCode);
     if (!parsed) {
+      // Captured so the actual shape is visible in Vercel's logs on the
+      // next attempt, rather than guessed at blind a third time. Trimmed:
+      // an unfiltered catalog response can be large, and only the opening
+      // structure is needed to identify the real shape.
+      console.error(
+        `[grizzlysms] getPrices unrecognised shape for query ${JSON.stringify(query)}. Raw response: ${JSON.stringify(data).slice(0, 3000)}`,
+      );
       throw new ProviderError(
         "GrizzlySMS returned an unrecognised shape for getPrices.",
         "unknown",
@@ -680,21 +687,50 @@ function parseCountryEntries(data: unknown): Map<string, string> | null {
   return result.size > 0 ? result : null;
 }
 
+/**
+ * getPrices' response has been observed, in production logs from this
+ * project, to fail this parser's original assumption on every single
+ * service-scoped call, which a one-off fluke would not do. The most likely
+ * explanation, common in this API family: filtering to one service
+ * collapses the response by a level, since there is no longer a reason to
+ * key by service code when only one was ever going to appear. That case is
+ * handled below as `requestedServiceCode`. This is a considered fix, not a
+ * blind guess repeated a third time: parseFullCatalogEntries()'s caller
+ * additionally logs a raw response preview on any remaining parse failure
+ * (see fetchPrices()), so a shape neither branch here anticipates is
+ * captured for a precise fix rather than silently failing again.
+ */
 function parsePricesResponse(
   data: unknown,
+  requestedServiceCode?: string,
 ): Map<string, Map<string, { cost: number; count: number }>> | null {
   if (typeof data !== "object" || data === null) return null;
 
   const result = new Map<string, Map<string, { cost: number; count: number }>>();
-  for (const [countryId, byService] of Object.entries(data as Record<string, unknown>)) {
-    if (typeof byService !== "object" || byService === null) continue;
-    const inner = new Map<string, { cost: number; count: number }>();
 
-    for (const [serviceCode, entry] of Object.entries(byService as Record<string, unknown>)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const record = entry as Record<string, unknown>;
-      const cost = Number(record.cost);
+  for (const [countryId, value] of Object.entries(data as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const record = value as Record<string, unknown>;
+
+    // Collapsed shape: countryId -> {cost, count} directly, the requested
+    // service implied rather than named. Detected by the presence of a
+    // numeric cost field one level higher than the nested shape expects.
+    const directCost = Number(record.cost ?? record.price);
+    if (requestedServiceCode && Number.isFinite(directCost) && directCost > 0) {
       const count = Number(record.count ?? record.quant ?? 0);
+      const inner = new Map<string, { cost: number; count: number }>();
+      inner.set(requestedServiceCode, { cost: directCost, count: Number.isFinite(count) ? count : 0 });
+      result.set(countryId, inner);
+      continue;
+    }
+
+    // Standard shape: countryId -> serviceCode -> {cost, count}.
+    const inner = new Map<string, { cost: number; count: number }>();
+    for (const [serviceCode, entry] of Object.entries(record)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const entryRecord = entry as Record<string, unknown>;
+      const cost = Number(entryRecord.cost ?? entryRecord.price);
+      const count = Number(entryRecord.count ?? entryRecord.quant ?? 0);
       if (Number.isFinite(cost) && cost > 0) {
         inner.set(serviceCode, { cost, count: Number.isFinite(count) ? count : 0 });
       }
