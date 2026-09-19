@@ -51,6 +51,18 @@ function secretKey(): string {
   return key;
 }
 
+// Korapay signs webhook payloads with the Encryption Key, not the Secret Key.
+function encryptionKey(): string {
+  const key = process.env.KORAPAY_ENCRYPTION_KEY;
+  if (!key) {
+    throw new KorapayError(
+      "KORAPAY_ENCRYPTION_KEY is not set as an environment variable on this deployment.",
+      "not_configured",
+    );
+  }
+  return key;
+}
+
 function koboToNaira(kobo: number): number {
   return Math.round(kobo) / 100;
 }
@@ -189,7 +201,7 @@ export function verifyKorapayWebhookSignature(
 ): boolean {
   if (!signatureHeader) return false;
 
-  const expected = createHmac("sha256", secretKey())
+  const expected = createHmac("sha256", encryptionKey())
     .update(JSON.stringify(data))
     .digest("hex");
 
