@@ -76,6 +76,24 @@ export interface ProviderAvailability {
   successRate?: number;
 }
 
+/**
+ * One sellable service/country pair, carrying everything needed to write a
+ * catalog row without a second lookup.
+ *
+ * Distinct from ProviderAvailability, which is scoped to a service the
+ * caller already knows about and so only names the country. A bulk catalog
+ * read has no such context: it is discovering both sides at once, so the
+ * service travels with the pair.
+ */
+export interface ProviderCatalogEntry {
+  service: ProviderService;
+  country: ProviderCountry;
+  /** What the supplier bills Xencodes for this pair, in kobo. */
+  costKobo: number;
+  stock: StockLevel;
+  stockCount?: number;
+}
+
 export interface PurchasedNumber {
   /** The supplier's own id for this order, kept for status polling. */
   providerOrderId: string;
@@ -154,6 +172,25 @@ export interface NumberProvider {
 
   /** Releases the number early. Suppliers usually refund on cancel. */
   cancelOrder(providerOrderId: string): Promise<void>;
+
+  /**
+   * Every sellable service/country pair the supplier currently offers, in
+   * as few requests as the supplier's API allows.
+   *
+   * Exists because the catalog sync's only other option is calling
+   * getCountries() once per service, and a real supplier catalog runs to
+   * hundreds of services: that is hundreds of sequential round trips, which
+   * on a serverless deployment means the sync is killed by the function
+   * timeout before it ever finishes, and so never records a successful run
+   * at all. An adapter whose API can answer "everything, at once" should
+   * implement this so the sync costs a handful of requests rather than one
+   * per service.
+   *
+   * Optional: an adapter with no bulk endpoint leaves it undefined and the
+   * sync falls back to the per-service walk. Same data either way; this is
+   * purely about how many requests it takes to collect it.
+   */
+  getFullCatalog?(): Promise<ProviderCatalogEntry[]>;
 
   /** Xencodes' remaining credit with the supplier, in kobo, when the
    *  supplier exposes it. Shown to the admin so a balance running out is

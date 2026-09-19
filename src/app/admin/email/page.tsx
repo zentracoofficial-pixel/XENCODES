@@ -92,7 +92,14 @@ export default async function AdminEmailPage({
                 <tbody>
                   {campaigns.map((c) => (
                     <tr key={c.id} className="border-b border-border last:border-0">
-                      <td className="px-5 py-3 font-medium">{c.subject}</td>
+                      <td className="px-5 py-3 font-medium">
+                        {c.subject}
+                        {c.failureReason ? (
+                          <span className="mt-0.5 block text-xs font-normal text-danger">
+                            {c.failureReason}
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-3 text-muted-foreground">{c.audienceLabel}</td>
                       <td className="px-3 py-3 text-right tabular-nums">{c.recipientCount}</td>
                       <td className="px-3 py-3 text-right tabular-nums text-success">

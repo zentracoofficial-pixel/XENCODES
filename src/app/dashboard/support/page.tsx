@@ -9,7 +9,7 @@ import { ReportIssue } from "./report-issue";
 
 export const metadata: Metadata = { title: "Support" };
 
-const SUPPORT_EMAIL = "support@xencodes.com";
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "support@xencodes.com";
 
 export default async function SupportPage() {
   const session = await auth();

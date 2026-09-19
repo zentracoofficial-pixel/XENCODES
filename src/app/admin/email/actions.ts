@@ -2,7 +2,7 @@
 
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, isEmailConfigured, EmailDeliveryError } from "@/lib/email";
 import { recordAudit } from "@/lib/audit";
 import {
   resolveAudience,
@@ -68,6 +68,34 @@ function composedFromForm(formData: FormData): ComposedEmail {
   };
 }
 
+/**
+ * One entry per person, whatever the segment returned.
+ *
+ * A segment can name the same account twice (the same id picked more than
+ * once in "selected users"), and two accounts can in principle carry the
+ * same address. Collapsing on both is what stops one person receiving the
+ * same campaign twice, and it happens here rather than at send time so the
+ * count an admin is shown before sending is the same number of messages
+ * that actually go out.
+ */
+function dedupeRecipients(
+  recipients: { id: string; email: string }[],
+): { id: string; email: string }[] {
+  const seenIds = new Set<string>();
+  const seenEmails = new Set<string>();
+  const unique: { id: string; email: string }[] = [];
+
+  for (const recipient of recipients) {
+    const email = recipient.email.trim().toLowerCase();
+    if (!email || seenIds.has(recipient.id) || seenEmails.has(email)) continue;
+    seenIds.add(recipient.id);
+    seenEmails.add(email);
+    unique.push(recipient);
+  }
+
+  return unique;
+}
+
 export interface RecipientCountResult {
   count: number;
   label: string;
@@ -78,7 +106,7 @@ export async function getRecipientCountAction(
 ): Promise<RecipientCountResult> {
   await requireAdmin();
   const segment = parseSegment(formData);
-  const recipients = await resolveAudience(segment);
+  const recipients = dedupeRecipients(await resolveAudience(segment));
   return { count: recipients.length, label: describeAudience(segment) };
 }
 
@@ -112,12 +140,24 @@ export async function sendTestEmailAction(
     return { error: "Fill in subject, title and body before sending a test." };
   }
 
-  await sendEmail({
-    to: admin.email,
-    subject: `[Test] ${composed.subject}`,
-    html: buildCampaignEmailHtml(composed),
-    text: buildCampaignEmailText(composed),
-  });
+  // A test exists to prove delivery works before a real audience is
+  // involved, so its reported outcome has to be the provider's, not this
+  // function's optimism about it.
+  try {
+    await sendEmail({
+      to: admin.email,
+      subject: `[Test] ${composed.subject}`,
+      html: buildCampaignEmailHtml(composed),
+      text: buildCampaignEmailText(composed),
+    });
+  } catch (error) {
+    return {
+      error:
+        error instanceof EmailDeliveryError
+          ? `Test not delivered: ${error.message}`
+          : "Test not delivered: unexpected error while sending.",
+    };
+  }
 
   return { success: true };
 }
@@ -139,8 +179,19 @@ export async function sendCampaignAction(
     return { error: "Fill in subject, title and body before sending." };
   }
 
+  // Checked before anything is recorded: a deployment with no mail
+  // credentials can only produce a campaign row that failed on every
+  // recipient, and saying so up front is more useful than writing that row
+  // and letting the admin discover it in the history.
+  if (!isEmailConfigured()) {
+    return {
+      error:
+        "Email is not configured on this deployment: RESEND_API_KEY is not set. Nothing was sent.",
+    };
+  }
+
   const segment = parseSegment(formData);
-  const recipients = await resolveAudience(segment);
+  const recipients = dedupeRecipients(await resolveAudience(segment));
 
   if (recipients.length === 0) {
     return { error: "That audience has no one in it right now." };
@@ -169,22 +220,40 @@ export async function sendCampaignAction(
 
   let sentCount = 0;
   let failedCount = 0;
+  // The first real reason, kept for the history row. One cause (a domain
+  // that is not verified, a missing key) explains the whole run, so the
+  // first is representative; logging keeps the rest recoverable.
+  let firstFailure: string | null = null;
+
   for (const recipient of recipients) {
     try {
       await sendEmail({ to: recipient.email, subject: composed.subject, html, text });
       sentCount += 1;
     } catch (error) {
       failedCount += 1;
-      console.error(`[email-campaign] failed to send to ${recipient.email}:`, error);
+      const reason =
+        error instanceof EmailDeliveryError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unknown sending error.";
+      firstFailure ??= reason;
+      console.error(`[email-campaign] failed to send to ${recipient.email}:`, reason);
     }
   }
+
+  // Three outcomes, not two. A run where nothing went out is FAILED; a run
+  // where some did is SENT but keeps its failed count and the reason, so a
+  // partial delivery is never presented as a clean one.
+  const status = sentCount === 0 ? "FAILED" : "SENT";
 
   await prisma.emailCampaign.update({
     where: { id: campaign.id },
     data: {
-      status: failedCount === 0 ? "SENT" : sentCount > 0 ? "SENT" : "FAILED",
+      status,
       sentCount,
       failedCount,
+      failureReason: firstFailure,
       sentAt: new Date(),
     },
   });
@@ -200,8 +269,19 @@ export async function sendCampaignAction(
       recipientCount: recipients.length,
       sentCount,
       failedCount,
+      failureReason: firstFailure,
     },
   });
+
+  if (sentCount === 0) {
+    return {
+      error: `Nothing was delivered to any of the ${recipients.length} recipients. ${
+        firstFailure ?? "The mail provider rejected every message."
+      }`,
+      sentCount,
+      failedCount,
+    };
+  }
 
   return { success: true, sentCount, failedCount };
 }

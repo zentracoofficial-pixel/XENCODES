@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { sendEmailSafe } from "@/lib/email";
 import { formatNaira } from "@/lib/currency";
 
 export interface ReportState {
@@ -63,7 +63,11 @@ export async function reportIssueAction(
     details,
   ].join("\n");
 
-  await sendEmail({
+  // Non-throwing: the ticket is already recorded and visible in the admin
+  // panel, which is the system of record. This email is a nudge on top of
+  // it, so failing to send one must not tell the customer their report did
+  // not go through.
+  await sendEmailSafe({
     to: SUPPORT_INBOX,
     subject: `Activation issue: ${activation.serviceName} (${activation.id})`,
     text: summary,

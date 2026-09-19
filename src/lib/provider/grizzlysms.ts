@@ -2,6 +2,7 @@ import {
   ProviderError,
   type NumberProvider,
   type ProviderAvailability,
+  type ProviderCatalogEntry,
   type ProviderOrderStatus,
   type ProviderService,
   type PurchasedNumber,
@@ -35,6 +36,19 @@ import { resolveCountryMeta, slugify } from "./country-meta";
 
 const API_ORIGIN = "https://api.grizzlysms.com";
 const HANDLER_PATH = "/stubs/handler_api.php";
+
+/**
+ * How long any single request to GrizzlySMS is allowed to hang before this
+ * gives up on it. `fetch()` has no timeout of its own: a supplier that
+ * accepts the connection but never answers (or answers very slowly under
+ * load) would otherwise hold the request open indefinitely, which on a
+ * serverless deployment means "Sync now" or a purchase attempt sits on
+ * "loading" forever, with no error to react to, until the platform's own
+ * function timeout kills it from outside with no useful message. A
+ * deliberate, shorter timeout here turns that into a real ProviderError the
+ * caller can show and retry.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /** Used only if a purchase response omits its own timing, which the
  *  confirmed getNumberV2 shape does not appear to do in the documentation
@@ -139,17 +153,40 @@ export class GrizzlySmsProvider implements NumberProvider {
     url.searchParams.set("api_key", this.apiKey);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const requestStartedAt = Date.now();
+    console.log(`[grizzlysms] -> ${params.action}`);
+
     let response: Response;
     try {
-      response = await fetch(url.toString(), { cache: "no-store" });
+      response = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        console.error(
+          `[grizzlysms] <- ${params.action} timed out after ${Date.now() - requestStartedAt}ms`,
+        );
+        throw new ProviderError(
+          `GrizzlySMS did not respond to "${params.action}" within ${REQUEST_TIMEOUT_MS / 1000}s.`,
+          "network",
+        );
+      }
+      console.error(
+        `[grizzlysms] <- ${params.action} failed after ${Date.now() - requestStartedAt}ms:`,
+        error,
+      );
       throw new ProviderError(
         `GrizzlySMS request failed: ${error instanceof Error ? error.message : "network error"}`,
         "network",
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const text = await response.text();
+    console.log(
+      `[grizzlysms] <- ${params.action} HTTP ${response.status}, ${text.length} bytes, ${Date.now() - requestStartedAt}ms`,
+    );
     if (!response.ok) {
       throw new ProviderError(
         `GrizzlySMS returned HTTP ${response.status} for action "${params.action}".`,
@@ -294,8 +331,15 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (params.countryId) query.country = params.countryId;
 
     const data = await this.callJson(query);
-    const parsed = parsePricesResponse(data);
+    const parsed = parsePricesResponse(data, params.serviceCode);
     if (!parsed) {
+      // Captured so the actual shape is visible in Vercel's logs on the
+      // next attempt, rather than guessed at blind a third time. Trimmed:
+      // an unfiltered catalog response can be large, and only the opening
+      // structure is needed to identify the real shape.
+      console.error(
+        `[grizzlysms] getPrices unrecognised shape for query ${JSON.stringify(query)}. Raw response: ${JSON.stringify(data).slice(0, 3000)}`,
+      );
       throw new ProviderError(
         "GrizzlySMS returned an unrecognised shape for getPrices.",
         "unknown",
@@ -345,6 +389,64 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
 
     return byCountry;
+  }
+
+  /**
+   * The whole catalog in three requests, not one per service.
+   *
+   * getPrices with neither a service nor a country filter returns every
+   * priced pair GrizzlySMS currently sells, keyed country -> service, which
+   * is exactly the shape the catalog sync needs. Together with the service
+   * and country name lists (both cached, and usually already warm) that is
+   * the entire catalog for three HTTP calls, against several hundred for
+   * the equivalent per-service walk.
+   *
+   * Everything here comes from the supplier: no service list is hardcoded,
+   * and a pair the supplier stops offering simply stops appearing.
+   */
+  async getFullCatalog(): Promise<ProviderCatalogEntry[]> {
+    const [prices, services, { idToName }] = await Promise.all([
+      this.fetchPrices({}),
+      this.loadServices(),
+      this.loadCountries(),
+    ]);
+
+    // The price payload is keyed by the supplier's own service code, so a
+    // code -> display name lookup is what turns it into our own slugs.
+    const nameByCode = new Map(services.map((service) => [service.code, service.name]));
+    const entries: ProviderCatalogEntry[] = [];
+
+    for (const [countryId, byService] of prices) {
+      const countryName = idToName.get(countryId);
+      // A price for a country the country list does not name cannot be
+      // labelled, and an unlabelled country is not something to offer.
+      if (!countryName) continue;
+      const country = resolveCountryMeta(countryName);
+
+      for (const [code, entry] of byService) {
+        const serviceName = nameByCode.get(code);
+        // Same reasoning for services: the price list occasionally carries
+        // codes absent from the catalog list, and those are skipped rather
+        // than shown under their raw code.
+        if (!serviceName) continue;
+
+        entries.push({
+          service: {
+            slug: slugify(serviceName),
+            name: serviceName,
+            color: "#63756F",
+            category: "All services",
+            providerServiceId: code,
+          },
+          country,
+          costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
+          stock: stockFromCount(entry.count),
+          stockCount: entry.count,
+        });
+      }
+    }
+
+    return entries;
   }
 
   async getAvailability(
@@ -585,21 +687,50 @@ function parseCountryEntries(data: unknown): Map<string, string> | null {
   return result.size > 0 ? result : null;
 }
 
+/**
+ * getPrices' response has been observed, in production logs from this
+ * project, to fail this parser's original assumption on every single
+ * service-scoped call, which a one-off fluke would not do. The most likely
+ * explanation, common in this API family: filtering to one service
+ * collapses the response by a level, since there is no longer a reason to
+ * key by service code when only one was ever going to appear. That case is
+ * handled below as `requestedServiceCode`. This is a considered fix, not a
+ * blind guess repeated a third time: parseFullCatalogEntries()'s caller
+ * additionally logs a raw response preview on any remaining parse failure
+ * (see fetchPrices()), so a shape neither branch here anticipates is
+ * captured for a precise fix rather than silently failing again.
+ */
 function parsePricesResponse(
   data: unknown,
+  requestedServiceCode?: string,
 ): Map<string, Map<string, { cost: number; count: number }>> | null {
   if (typeof data !== "object" || data === null) return null;
 
   const result = new Map<string, Map<string, { cost: number; count: number }>>();
-  for (const [countryId, byService] of Object.entries(data as Record<string, unknown>)) {
-    if (typeof byService !== "object" || byService === null) continue;
-    const inner = new Map<string, { cost: number; count: number }>();
 
-    for (const [serviceCode, entry] of Object.entries(byService as Record<string, unknown>)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const record = entry as Record<string, unknown>;
-      const cost = Number(record.cost);
+  for (const [countryId, value] of Object.entries(data as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const record = value as Record<string, unknown>;
+
+    // Collapsed shape: countryId -> {cost, count} directly, the requested
+    // service implied rather than named. Detected by the presence of a
+    // numeric cost field one level higher than the nested shape expects.
+    const directCost = Number(record.cost ?? record.price);
+    if (requestedServiceCode && Number.isFinite(directCost) && directCost > 0) {
       const count = Number(record.count ?? record.quant ?? 0);
+      const inner = new Map<string, { cost: number; count: number }>();
+      inner.set(requestedServiceCode, { cost: directCost, count: Number.isFinite(count) ? count : 0 });
+      result.set(countryId, inner);
+      continue;
+    }
+
+    // Standard shape: countryId -> serviceCode -> {cost, count}.
+    const inner = new Map<string, { cost: number; count: number }>();
+    for (const [serviceCode, entry] of Object.entries(record)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const entryRecord = entry as Record<string, unknown>;
+      const cost = Number(entryRecord.cost ?? entryRecord.price);
+      const count = Number(entryRecord.count ?? entryRecord.quant ?? 0);
       if (Number.isFinite(cost) && cost > 0) {
         inner.set(serviceCode, { cost, count: Number.isFinite(count) ? count : 0 });
       }
