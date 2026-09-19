@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, EmailDeliveryError } from "@/lib/email";
 
 export interface ReplyState {
   error?: string;
@@ -43,12 +43,27 @@ export async function replyToTicketAction(
     }),
   ]);
 
-  await sendEmail({
-    to: ticket.user.email,
-    subject: `Re: ${ticket.subject}`,
-    text: body,
-    html: `<p>${body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`,
-  });
+  // The customer only ever sees this reply as an email, so a delivery
+  // failure is the admin's problem to know about, not something to hide
+  // behind a recorded message they will never receive. The message stays on
+  // the thread either way; only the reported outcome differs.
+  try {
+    await sendEmail({
+      to: ticket.user.email,
+      subject: `Re: ${ticket.subject}`,
+      text: body,
+      html: `<p>${body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`,
+    });
+  } catch (error) {
+    revalidatePath(`/admin/support/${ticketId}`);
+    revalidatePath("/admin/support");
+    return {
+      error:
+        error instanceof EmailDeliveryError
+          ? `Reply saved to the ticket, but the email was not delivered: ${error.message}`
+          : "Reply saved to the ticket, but the email could not be sent.",
+    };
+  }
 
   revalidatePath(`/admin/support/${ticketId}`);
   revalidatePath("/admin/support");

@@ -36,6 +36,13 @@ export const metadata: Metadata = { title: "Admin: Settings" };
 
 export const dynamic = "force-dynamic";
 
+// "Sync now" is a server action invoked from this page, so it runs under
+// this route's limit rather than the cron route's. Without this it inherits
+// the platform default (10s on Hobby), which a full catalog sync can exceed
+// even though the bulk provider read keeps it to a handful of requests. 60
+// is the ceiling Vercel's Hobby plan allows; declaring more fails the build.
+export const maxDuration = 60;
+
 /**
  * Business configuration, the two provider connections, and who has admin
  * access. Everything else an admin changes belongs to a record, and lives

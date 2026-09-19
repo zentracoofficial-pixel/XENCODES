@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { sendEmail, verificationEmailContent } from "@/lib/email";
+import { sendEmailSafe, verificationEmailContent } from "@/lib/email";
 import { getBaseUrl } from "@/lib/site-url";
 import { registerSchema } from "@/lib/validation/auth";
 
@@ -47,7 +47,9 @@ export async function registerAction(
   });
 
   const verifyUrl = `${getBaseUrl()}/verify-email?token=${token}`;
-  await sendEmail({ to: email, ...verificationEmailContent(verifyUrl) });
+  // Non-throwing: the account already exists at this point, so a mail
+  // provider outage must not turn a completed signup into an error.
+  await sendEmailSafe({ to: email, ...verificationEmailContent(verifyUrl) });
 
   return { success: true };
 }

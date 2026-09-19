@@ -2,6 +2,7 @@ import {
   ProviderError,
   type NumberProvider,
   type ProviderAvailability,
+  type ProviderCatalogEntry,
   type ProviderOrderStatus,
   type ProviderService,
   type PurchasedNumber,
@@ -345,6 +346,64 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
 
     return byCountry;
+  }
+
+  /**
+   * The whole catalog in three requests, not one per service.
+   *
+   * getPrices with neither a service nor a country filter returns every
+   * priced pair GrizzlySMS currently sells, keyed country -> service, which
+   * is exactly the shape the catalog sync needs. Together with the service
+   * and country name lists (both cached, and usually already warm) that is
+   * the entire catalog for three HTTP calls, against several hundred for
+   * the equivalent per-service walk.
+   *
+   * Everything here comes from the supplier: no service list is hardcoded,
+   * and a pair the supplier stops offering simply stops appearing.
+   */
+  async getFullCatalog(): Promise<ProviderCatalogEntry[]> {
+    const [prices, services, { idToName }] = await Promise.all([
+      this.fetchPrices({}),
+      this.loadServices(),
+      this.loadCountries(),
+    ]);
+
+    // The price payload is keyed by the supplier's own service code, so a
+    // code -> display name lookup is what turns it into our own slugs.
+    const nameByCode = new Map(services.map((service) => [service.code, service.name]));
+    const entries: ProviderCatalogEntry[] = [];
+
+    for (const [countryId, byService] of prices) {
+      const countryName = idToName.get(countryId);
+      // A price for a country the country list does not name cannot be
+      // labelled, and an unlabelled country is not something to offer.
+      if (!countryName) continue;
+      const country = resolveCountryMeta(countryName);
+
+      for (const [code, entry] of byService) {
+        const serviceName = nameByCode.get(code);
+        // Same reasoning for services: the price list occasionally carries
+        // codes absent from the catalog list, and those are skipped rather
+        // than shown under their raw code.
+        if (!serviceName) continue;
+
+        entries.push({
+          service: {
+            slug: slugify(serviceName),
+            name: serviceName,
+            color: "#63756F",
+            category: "All services",
+            providerServiceId: code,
+          },
+          country,
+          costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
+          stock: stockFromCount(entry.count),
+          stockCount: entry.count,
+        });
+      }
+    }
+
+    return entries;
   }
 
   async getAvailability(

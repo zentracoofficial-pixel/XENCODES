@@ -93,6 +93,7 @@ export function EmailComposer() {
     body: body || "The body of your email appears here as you type it.",
     ctaText: ctaText || undefined,
     ctaUrl: ctaUrl || undefined,
+    previewText: previewText || undefined,
   });
 
   const readyToReview = Boolean(subject && title && body) && (count?.count ?? 0) > 0;

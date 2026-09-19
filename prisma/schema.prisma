@@ -395,6 +395,10 @@ model EmailCampaign {
   sentCount      Int                 @default(0)
   failedCount    Int                 @default(0)
   status         EmailCampaignStatus @default(DRAFT)
+  /// Why delivery failed, when it did. Carries the provider's own reason
+  /// (a rejected domain, a missing API key) rather than a generic label,
+  /// since that is the only thing that tells an admin what to fix.
+  failureReason  String?
   sentAt         DateTime?
   createdAt      DateTime            @default(now())
 

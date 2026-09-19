@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { runProviderSync } from "@/lib/provider-sync";
 
 export const dynamic = "force-dynamic";
-// A full catalog sync makes one supplier request per service, sequentially,
-// and can genuinely take longer than this on a large catalog. 60 is not a
-// deliberate budget, it is the ceiling: Vercel's Hobby plan hard-caps every
-// function at 60 seconds and refuses to deploy a project that declares
-// more, so anything higher here breaks every deployment, not just this
-// route. Raise it once this project is on a paid plan.
+// A full catalog sync reads the supplier's whole catalog in a handful of
+// requests (see NumberProvider.getFullCatalog) and then writes it in one
+// transaction, so the headroom here is mostly for the write on a large
+// catalog. 60 is not a deliberate budget, it is the ceiling: Vercel's Hobby
+// plan hard-caps every function at 60 seconds and refuses to deploy a
+// project that declares more, so anything higher here breaks every
+// deployment, not just this route. Raise it once this project is on a paid
+// plan.
 export const maxDuration = 60;
 
 /**
