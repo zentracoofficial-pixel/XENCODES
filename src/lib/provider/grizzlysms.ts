@@ -155,17 +155,26 @@ export class GrizzlySmsProvider implements NumberProvider {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const requestStartedAt = Date.now();
+    console.log(`[grizzlysms] -> ${params.action}`);
 
     let response: Response;
     try {
       response = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        console.error(
+          `[grizzlysms] <- ${params.action} timed out after ${Date.now() - requestStartedAt}ms`,
+        );
         throw new ProviderError(
           `GrizzlySMS did not respond to "${params.action}" within ${REQUEST_TIMEOUT_MS / 1000}s.`,
           "network",
         );
       }
+      console.error(
+        `[grizzlysms] <- ${params.action} failed after ${Date.now() - requestStartedAt}ms:`,
+        error,
+      );
       throw new ProviderError(
         `GrizzlySMS request failed: ${error instanceof Error ? error.message : "network error"}`,
         "network",
@@ -175,6 +184,9 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
 
     const text = await response.text();
+    console.log(
+      `[grizzlysms] <- ${params.action} HTTP ${response.status}, ${text.length} bytes, ${Date.now() - requestStartedAt}ms`,
+    );
     if (!response.ok) {
       throw new ProviderError(
         `GrizzlySMS returned HTTP ${response.status} for action "${params.action}".`,

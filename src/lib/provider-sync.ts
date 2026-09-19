@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { getNumberProvider, type NumberProvider, type ProviderCatalogEntry } from "@/lib/provider";
 import { brandIcons } from "@/data/brand-icons";
 import { loadMarginRules, quoteFor, isUsableCost } from "@/lib/pricing";
@@ -25,10 +27,99 @@ import { loadMarginRules, quoteFor, isUsableCost } from "@/lib/pricing";
 
 const SINGLETON_ID = "singleton";
 
-/** Rows per INSERT. One statement for a catalog that can run to tens of
- *  thousands of pairs risks exceeding the driver's parameter limit, so the
- *  write is chunked; all chunks still share one transaction. */
-const WRITE_CHUNK_SIZE = 5_000;
+/** Rows per INSERT statement. Each row binds 15 parameters; Postgres caps
+ *  a single statement at 65535, and this leaves a wide margin. Kept modest
+ *  for another reason too: each statement is its own short-lived query
+ *  against a pooled connection (see the comment on upsertOffers), and a
+ *  smaller chunk means a smaller worst case if one chunk is ever slow. */
+const WRITE_CHUNK_SIZE = 2_000;
+
+type OfferRow = {
+  serviceSlug: string;
+  serviceName: string;
+  serviceColor: string;
+  category: string;
+  countrySlug: string;
+  countryName: string;
+  countryFlag: string;
+  dialCode: string;
+  nationalDigits: number;
+  costKobo: number;
+  priceKobo: number;
+  stock: string;
+  stockCount: number;
+};
+
+/**
+ * Writes the catalog as a sequence of ordinary upserts, deliberately not
+ * inside one long-held transaction.
+ *
+ * The previous version wrapped a full deleteMany() plus every chunked
+ * createMany() in a single prisma.$transaction(), which holds one pooled
+ * connection for the entire write. This project's own Postgres connection
+ * is explicitly a PgBouncer-style pooled one (see prisma7.config.ts, which
+ * exists precisely because a pooled connection cannot reliably hold a
+ * session-scoped lock for long): a transaction held open for the length of
+ * a large catalog write is exactly the shape of thing that can stall
+ * waiting for a connection back from a small pool, in a way a client-side
+ * transaction timeout does not reliably catch on every Prisma driver
+ * adapter. That is a plausible explanation for a sync that hangs with no
+ * error ever reaching the browser, which no amount of raising or lowering
+ * that timeout number fixes, because the number was never the problem: the
+ * held connection was.
+ *
+ * Each statement below is a single INSERT ... ON CONFLICT DO UPDATE: it
+ * acquires a connection, runs, and releases it, immediately, before the
+ * next chunk starts. Existing pairs are updated in place (matched on the
+ * serviceSlug/countrySlug unique constraint), not deleted and recreated,
+ * so a stable id is kept across syncs. A pair the previous sync wrote but
+ * this one did not see gets removed afterward, by timestamp, in
+ * removeStaleOffers() below, again as its own short statement rather than
+ * inside this write.
+ */
+async function upsertOffers(rows: OfferRow[], runStartedAt: Date): Promise<void> {
+  for (let i = 0; i < rows.length; i += WRITE_CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + WRITE_CHUNK_SIZE);
+    const values = Prisma.join(
+      chunk.map(
+        (row) => Prisma.sql`(${randomUUID()}, ${row.serviceSlug}, ${row.serviceName}, ${row.serviceColor}, ${row.category}, ${row.countrySlug}, ${row.countryName}, ${row.countryFlag}, ${row.dialCode}, ${row.nationalDigits}, ${row.costKobo}, ${row.priceKobo}, ${row.stock}, ${row.stockCount}, ${runStartedAt})`,
+      ),
+    );
+
+    await prisma.$executeRaw`
+      INSERT INTO "synced_offers"
+        ("id", "serviceSlug", "serviceName", "serviceColor", "category", "countrySlug", "countryName", "countryFlag", "dialCode", "nationalDigits", "costKobo", "priceKobo", "stock", "stockCount", "syncedAt")
+      VALUES ${values}
+      ON CONFLICT ("serviceSlug", "countrySlug") DO UPDATE SET
+        "serviceName" = EXCLUDED."serviceName",
+        "serviceColor" = EXCLUDED."serviceColor",
+        "category" = EXCLUDED."category",
+        "countryName" = EXCLUDED."countryName",
+        "countryFlag" = EXCLUDED."countryFlag",
+        "dialCode" = EXCLUDED."dialCode",
+        "nationalDigits" = EXCLUDED."nationalDigits",
+        "costKobo" = EXCLUDED."costKobo",
+        "priceKobo" = EXCLUDED."priceKobo",
+        "stock" = EXCLUDED."stock",
+        "stockCount" = EXCLUDED."stockCount",
+        "syncedAt" = EXCLUDED."syncedAt"
+    `;
+    console.log(
+      `[provider-sync] wrote ${Math.min(i + WRITE_CHUNK_SIZE, rows.length)}/${rows.length} offers`,
+    );
+  }
+}
+
+/** Removes any pair a previous sync wrote that this run did not see again,
+ *  identified purely by not having been touched since runStartedAt. Run
+ *  after every upsert has landed, so this can never remove a row this same
+ *  run just wrote. */
+async function removeStaleOffers(runStartedAt: Date): Promise<number> {
+  const result = await prisma.syncedOffer.deleteMany({
+    where: { syncedAt: { lt: runStartedAt } },
+  });
+  return result.count;
+}
 
 export interface ProviderSyncResult {
   ok: boolean;
@@ -79,6 +170,9 @@ async function collectCatalog(provider: NumberProvider): Promise<ProviderCatalog
 }
 
 export async function runProviderSync(): Promise<ProviderSyncResult> {
+  const startedAt = Date.now();
+  console.log("[provider-sync] starting");
+
   const resolved = await getNumberProvider();
   if (!resolved.connected) {
     const error = `Provider not connected (${resolved.reason}).`;
@@ -87,28 +181,18 @@ export async function runProviderSync(): Promise<ProviderSyncResult> {
   }
 
   try {
+    console.log(`[provider-sync] provider connected (${resolved.provider.id}), fetching catalog`);
     const [rules, disabledRows, catalog] = await Promise.all([
       loadMarginRules(),
       prisma.serviceSetting.findMany({ where: { enabled: false } }),
       collectCatalog(resolved.provider),
     ]);
+    console.log(
+      `[provider-sync] catalog fetched: ${catalog.length} raw entries (${Date.now() - startedAt}ms elapsed)`,
+    );
     const disabled = new Set(disabledRows.map((row) => row.slug));
 
-    const rows: {
-      serviceSlug: string;
-      serviceName: string;
-      serviceColor: string;
-      category: string;
-      countrySlug: string;
-      countryName: string;
-      countryFlag: string;
-      dialCode: string;
-      nationalDigits: number;
-      costKobo: number;
-      priceKobo: number;
-      stock: string;
-      stockCount: number;
-    }[] = [];
+    const rows: OfferRow[] = [];
     const serviceSlugs = new Set<string>();
     const countrySlugs = new Set<string>();
     // The table has a unique constraint on the pair, and a supplier can
@@ -150,6 +234,8 @@ export async function runProviderSync(): Promise<ProviderSyncResult> {
       });
     }
 
+    console.log(`[provider-sync] ${rows.length} priceable offers after filtering, writing`);
+
     if (rows.length === 0) {
       const error =
         "Sync produced zero priceable offers; leaving the previous cache in place.";
@@ -157,29 +243,16 @@ export async function runProviderSync(): Promise<ProviderSyncResult> {
       return { ok: false, error };
     }
 
-    // Atomic replace: readers see either the whole previous catalog or the
-    // whole new one, never a half-written mix. SyncedOffer is a browsing
+    // See upsertOffers()'s own comment for why this is a sequence of short
+    // upserts rather than one held transaction. SyncedOffer is a browsing
     // cache only, so nothing here can touch an order or a wallet, and a
     // pair the supplier dropped simply stops being listed while every
     // historical Activation row keeps the price it was actually sold at.
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.syncedOffer.deleteMany({});
-        for (let i = 0; i < rows.length; i += WRITE_CHUNK_SIZE) {
-          await tx.syncedOffer.createMany({ data: rows.slice(i, i + WRITE_CHUNK_SIZE) });
-        }
-      },
-      // Bounded to fit inside the 60s function ceiling (Vercel Hobby's
-      // hard cap; see maxDuration on the route/page that calls this), with
-      // headroom left for the provider fetch that already ran and the
-      // admin/audit checks around this call. A transaction timeout set
-      // longer than the function is allowed to run is not a longer grace
-      // period, it is a race the platform always wins: Vercel kills the
-      // function outright at 60s, mid-write, before Prisma's own timeout
-      // ever gets to fire cleanly. That looks like a hang with no error to
-      // the caller, not a reported failure, which is the specific failure
-      // mode this bound exists to turn into a real one.
-      { timeout: 35_000, maxWait: 10_000 },
+    const runStartedAt = new Date();
+    await upsertOffers(rows, runStartedAt);
+    const staleRemoved = await removeStaleOffers(runStartedAt);
+    console.log(
+      `[provider-sync] write complete, removed ${staleRemoved} stale offers (${Date.now() - startedAt}ms total)`,
     );
 
     const stats = {
