@@ -34,6 +34,27 @@ const SINGLETON_ID = "singleton";
  *  smaller chunk means a smaller worst case if one chunk is ever slow. */
 const WRITE_CHUNK_SIZE = 2_000;
 
+/**
+ * The same integer-overflow lesson as isUsableCost() in pricing.ts, applied
+ * to the other supplier-controlled number written to this table: stock
+ * count. Confirmed as a second, separate real failure mode in production,
+ * with a different anomalous value (3411291350) than the cost overflow
+ * this file's isUsableCost() check already catches, and the same Postgres
+ * "value out of range for type integer" error.
+ *
+ * Clamped rather than dropped, unlike an unusable cost: stock count never
+ * enters a price, it only decides the in_stock/low/out_of_stock bucket
+ * (see GrizzlySmsProvider.stockFromCount) and is shown as a raw figure to
+ * admins, so a garbage value here is safe to cap rather than needing to
+ * discard an otherwise perfectly priceable row over it.
+ */
+const MAX_SAFE_STOCK_COUNT = 1_000_000;
+
+function safeStockCount(count: number | undefined): number {
+  if (!Number.isFinite(count) || count === undefined || count < 0) return 0;
+  return Math.min(Math.trunc(count), MAX_SAFE_STOCK_COUNT);
+}
+
 type OfferRow = {
   serviceSlug: string;
   serviceName: string;
@@ -230,7 +251,7 @@ export async function runProviderSync(): Promise<ProviderSyncResult> {
         costKobo: entry.costKobo,
         priceKobo: quote.customerPriceKobo,
         stock: entry.stock,
-        stockCount: entry.stockCount ?? 0,
+        stockCount: safeStockCount(entry.stockCount),
       });
     }
 
