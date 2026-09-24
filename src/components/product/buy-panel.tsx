@@ -101,6 +101,7 @@ export function BuyPanel({
 
   const [services, setServices] = useState<ServiceOption[]>(initialServices);
   const [servicesLoading, setServicesLoading] = useState(false);
+  const [servicesError, setServicesError] = useState(false);
   const [service, setService] = useState<ServiceOption | null>(
     () => initialServices.find((s) => s.slug === initialServiceSlug) ?? null,
   );
@@ -113,6 +114,11 @@ export function BuyPanel({
     list: CountryOption[];
   } | null>(null);
   const [country, setCountry] = useState<CountryOption | null>(null);
+  // Tags which service a failure belongs to, the same way countryData
+  // tags its own list, so switching services doesn't show a stale error
+  // left over from a previous one.
+  const [countriesErrorFor, setCountriesErrorFor] = useState<string | null>(null);
+  const countriesError = Boolean(service && countriesErrorFor === service.slug);
   // The full country list for a service is small enough (typically well
   // under a few hundred rows) to already be sitting in the browser once
   // fetched, so filtering it against what's typed is done here rather than
@@ -180,14 +186,23 @@ export function BuyPanel({
       fetch(`/api/inventory/services?q=${encodeURIComponent(query)}`, {
         signal: controller.signal,
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
         .then((data: { services?: ServiceOption[] }) => {
           if (token !== serviceRequest.current) return;
           setServices(data.services ?? []);
+          setServicesError(false);
         })
         .catch((err: unknown) => {
           if (err instanceof DOMException && err.name === "AbortError") return;
-          if (token === serviceRequest.current) setServices([]);
+          if (token !== serviceRequest.current) return;
+          // A failed request is not the same as "no matches": showing the
+          // same empty-results copy for both would hide a real problem
+          // behind what looks like an ordinary no-results state.
+          setServices([]);
+          setServicesError(true);
         })
         .finally(() => {
           if (token === serviceRequest.current) setServicesLoading(false);
@@ -206,14 +221,22 @@ export function BuyPanel({
     const slug = service.slug;
 
     fetch(`/api/inventory/countries?service=${encodeURIComponent(slug)}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data: { countries?: CountryOption[] }) => {
         if (token !== countryRequest.current) return;
         setCountryData({ serviceSlug: slug, list: data.countries ?? [] });
+        setCountriesErrorFor(null);
       })
       .catch(() => {
         if (token !== countryRequest.current) return;
+        // A failed request is not the same as "this service has no
+        // countries in stock": conflating them would hide a real problem
+        // behind what looks like an ordinary out-of-stock state.
         setCountryData({ serviceSlug: slug, list: [] });
+        setCountriesErrorFor(slug);
       });
   }, [service]);
 
@@ -423,7 +446,11 @@ export function BuyPanel({
         <Combobox
           label="Service"
           placeholder="Search services, for example Instagram"
-          emptyMessage="No service matches that search."
+          emptyMessage={
+            servicesError
+              ? "Unable to load services. Please try again."
+              : "No service matches that search."
+          }
           options={serviceOptions}
           value={selectedServiceOption}
           loading={servicesLoading}
@@ -457,9 +484,11 @@ export function BuyPanel({
           emptyMessage={
             countriesLoading
               ? "Checking availability..."
-              : trimmedCountryQuery && countries.length > 0
-                ? "No country matches that search."
-                : "No country has stock for this service right now."
+              : countriesError
+                ? "Unable to load countries. Please try again."
+                : trimmedCountryQuery && countries.length > 0
+                  ? "No country matches that search."
+                  : "No country has stock for this service right now."
           }
           options={countryOptions}
           value={selectedCountryOption}
