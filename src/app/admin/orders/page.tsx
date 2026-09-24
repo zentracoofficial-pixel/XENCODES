@@ -62,11 +62,12 @@ export default async function AdminOrdersPage({
     from?: string;
     to?: string;
     includeDeleted?: string;
+    page?: string;
   }>;
 }) {
   await requireAdmin();
 
-  const { status, q, sort, service, country, provider, from, to, includeDeleted } =
+  const { status, q, sort, service, country, provider, from, to, includeDeleted, page: pageRaw } =
     await searchParams;
   const activeFilter =
     STATUS_FILTERS.find((f) => f.value === status)?.value ?? "ALL";
@@ -75,6 +76,7 @@ export default async function AdminOrdersPage({
   const fromDate = from ? new Date(`${from}T00:00:00`) : null;
   const toDate = to ? new Date(`${to}T23:59:59.999`) : null;
   const showDeleted = includeDeleted === "1";
+  const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
 
   // Distinct facet values are read from the orders that actually exist,
   // not from the live provider catalog: a filter should only ever offer a
@@ -133,11 +135,13 @@ export default async function AdminOrdersPage({
     prisma.activation.findMany({
       where,
       orderBy: SORTS[activeSort].orderBy,
+      skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { user: { select: { email: true } } },
     }),
     prisma.activation.count({ where }),
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const keep = (extra: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -151,6 +155,10 @@ export default async function AdminOrdersPage({
       from,
       to,
       includeDeleted: showDeleted ? "1" : undefined,
+      // Deliberately not carried forward by default: changing any filter
+      // or sort is a new result set, so it should land on page 1, not
+      // whatever page happened to be open before. Only the actual
+      // Previous/Next links below pass page explicitly via extra.
       ...extra,
     };
     for (const [key, value] of Object.entries(merged)) {
@@ -166,7 +174,7 @@ export default async function AdminOrdersPage({
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {total.toLocaleString("en-NG")} matching
-          {total > PAGE_SIZE ? `, showing the first ${PAGE_SIZE}` : ""}.
+          {totalPages > 1 ? `, page ${page} of ${totalPages}` : ""}.
         </p>
       </div>
 
@@ -405,6 +413,38 @@ export default async function AdminOrdersPage({
           </div>
         )}
       </Card>
+
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            href={keep({ page: page > 1 ? String(page - 1) : undefined })}
+            aria-disabled={page <= 1}
+            className={cn(
+              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
+              page <= 1
+                ? "pointer-events-none opacity-40"
+                : "hover:border-mint hover:bg-mint-soft",
+            )}
+          >
+            Previous
+          </Link>
+          <p className="text-xs text-muted-foreground">
+            Page {page} of {totalPages}
+          </p>
+          <Link
+            href={keep({ page: String(page + 1) })}
+            aria-disabled={page >= totalPages}
+            className={cn(
+              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
+              page >= totalPages
+                ? "pointer-events-none opacity-40"
+                : "hover:border-mint hover:bg-mint-soft",
+            )}
+          >
+            Next
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }
