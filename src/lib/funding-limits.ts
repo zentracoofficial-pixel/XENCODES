@@ -54,3 +54,39 @@ export function validateTopUpAmount(amountKobo: number): FundingError | null {
   if (amountKobo > MAX_TOPUP_KOBO) return "amount_too_high";
   return null;
 }
+
+/**
+ * KoraPay's own processing fee, passed on to the customer rather than
+ * absorbed by the business. The wallet is still only ever credited the
+ * amount the customer actually asked for (see completeTopUp() in
+ * funding.ts, which credits WalletTransaction.amountKobo unchanged); this
+ * fee is added on top of what KoraPay is asked to charge at checkout,
+ * never subtracted from what lands in the balance.
+ *
+ * Modelled as percent-with-a-cap because that is how KoraPay's own
+ * published rate actually works (1.5% capped at NGN 2,000, see
+ * DEFAULT_TOPUP_FEE_PERCENT/DEFAULT_TOPUP_FEE_CAP_KOBO in settings.ts), not
+ * because this codebase invented that shape. There is no supported way to
+ * have KoraPay itself add its real fee at checkout for the hosted
+ * Checkout Redirect product this integration uses (its documented request
+ * fields are amount/currency/reference/customer/redirect_url/
+ * notification_url/channels/narration only — no fee-bearer field; that
+ * field exists only on KoraPay's separate direct bank-transfer and
+ * mobile-money charge APIs, and sending it here broke the checkout page
+ * in a real production test), so this is the one place that fee can
+ * reliably be applied without risking checkout itself.
+ *
+ * Rounds up, matching quotePrice()'s own rounding direction in pricing.ts:
+ * a fee rounded down would occasionally undercharge for what KoraPay
+ * actually takes, and consistently rounding the same direction everywhere
+ * is what keeps that from happening.
+ */
+export function calculateTopupFeeKobo(
+  amountKobo: number,
+  feePercent: number,
+  feeCapKobo: number,
+): number {
+  if (!Number.isFinite(amountKobo) || amountKobo <= 0) return 0;
+  const percentPortion = Math.ceil((amountKobo * feePercent) / 100);
+  return Math.max(0, Math.min(percentPortion, feeCapKobo));
+}
