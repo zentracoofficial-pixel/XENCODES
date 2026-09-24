@@ -59,8 +59,11 @@ export default async function AdminWalletPage({
 
   const { type, status, q, includeDeleted } = await searchParams;
   const activeType = TYPE_FILTERS.find((f) => f.value === type)?.value ?? "ALL";
-  const activeStatus =
-    STATUS_FILTERS.find((f) => f.value === status)?.value ?? "ALL";
+  // Defaults to only successful money, not "ALL": a pending, failed or
+  // cancelled top-up attempt is not money the business has, and showing it
+  // by default is exactly what made this ledger look inflated. "Any
+  // status" is still one click away for reconciling a specific problem.
+  const activeStatus = STATUS_FILTERS.find((f) => f.value === status)?.value ?? "SUCCESSFUL";
   const query = q?.trim();
   const showDeleted = includeDeleted === "1";
 
@@ -114,7 +117,11 @@ export default async function AdminWalletPage({
     const params = new URLSearchParams();
     const merged = {
       type: activeType === "ALL" ? undefined : activeType,
-      status: activeStatus === "ALL" ? undefined : activeStatus,
+      // Always explicit, never omitted: the default here is SUCCESSFUL, not
+      // ALL, so dropping the param when it's ALL would silently revert an
+      // admin's deliberate "show everything" choice back to the default the
+      // next time any other link on this page is followed.
+      status: activeStatus,
       q: query,
       includeDeleted: showDeleted ? "1" : undefined,
       ...extra,
@@ -159,9 +166,7 @@ export default async function AdminWalletPage({
         {activeType === "ALL" ? null : (
           <input type="hidden" name="type" value={activeType} />
         )}
-        {activeStatus === "ALL" ? null : (
-          <input type="hidden" name="status" value={activeStatus} />
-        )}
+        <input type="hidden" name="status" value={activeStatus} />
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="search"
@@ -194,7 +199,7 @@ export default async function AdminWalletPage({
           {STATUS_FILTERS.map((filter) => (
             <Link
               key={filter.value}
-              href={link({ status: filter.value === "ALL" ? undefined : filter.value })}
+              href={link({ status: filter.value })}
               className={cn(
                 "inline-flex min-h-9 items-center rounded-lg px-2.5 text-xs font-medium transition-colors",
                 activeStatus === filter.value
