@@ -28,7 +28,7 @@ export const proxy = auth((req) => {
     if (!isAdmin) {
       return NextResponse.redirect(new URL("/dashboard", origin));
     }
-    return;
+    return noStore(NextResponse.next());
   }
 
   if (pathname.startsWith("/dashboard") && !isLoggedIn) {
@@ -44,7 +44,22 @@ export const proxy = auth((req) => {
   if (isLoggedIn && isAdmin && (pathname.startsWith("/dashboard") || pathname === "/buy")) {
     return NextResponse.redirect(new URL("/admin", origin));
   }
+
+  return noStore(NextResponse.next());
 });
+
+/**
+ * Every response this proxy hands back for an authenticated area is marked
+ * uncacheable, so a browser's back/forward cache can't resurrect a
+ * rendered admin or dashboard page after logout. Session validity alone
+ * isn't enough for this: a bfcache restore can show the last paint without
+ * making a new request at all, and logout only stops the *next* request
+ * from succeeding, not a cached one from being shown.
+ */
+function noStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  return res;
+}
 
 export const config = {
   matcher: ["/dashboard/:path*", "/admin/:path*", "/buy"],
