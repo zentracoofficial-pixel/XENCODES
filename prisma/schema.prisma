@@ -113,6 +113,13 @@ model Activation {
   provider    String
   /// The supplier's own id for this order, used to poll for the SMS.
   providerOrderId String?
+  /// The supplier's own id for the service bought, captured at purchase
+  /// time (e.g. GrizzlySMS's "wa" for WhatsApp). Reporting only: nothing
+  /// reads this back to talk to the supplier, since providerOrderId alone
+  /// is enough to poll status or cancel.
+  providerServiceId String?
+  /// The supplier's own id for the country bought, captured the same way.
+  providerCountryId String?
   /// What the customer paid.
   priceKobo  Int
   /// What the supplier billed Xencodes for this exact order, captured at
@@ -309,15 +316,19 @@ enum EmailCampaignStatus {
   FAILED
 }
 
-/// The one row describing the health of the background provider sync (see
-/// src/lib/provider-sync.ts). Read by the admin Settings page and by the
-/// browse-side cache in src/lib/inventory.ts to decide whether SyncedOffer
-/// is fresh enough to serve. A purchase never reads this: quotePair() in
-/// inventory.ts always asks the live provider directly, so a stale or
-/// failed sync can make browsing degrade but can never make a purchase
-/// wrong.
+/// The health of the background catalog sync, one row per provider (see
+/// src/lib/provider-sync.ts). Read by the admin Providers page and by the
+/// browse-side cache in src/lib/inventory.ts to decide whether that
+/// provider's SyncedOffer rows are fresh enough to serve. A purchase never
+/// reads this: quotePair() in inventory.ts always asks the live provider
+/// directly, so a stale or failed sync can make browsing degrade but can
+/// never make a purchase wrong.
 model ProviderSyncStatus {
-  /// Always "singleton": one row, upserted in place.
+  /// The provider's own registry id (see src/lib/provider/registry.ts),
+  /// e.g. "grizzlysms". One row per provider, upserted in place. Before
+  /// multiple providers existed this was always "singleton"; a migration
+  /// renamed that one row's id to "grizzlysms" so its sync history survived
+  /// the change.
   id                 String    @id
   lastSuccessAt      DateTime?
   lastFailureAt      DateTime?
@@ -346,6 +357,12 @@ model ProviderSyncStatus {
 /// longer in stock.
 model SyncedOffer {
   id             String   @id @default(cuid())
+  /// Which provider this exact offer came from (registry id, e.g.
+  /// "grizzlysms"). Two providers can each have their own row for the same
+  /// serviceSlug/countrySlug pair, at different costs and stock; the
+  /// browse-side read in inventory.ts picks the best one across providers,
+  /// the way quotePair() does live at purchase time.
+  providerId     String   @default("grizzlysms")
   serviceSlug    String
   serviceName    String
   serviceColor   String
@@ -365,9 +382,10 @@ model SyncedOffer {
   stockCount     Int
   syncedAt       DateTime @default(now())
 
-  @@unique([serviceSlug, countrySlug])
+  @@unique([serviceSlug, countrySlug, providerId])
   @@index([serviceSlug])
   @@index([countrySlug])
+  @@index([providerId])
   @@map("synced_offers")
 }
 

@@ -49,6 +49,15 @@ export interface ProviderCountry {
   dialCode: string;
   /** Digit count after the dial code, used to render a number format hint. */
   nationalDigits: number;
+  /**
+   * The supplier's own id for this country, for example a numeric id in
+   * GrizzlySMS's catalog. Shown only in the admin panel and recorded on the
+   * order that bought it, the same way ProviderService.providerServiceId
+   * is: never sent to a customer facing page, and never used as the
+   * country's identity anywhere outside the adapter that issued it. Optional
+   * because not every adapter necessarily has one worth showing.
+   */
+  providerCountryId?: string;
 }
 
 /**
@@ -225,6 +234,16 @@ export interface NumberProvider {
    * count of what is on sale this second.
    */
   getCountryCount?(): Promise<number>;
+
+  /**
+   * A real, safe, read-only request to the supplier, used only to answer
+   * "does this connection actually work" from the admin panel. Must never
+   * reserve a number, spend balance, or have any other side effect. Optional
+   * because an adapter with no cheap read-only call can leave this
+   * undefined; the admin then falls back to treating a successful
+   * getServices() call as the test.
+   */
+  testConnection?(): Promise<{ ok: boolean; message: string }>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */

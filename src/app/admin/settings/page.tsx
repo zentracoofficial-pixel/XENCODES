@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  CreditCard,
-  Percent,
-  Plug,
-  RefreshCw,
-  ShieldCheck,
-  Wallet,
-} from "lucide-react";
+import { CreditCard, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
@@ -21,8 +14,7 @@ import {
   DEFAULT_TOPUP_FEE_CAP_KOBO,
 } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
-import { availableAdapterIds, getNumberProvider, hasCredentials } from "@/lib/provider";
-import { getProviderSyncStatus } from "@/lib/provider-sync";
+import { getEnabledProviders, getNumberProvider } from "@/lib/provider";
 import { formatNaira } from "@/lib/currency";
 import {
   WALLET_CURRENCY,
@@ -31,39 +23,30 @@ import {
   FUNDING_PROVIDER,
 } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { MarginForm, ProviderForm, UsdRateForm, TopupFeeForm } from "./settings-forms";
-import { SyncNowButton } from "./sync-now-button";
+import { MarginForm, UsdRateForm, TopupFeeForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
 export const dynamic = "force-dynamic";
 
-// "Sync now" is a server action invoked from this page, so it runs under
-// this route's limit rather than the cron route's. Without this it inherits
-// the platform default (10s on Hobby), which a full catalog sync can exceed
-// even though the bulk provider read keeps it to a handful of requests. 60
-// is the ceiling Vercel's Hobby plan allows; declaring more fails the build.
-export const maxDuration = 60;
-
 /**
- * Business configuration, the two provider connections, and who has admin
- * access. Everything else an admin changes belongs to a record, and lives
- * on that record's own page.
+ * Business configuration, a summary of the provider connections, and who
+ * has admin access. Everything else an admin changes belongs to a record,
+ * and lives on that record's own page: per-provider connection detail on
+ * Providers, per-service pricing overrides on Services.
  */
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, usdToNgnRateRow, syncStatus] = await Promise.all([
-    readSettings(),
-    loadMarginRules(),
-    prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
-    getNumberProvider(),
-    prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
-    getProviderSyncStatus(),
-  ]);
-
-  const providerId = settings[SETTING_KEYS.providerId] ?? "";
-  const credentialsConfigured = !providerId || hasCredentials(providerId);
+  const [settings, rules, admins, resolved, enabledProviders, usdToNgnRateRow] =
+    await Promise.all([
+      readSettings(),
+      loadMarginRules(),
+      prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
+      getNumberProvider(),
+      getEnabledProviders(),
+      prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
+    ]);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
     (email) => !admins.some((a) => a.email.toLowerCase() === email),
@@ -102,105 +85,36 @@ export default async function AdminSettingsPage() {
       <Card className="p-5">
         <h2 className="flex items-center gap-2 font-semibold">
           <Plug className="h-4 w-4" />
-          Number provider
+          Number providers
           <Badge variant={resolved.connected ? "success" : "warning"}>
             {resolved.connected ? "Connected" : "Disconnected"}
           </Badge>
         </h2>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Where Xencodes buys numbers from. Nothing can be sold until one is
-          connected.
-          {resolved.connected ? ` Currently ${resolved.provider.label}.` : ""}
-        </p>
-        <div className="mt-4">
-          <ProviderForm
-            providerId={providerId}
-            providerEnabled={settings[SETTING_KEYS.providerEnabled] === "true"}
-            availableAdapters={availableAdapterIds()}
-            credentialsConfigured={credentialsConfigured}
-          />
-        </div>
-        {providerId === "grizzlysms" ? (
-          <div className="mt-5 border-t border-border pt-5">
-            <h3 className="text-sm font-semibold">Dollar conversion</h3>
-            <div className="mt-3">
-              <UsdRateForm
-                usdToNgnRate={readNumber(
-                  settings,
-                  SETTING_KEYS.usdToNgnRate,
-                  DEFAULT_USD_TO_NGN_RATE,
-                )}
-                usdToNgnRateUpdatedAt={usdToNgnRateRow?.updatedAt.toISOString() ?? null}
-              />
-            </div>
-          </div>
-        ) : null}
-      </Card>
-
-      <Card className="p-5">
-        <h2 className="flex items-center gap-2 font-semibold">
-          <RefreshCw className="h-4 w-4" />
-          Catalog synchronization
-          <Badge variant={syncStatus.isFresh ? "success" : "warning"}>
-            {syncStatus.isFresh ? "Fresh" : syncStatus.lastSuccessAt ? "Stale" : "Never synced"}
-          </Badge>
-        </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-          A background job pulls the full service and country catalog from
-          the connected provider once a day (the most frequent a cron job
-          can run on this deployment&apos;s current Vercel plan), prices it
-          through the same margin rules as everywhere else, and that is
-          what search and browsing read from. A purchase never reads this
-          cache: it always asks the provider directly, right before
-          charging, so a slow or failed sync can only make browsing stale,
-          never make a purchase wrong. Use &quot;Sync now&quot; below for an
-          immediate refresh between scheduled runs.
+          Where Xencodes buys numbers from. Nothing can be sold until at
+          least one is connected and enabled.{" "}
+          {enabledProviders.length > 0
+            ? `Currently buying from ${enabledProviders.map((p) => p.label).join(", ")}.`
+            : "None enabled right now."}{" "}
+          Enabling, disabling, priority, connection testing and catalog sync
+          for every provider live on{" "}
+          <Link href="/admin/providers" className="text-forest hover:underline">
+            Providers
+          </Link>
+          .
         </p>
-        <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Last successful sync
-            </dt>
-            <dd className="mt-1 text-sm font-medium">
-              {syncStatus.lastSuccessAt
-                ? syncStatus.lastSuccessAt.toLocaleString("en-NG")
-                : "Never"}
-            </dd>
+        <div className="mt-5 border-t border-border pt-5">
+          <h3 className="text-sm font-semibold">Dollar conversion</h3>
+          <div className="mt-3">
+            <UsdRateForm
+              usdToNgnRate={readNumber(
+                settings,
+                SETTING_KEYS.usdToNgnRate,
+                DEFAULT_USD_TO_NGN_RATE,
+              )}
+              usdToNgnRateUpdatedAt={usdToNgnRateRow?.updatedAt.toISOString() ?? null}
+            />
           </div>
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Last failed sync
-            </dt>
-            <dd className="mt-1 text-sm font-medium">
-              {syncStatus.lastFailureAt
-                ? syncStatus.lastFailureAt.toLocaleString("en-NG")
-                : "None recorded"}
-            </dd>
-          </div>
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Services synchronized
-            </dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums">
-              {syncStatus.servicesSynced ?? "—"}
-            </dd>
-          </div>
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Countries synchronized
-            </dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums">
-              {syncStatus.countriesSynced ?? "—"}
-            </dd>
-          </div>
-        </dl>
-        {syncStatus.lastFailureError ? (
-          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-            Last error: {syncStatus.lastFailureError}
-          </p>
-        ) : null}
-        <div className="mt-4">
-          <SyncNowButton />
         </div>
       </Card>
 

@@ -1,11 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   saveMarginSettingsAction,
-  saveProviderSettingsAction,
   saveUsdRateAction,
   saveTopupFeeSettingsAction,
   type SettingsState,
@@ -82,89 +81,6 @@ export function MarginForm({
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save margins"}
-      </Button>
-    </form>
-  );
-}
-
-const ADAPTER_LABEL: Record<string, string> = {
-  grizzlysms: "GrizzlySMS",
-};
-
-export function ProviderForm({
-  providerId,
-  providerEnabled,
-  availableAdapters,
-  credentialsConfigured,
-}: {
-  providerId: string;
-  providerEnabled: boolean;
-  /** Adapter ids that actually have an integration behind them. */
-  availableAdapters: string[];
-  /** Whether the selected adapter's environment variable is actually set
-   *  on this deployment. Only meaningful once a provider is selected. */
-  credentialsConfigured: boolean;
-}) {
-  const [state, formAction, pending] = useActionState(
-    saveProviderSettingsAction,
-    initial,
-  );
-  const [enabled, setEnabled] = useState(providerEnabled);
-
-  return (
-    <form action={formAction} className="space-y-4">
-      <div className="max-w-xs space-y-1.5">
-        <label className={labelClass} htmlFor="providerId">
-          Provider
-        </label>
-        <select id="providerId" name="providerId" defaultValue={providerId} className={inputClass}>
-          <option value="">Not selected</option>
-          {availableAdapters.map((id) => (
-            <option key={id} value={id}>
-              {ADAPTER_LABEL[id] ?? id}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <label className="flex items-center gap-2.5 text-sm">
-        <input
-          name="providerEnabled"
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
-          className="h-5 w-5 rounded border-border accent-primary"
-        />
-        Connection enabled, so numbers are purchased live from this provider
-      </label>
-
-      {providerId && !credentialsConfigured ? (
-        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            {ADAPTER_LABEL[providerId] ?? providerId} is selected but its API
-            key is not set as an environment variable on this deployment.
-            Numbers cannot be sold until{" "}
-            <code className="rounded bg-surface px-1 py-0.5">
-              {providerId.toUpperCase()}_API_KEY
-            </code>{" "}
-            is added there. Never type it into this form: it belongs only in
-            environment configuration.
-          </p>
-        </div>
-      ) : (
-        <p className="max-w-xl text-xs text-muted-foreground">
-          Credentials come from this deployment&apos;s environment variables,
-          so there is no API key to type here and nothing here can display
-          one.
-        </p>
-      )}
-
-      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
-
-      <Button type="submit" disabled={pending}>
-        {pending ? "Saving" : "Save connection"}
       </Button>
     </form>
   );
@@ -276,8 +192,9 @@ export function UsdRateForm({
           className={inputClass}
         />
         <p className="text-xs text-muted-foreground">
-          GrizzlySMS prices in US dollars. This rate converts every cost to
-          Naira before margin is applied, so keep it current.
+          Used to convert any dollar-priced provider&apos;s cost (GrizzlySMS
+          prices in US dollars) into Naira before margin is applied, so keep
+          it current.
         </p>
       </div>
 

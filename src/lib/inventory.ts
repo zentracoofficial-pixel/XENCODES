@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import {
   getNumberProvider,
+  getEnabledProviders,
   PROVIDER_UNAVAILABLE_COPY,
   type ProviderService,
+  type ProviderAvailability,
 } from "@/lib/provider";
 import { resolveBrandIcon } from "@/lib/brand-match";
 import {
@@ -11,7 +13,7 @@ import {
   isUsableCost,
   type PriceQuote,
 } from "@/lib/pricing";
-import { getProviderSyncStatus } from "@/lib/provider-sync";
+import { anyProviderCacheFresh } from "@/lib/provider-sync";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -115,7 +117,17 @@ export type QuoteResult =
       quote: PriceQuote;
       service: InventoryService;
       country: InventoryCountry;
+      /** Which provider (registry id) this exact quote came from. This is
+       *  the provider a purchase must go through: with more than one
+       *  enabled provider, the winning one can differ call to call as
+       *  prices and stock move, so a purchase always re-resolves this
+       *  specific id rather than assuming "the" provider. */
       provider: string;
+      /** The winning provider's own ids for this service/country, carried
+       *  through so a purchase can record them on the order. Reporting
+       *  only: never used to talk to a provider directly. */
+      providerServiceId?: string;
+      providerCountryId?: string;
     }
   | { ok: false; reason: QuoteFailure };
 
@@ -158,10 +170,15 @@ export async function getInventoryStatus(): Promise<InventoryStatus> {
  * downstream (searchServices, countServices, getServiceMeta) gets the same
  * list regardless of where it came from, so there is exactly one service
  * list, not one per page and not one per cache state.
+ *
+ * With more than one provider enabled, a service is listed the moment ANY
+ * of them offers it: the cache read is not scoped to one providerId (a
+ * service two providers both sell is one row here, not two), and the live
+ * fallback merges every enabled provider's own list, keeping the first
+ * (highest-priority) provider's display details on a slug both report.
  */
 async function loadServiceCatalog(): Promise<ProviderService[] | null> {
-  const status = await getProviderSyncStatus();
-  if (status.isFresh) {
+  if (await anyProviderCacheFresh()) {
     const cached = await prisma.syncedOffer.findMany({
       distinct: ["serviceSlug"],
       select: { serviceSlug: true, serviceName: true, serviceColor: true, category: true },
@@ -176,9 +193,23 @@ async function loadServiceCatalog(): Promise<ProviderService[] | null> {
     }
   }
 
-  const resolved = await getNumberProvider();
-  if (!resolved.connected) return null;
-  return resolved.provider.getServices();
+  const providers = await getEnabledProviders();
+  if (providers.length === 0) return null;
+
+  const merged = new Map<string, ProviderService>();
+  for (const { id, provider } of providers) {
+    let services: ProviderService[];
+    try {
+      services = await provider.getServices();
+    } catch (error) {
+      console.error(`[inventory] getServices failed for "${id}":`, error);
+      continue;
+    }
+    for (const service of services) {
+      if (!merged.has(service.slug)) merged.set(service.slug, service);
+    }
+  }
+  return merged.size > 0 ? Array.from(merged.values()) : null;
 }
 
 /**
@@ -252,10 +283,10 @@ export interface CatalogHighlights {
 export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   const empty: CatalogHighlights = { startingPriceKobo: null, countryCount: null };
 
-  const [rules, disabledRows, syncStatus] = await Promise.all([
+  const [rules, disabledRows, cacheFresh] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findMany({ where: { enabled: false } }),
-    getProviderSyncStatus(),
+    anyProviderCacheFresh(),
   ]);
   const disabled = new Set(disabledRows.map((row) => row.slug));
 
@@ -263,8 +294,10 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   // cache rather than calling the live supplier on every page view. The
   // one live call this file makes unconditionally is quotePair(), for the
   // one thing that must never be cached: what a customer is actually
-  // charged.
-  if (syncStatus.isFresh) {
+  // charged. The cache read below is not scoped to one provider: a pair two
+  // providers both offer contributes both rows, and the cheapest naturally
+  // wins since only the minimum price is kept.
+  if (cacheFresh) {
     const rows = await prisma.syncedOffer.findMany({
       where: { serviceSlug: { notIn: [...disabled] } },
       select: { serviceSlug: true, costKobo: true, countrySlug: true },
@@ -284,21 +317,35 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
     }
   }
 
-  const resolved = await getNumberProvider();
-  if (!resolved.connected) return empty;
-
-  const [cheapestByService, countryCount] = await Promise.all([
-    resolved.provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
-      Promise.resolve(new Map<string, number>()),
-    resolved.provider.getCountryCount?.().catch(() => null) ?? Promise.resolve(null),
-  ]);
+  const providers = await getEnabledProviders();
+  if (providers.length === 0) return empty;
 
   let startingPriceKobo: number | null = null;
-  for (const [slug, costKobo] of cheapestByService) {
-    if (disabled.has(slug) || !isUsableCost(costKobo)) continue;
-    const quote = quoteFor(rules, costKobo, slug);
-    if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
-      startingPriceKobo = quote.customerPriceKobo;
+  // Not a true union count across providers (that would need each
+  // provider's actual country set, not just a count), so this takes the
+  // largest any one provider reports: an honest lower bound on "how many
+  // locations", rather than assembling a precise total nobody asked for.
+  let countryCount: number | null = null;
+
+  for (const { id, provider } of providers) {
+    const [cheapestByService, providerCountryCount] = await Promise.all([
+      provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
+        Promise.resolve(new Map<string, number>()),
+      provider.getCountryCount?.().catch(() => null) ?? Promise.resolve(null),
+    ]).catch((error) => {
+      console.error(`[inventory] getCatalogHighlights failed for "${id}":`, error);
+      return [new Map<string, number>(), null] as const;
+    });
+
+    for (const [slug, costKobo] of cheapestByService) {
+      if (disabled.has(slug) || !isUsableCost(costKobo)) continue;
+      const quote = quoteFor(rules, costKobo, slug);
+      if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
+        startingPriceKobo = quote.customerPriceKobo;
+      }
+    }
+    if (providerCountryCount !== null) {
+      countryCount = countryCount === null ? providerCountryCount : Math.max(countryCount, providerCountryCount);
     }
   }
 
@@ -346,10 +393,10 @@ export async function getServiceMeta(
 export async function getServiceCountries(
   serviceSlug: string,
 ): Promise<InventoryCountry[]> {
-  const [rules, serviceSetting, syncStatus] = await Promise.all([
+  const [rules, serviceSetting, cacheFresh] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
-    getProviderSyncStatus(),
+    anyProviderCacheFresh(),
   ]);
   if (serviceSetting?.enabled === false) return [];
 
@@ -371,10 +418,21 @@ export async function getServiceCountries(
   };
 
   let offers: CostOffer[] | null = null;
-  if (syncStatus.isFresh) {
+  if (cacheFresh) {
     const cached = await prisma.syncedOffer.findMany({ where: { serviceSlug } });
     if (cached.length > 0) {
-      offers = cached.map((row) => ({
+      // More than one provider can have a row for the same country; the
+      // customer sees one row per country, priced from whichever provider
+      // is cheapest for that country right now, the same rule quotePair()
+      // applies live at purchase time.
+      const cheapestByCountry = new Map<string, (typeof cached)[number]>();
+      for (const row of cached) {
+        const existing = cheapestByCountry.get(row.countrySlug);
+        if (!existing || row.costKobo < existing.costKobo) {
+          cheapestByCountry.set(row.countrySlug, row);
+        }
+      }
+      offers = Array.from(cheapestByCountry.values()).map((row) => ({
         country: {
           slug: row.countrySlug,
           name: row.countryName,
@@ -389,9 +447,31 @@ export async function getServiceCountries(
   }
 
   if (!offers) {
-    const resolved = await getNumberProvider();
-    if (!resolved.connected) return [];
-    offers = await resolved.provider.getCountries(serviceSlug);
+    const providers = await getEnabledProviders();
+    if (providers.length === 0) return [];
+
+    const cheapestByCountry = new Map<string, CostOffer>();
+    for (const { id, provider } of providers) {
+      let rows;
+      try {
+        rows = await provider.getCountries(serviceSlug);
+      } catch (error) {
+        console.error(`[inventory] getCountries failed for "${id}"/"${serviceSlug}":`, error);
+        continue;
+      }
+      for (const offer of rows) {
+        const existing = cheapestByCountry.get(offer.country.slug);
+        if (!existing || offer.costKobo < existing.costKobo) {
+          cheapestByCountry.set(offer.country.slug, {
+            country: offer.country,
+            costKobo: offer.costKobo,
+            stock: offer.stock,
+            successRate: offer.successRate,
+          });
+        }
+      }
+    }
+    offers = Array.from(cheapestByCountry.values());
   }
 
   return offers
@@ -423,66 +503,106 @@ export async function getServiceCountries(
  * between them. Returns a reason rather than a price when the pair cannot
  * be sold, so callers can say something useful instead of falling back to
  * a stale figure, and so a purchase can be refused outright.
+ *
+ * With more than one provider enabled, every one of them is asked for this
+ * exact pair, live, in parallel with each other's lookup failing
+ * independently: one provider being down or not carrying this pair does
+ * not stop a cheaper or only remaining provider from selling it. Among the
+ * providers that can actually sell it right now, the cheapest wins; a tie
+ * goes to whichever sorts first by admin-configured priority. The winning
+ * provider's id (and its own service/country ids, for the order record) are
+ * returned so a purchase can be sent to that exact provider afterward, not
+ * to whichever provider happens to resolve first at that later moment.
  */
 export async function quotePair(
   serviceSlug: string,
   countrySlug: string,
 ): Promise<QuoteResult> {
-  const [resolved, rules, serviceSetting] = await Promise.all([
-    getNumberProvider(),
+  const [providers, rules, serviceSetting] = await Promise.all([
+    getEnabledProviders(),
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
   ]);
 
-  if (!resolved.connected) return { ok: false, reason: "no_provider" };
+  if (providers.length === 0) return { ok: false, reason: "no_provider" };
   if (serviceSetting?.enabled === false) return { ok: false, reason: "disabled" };
 
-  const { provider } = resolved;
-
-  let offer;
-  let service;
-  try {
-    [offer, service] = await Promise.all([
-      provider.getAvailability(serviceSlug, countrySlug),
-      provider.getServices().then((rows) => rows.find((r) => r.slug === serviceSlug)),
-    ]);
-  } catch (error) {
-    console.error(
-      `[inventory] live lookup failed for "${serviceSlug}" in "${countrySlug}":`,
-      error,
-    );
-    return { ok: false, reason: "provider_error" };
+  interface Candidate {
+    providerId: string;
+    offer: ProviderAvailability;
+    service: ProviderService;
   }
 
-  if (!offer || !service || offer.stock === "out_of_stock") {
+  const candidates: Candidate[] = [];
+  let anyProviderErrored = false;
+  let sawUnpriceableOffer = false;
+
+  // providers is already sorted by ascending priority (see
+  // getEnabledProviders), and candidates are pushed in that same order, so
+  // a cost tie below resolves to the higher-priority provider without a
+  // separate tie-break rule.
+  for (const { id, provider } of providers) {
+    let offer;
+    let services;
+    try {
+      [offer, services] = await Promise.all([
+        provider.getAvailability(serviceSlug, countrySlug),
+        provider.getServices(),
+      ]);
+    } catch (error) {
+      anyProviderErrored = true;
+      console.error(
+        `[inventory] live lookup failed for "${serviceSlug}" in "${countrySlug}" via "${id}":`,
+        error,
+      );
+      continue;
+    }
+
+    const service = services.find((row) => row.slug === serviceSlug);
+    if (!offer || !service || offer.stock === "out_of_stock") continue;
+
+    // No usable cost means no knowable margin, so there is no price to
+    // quote and nothing to sell from this provider. Refused here rather
+    // than guessed, but another provider may still be able to sell it.
+    if (!isUsableCost(offer.costKobo)) {
+      console.error(
+        `[inventory] refusing to price "${serviceSlug}" in "${countrySlug}" via "${id}": ` +
+          `provider returned an unusable cost (${offer.costKobo})`,
+      );
+      sawUnpriceableOffer = true;
+      continue;
+    }
+
+    candidates.push({ providerId: id, offer, service });
+  }
+
+  if (candidates.length === 0) {
+    if (anyProviderErrored && !sawUnpriceableOffer) return { ok: false, reason: "provider_error" };
+    if (sawUnpriceableOffer) return { ok: false, reason: "unpriceable" };
     return { ok: false, reason: "unavailable" };
   }
 
-  // No usable cost means no knowable margin, so there is no price to
-  // quote and nothing to sell. Refused here rather than guessed.
-  if (!isUsableCost(offer.costKobo)) {
-    console.error(
-      `[inventory] refusing to price "${serviceSlug}" in "${countrySlug}": ` +
-        `provider returned an unusable cost (${offer.costKobo})`,
-    );
-    return { ok: false, reason: "unpriceable" };
-  }
+  const winner = candidates.reduce((best, candidate) =>
+    candidate.offer.costKobo < best.offer.costKobo ? candidate : best,
+  );
 
-  const quote = quoteFor(rules, offer.costKobo, serviceSlug);
+  const quote = quoteFor(rules, winner.offer.costKobo, serviceSlug);
 
   return {
     ok: true,
     quote,
-    provider: provider.id,
-    service: toInventoryService(service),
+    provider: winner.providerId,
+    providerServiceId: winner.service.providerServiceId,
+    providerCountryId: winner.offer.country.providerCountryId,
+    service: toInventoryService(winner.service),
     country: {
-      slug: offer.country.slug,
-      name: offer.country.name,
-      flag: offer.country.flag,
-      dialCode: offer.country.dialCode,
-      nationalDigits: offer.country.nationalDigits,
+      slug: winner.offer.country.slug,
+      name: winner.offer.country.name,
+      flag: winner.offer.country.flag,
+      dialCode: winner.offer.country.dialCode,
+      nationalDigits: winner.offer.country.nationalDigits,
       priceKobo: quote.customerPriceKobo,
-      successRate: offer.successRate,
+      successRate: winner.offer.successRate,
     },
   };
 }

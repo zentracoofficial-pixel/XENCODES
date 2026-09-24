@@ -403,7 +403,7 @@ export class GrizzlySmsProvider implements NumberProvider {
 
       byCountry.push({
         serviceSlug,
-        country: resolveCountryMeta(name),
+        country: { ...resolveCountryMeta(name), providerCountryId: countryId },
         costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
         stock: stockFromCount(entry.count),
         stockCount: entry.count,
@@ -443,7 +443,7 @@ export class GrizzlySmsProvider implements NumberProvider {
       // A price for a country the country list does not name cannot be
       // labelled, and an unlabelled country is not something to offer.
       if (!countryName) continue;
-      const country = resolveCountryMeta(countryName);
+      const country = { ...resolveCountryMeta(countryName), providerCountryId: countryId };
 
       for (const [code, entry] of byService) {
         const serviceName = nameByCode.get(code);
@@ -492,7 +492,7 @@ export class GrizzlySmsProvider implements NumberProvider {
 
     return {
       serviceSlug,
-      country: resolveCountryMeta(name),
+      country: { ...resolveCountryMeta(name), providerCountryId: countryId },
       costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
       stock: stockFromCount(entry.count),
       stockCount: entry.count,
@@ -599,6 +599,43 @@ export class GrizzlySmsProvider implements NumberProvider {
       return Number.isFinite(usd) ? usdToKobo(usd, this.usdToNgnRate) : null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * A real request to GrizzlySMS with no side effect: getBalance only reads
+   * the account's own balance, never reserves a number or spends anything.
+   * Used solely by the admin's "Test connection", to answer "does this key
+   * actually work" without touching inventory.
+   */
+  async testConnection(): Promise<{ ok: boolean; message: string }> {
+    try {
+      const text = await this.call({ action: "getBalance" });
+      const parts = parseColonResponse(text, "ACCESS_BALANCE");
+      if (parts && parts.length > 0) {
+        const usd = Number(parts[0]);
+        return {
+          ok: true,
+          message: Number.isFinite(usd)
+            ? `Connected. Account balance: $${usd.toFixed(2)}.`
+            : "Connected.",
+        };
+      }
+      const trimmed = text.trim();
+      return {
+        ok: false,
+        message: ERROR_MESSAGES[trimmed] ?? `Unexpected response: ${trimmed.slice(0, 200)}`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof ProviderError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Connection test failed.",
+      };
     }
   }
 

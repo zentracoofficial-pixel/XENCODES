@@ -3,7 +3,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { quotePair } from "@/lib/inventory";
-import { getNumberProvider, ProviderError } from "@/lib/provider";
+import { resolveProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 
 /**
@@ -88,7 +88,11 @@ export async function purchaseNumberAction(
   if (user.role === "ADMIN") return { error: "admin_account" };
   if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
 
-  const resolved = await getNumberProvider();
+  // The exact provider quotePair() just picked this pair's winning price
+  // from, re-resolved fresh rather than trusting getNumberProvider(): with
+  // more than one provider enabled, "the" provider is not a stable idea,
+  // and a purchase must go to the same one the customer's price came from.
+  const resolved = await resolveProvider(provider);
   if (!resolved.connected) return { error: "no_provider" };
 
   let assigned;
@@ -136,6 +140,8 @@ export async function purchaseNumberAction(
           phoneNumber: assigned.phoneNumber,
           provider,
           providerOrderId: assigned.providerOrderId,
+          providerServiceId: quoted.providerServiceId ?? null,
+          providerCountryId: quoted.providerCountryId ?? null,
           priceKobo,
           providerCostKobo: quote.providerCostKobo,
           grossProfitKobo: quote.grossProfitKobo,
@@ -236,7 +242,10 @@ export async function getActivationStateAction(
   if (activation.status !== "WAITING") return toState(activation);
 
   const now = new Date();
-  const resolved = await getNumberProvider();
+  // Polls the exact provider that fulfilled this order, not whichever
+  // provider currently resolves first: a different activation bought
+  // through a different enabled provider must be checked against that one.
+  const resolved = await resolveProvider(activation.provider);
 
   let sms;
   if (resolved.connected && activation.providerOrderId) {
@@ -306,7 +315,7 @@ export async function cancelActivationAction(
 
   if (activation.providerOrderId) {
     try {
-      const resolved = await getNumberProvider();
+      const resolved = await resolveProvider(activation.provider);
       if (resolved.connected) {
         await resolved.provider.cancelOrder(activation.providerOrderId);
       }
