@@ -23,6 +23,12 @@ export const SETTING_KEYS = {
   /** Naira per one US dollar, used to convert a USD-priced provider like
    *  GrizzlySMS into the Naira prices this site charges in. */
   usdToNgnRate: "usd_to_ngn_rate",
+  /** Percentage of a wallet top-up passed on to the customer as KoraPay's
+   *  own processing fee, so it is not silently absorbed by the business.
+   *  See src/lib/funding-limits.ts's calculateTopupFeeKobo(). */
+  topupFeePercent: "topup_fee_percent",
+  /** Ceiling on the fee in kobo, matching KoraPay's own fee cap. */
+  topupFeeCapKobo: "topup_fee_cap_kobo",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the
@@ -41,6 +47,17 @@ export const DEFAULT_GROSS_MARGIN_PERCENT = 50;
 /** The exclusive tier: a deliberately thinner margin on a few services we
  *  want to be the cheapest place to buy. */
 export const EXCLUSIVE_GROSS_MARGIN_PERCENT = 30;
+
+/**
+ * KoraPay's own published local rate for Nigeria: 1.5% per transaction,
+ * capped at NGN 2,000, across card, bank transfer, USSD and mobile money.
+ * Used as the out-of-the-box default so a top-up fee is passed on
+ * correctly without an admin having to look this up or guess a number.
+ * Kept editable in Settings for the rare case KoraPay quotes this specific
+ * account a different negotiated rate.
+ */
+export const DEFAULT_TOPUP_FEE_PERCENT = 1.5;
+export const DEFAULT_TOPUP_FEE_CAP_KOBO = 200_000; // NGN 2,000
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 

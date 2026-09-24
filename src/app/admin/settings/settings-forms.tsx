@@ -7,6 +7,7 @@ import {
   saveMarginSettingsAction,
   saveProviderSettingsAction,
   saveUsdRateAction,
+  saveTopupFeeSettingsAction,
   type SettingsState,
 } from "./actions";
 
@@ -164,6 +165,75 @@ export function ProviderForm({
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save connection"}
+      </Button>
+    </form>
+  );
+}
+
+export function TopupFeeForm({
+  feePercent,
+  feeCapKobo,
+}: {
+  feePercent: number;
+  feeCapKobo: number;
+}) {
+  const [state, formAction, pending] = useActionState(saveTopupFeeSettingsAction, initial);
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <div className="grid max-w-md gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className={labelClass} htmlFor="feePercent">
+            Percentage fee
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="feePercent"
+              name="feePercent"
+              type="number"
+              step="0.01"
+              min="0"
+              max="20"
+              defaultValue={feePercent}
+              className={inputClass}
+            />
+            <span className="text-sm text-muted-foreground">%</span>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className={labelClass} htmlFor="feeCapNaira">
+            Fee cap
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">₦</span>
+            <input
+              id="feeCapNaira"
+              name="feeCapNaira"
+              type="number"
+              step="1"
+              min="0"
+              defaultValue={feeCapKobo / 100}
+              className={inputClass}
+            />
+          </div>
+        </div>
+      </div>
+
+      <p className="max-w-xl text-xs text-muted-foreground">
+        Added on top of every wallet top-up, so KoraPay&apos;s processing
+        cost is paid by the customer rather than absorbed here. The wallet
+        is still credited exactly the amount the customer asked for; only
+        what they are charged at checkout includes this fee. Defaults to
+        KoraPay&apos;s own published local rate (1.5%, capped at ₦2,000 per
+        transaction) — only change this if KoraPay quotes this account a
+        different negotiated rate.
+      </p>
+
+      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
+      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
+
+      <Button type="submit" disabled={pending}>
+        {pending ? "Saving" : "Save fee"}
       </Button>
     </form>
   );
