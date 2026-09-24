@@ -9,6 +9,7 @@ import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { ServicePicker } from "@/components/product/service-picker";
 import { ServiceMarquee } from "@/components/product/service-marquee";
 import { ActivationDemo } from "@/components/product/activation-demo";
+import { TrustSection } from "@/components/marketing/trust-section";
 import {
   searchServices,
   countServices,
@@ -212,6 +213,8 @@ export default async function HomePage() {
           </div>
         </Container>
       </section>
+
+      <TrustSection />
 
       {/* Pricing. Described, never quoted: a number's price depends on the
           service and the country, and the only figure worth showing is the
