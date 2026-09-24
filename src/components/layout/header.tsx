@@ -39,7 +39,11 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
           <Button href={signedIn ? "/dashboard" : "/login"} variant="ghost" size="sm">
             {signedIn ? "Dashboard" : "Log in"}
           </Button>
-          <Button href="/buy" size="sm">
+          {/* Signed in: /buy redirects straight to the dashboard buy flow
+              anyway. Signed out: skip the browse-first page and go straight
+              to sign-up, since that is the actual next step for a new
+              visitor clicking a primary CTA. */}
+          <Button href={signedIn ? "/buy" : "/register"} size="sm">
             Get a Number
           </Button>
         </div>
@@ -80,7 +84,7 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
             >
               {signedIn ? "Dashboard" : "Log in"}
             </Button>
-            <Button href="/buy" onClick={() => setOpen(false)}>
+            <Button href={signedIn ? "/buy" : "/register"} onClick={() => setOpen(false)}>
               Get a Number
             </Button>
           </div>
