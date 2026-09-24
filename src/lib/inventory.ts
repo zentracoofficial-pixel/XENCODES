@@ -4,7 +4,7 @@ import {
   PROVIDER_UNAVAILABLE_COPY,
   type ProviderService,
 } from "@/lib/provider";
-import { brandIcons } from "@/data/brand-icons";
+import { resolveBrandIcon } from "@/lib/brand-match";
 import {
   loadMarginRules,
   quoteFor,
@@ -125,17 +125,17 @@ export type QuoteResult =
  * A supplier reports no brand colour at all, only a name; ServiceLogo
  * renders whatever real icon it has for a slug in the colour it is given,
  * so a real icon needs its real hex here or it renders in the fallback
- * tint. brandIcons is the one reusable logo mapping used everywhere a
- * service appears (this directory, the buy flow, order history, order
- * details, the admin), so this is the one place that reads it to decide a
- * colour: every caller of toInventoryService() gets a correct colour for
- * free rather than needing to know brandIcons exists.
+ * tint. resolveBrandIcon() is the one reusable logo-matching function used
+ * everywhere a service appears (this directory, the buy flow, order
+ * history, order details, the admin), so this is the one place that calls
+ * it to decide a colour: every caller of toInventoryService() gets a
+ * correct colour for free rather than needing to know it exists.
  */
 function toInventoryService(service: ProviderService): InventoryService {
   return {
     slug: service.slug,
     name: service.name,
-    color: brandIcons[service.slug]?.hex ?? service.color,
+    color: resolveBrandIcon(service.slug, service.name)?.hex ?? service.color,
     category: service.category,
     popular: POPULAR_RANK.has(service.slug),
   };
