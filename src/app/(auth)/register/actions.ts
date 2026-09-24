@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { sendEmailSafe, verificationEmailContent } from "@/lib/email";
-import { getBaseUrl } from "@/lib/site-url";
+import { SITE_URL } from "@/lib/site";
 import { registerSchema } from "@/lib/validation/auth";
 
 export interface RegisterState {
@@ -61,7 +61,7 @@ export async function registerAction(
     },
   });
 
-  const verifyUrl = `${getBaseUrl()}/verify-email?token=${token}`;
+  const verifyUrl = `${SITE_URL}/verify-email?token=${token}`;
   // Non-throwing: the account already exists at this point, so a mail
   // provider outage must not turn a completed signup into an error.
   await sendEmailSafe({ to: email, ...verificationEmailContent(verifyUrl) });

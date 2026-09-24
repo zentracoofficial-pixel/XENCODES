@@ -2,16 +2,21 @@ import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 
 export const metadata: Metadata = {
   title: "Refund Policy",
+  description:
+    "When a Xencodes purchase is refunded automatically, when you can cancel for a refund yourself, and how wallet refunds work.",
+  alternates: { canonical: "/refund-policy" },
 };
 
 export default function RefundPolicyPage() {
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow="Legal" title="Refund Policy" description="Last updated September 2026." />
+        <Breadcrumbs items={[{ label: "Refund Policy" }]} />
+        <SectionHeading as="h1" eyebrow="Legal" title="Refund Policy" description="Last updated September 2026." />
         <div className="mx-auto mt-10 max-w-2xl space-y-8">
           <LegalSection title="No code, no charge">
             <p>

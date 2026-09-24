@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { getInventoryStatus, countServices } from "@/lib/inventory";
 import { formatNaira } from "@/lib/currency";
 import { MIN_TOPUP_KOBO } from "@/lib/funding-limits";
@@ -48,6 +49,7 @@ export default async function PricingPage() {
 
   return (
     <Container className="py-10 sm:py-14">
+      <Breadcrumbs items={[{ label: "Pricing" }]} />
       <div className="max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Simple pay as you go pricing
@@ -127,7 +129,11 @@ export default async function PricingPage() {
         >
           Browse services
         </Link>
-        .
+        , or read{" "}
+        <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
+          frequently asked questions
+        </Link>{" "}
+        about refunds and payments.
       </p>
     </Container>
   );

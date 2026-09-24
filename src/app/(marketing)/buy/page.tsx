@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { Container } from "@/components/ui/container";
 import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export default async function BuyPage({
 
   return (
     <Container className="py-10 sm:py-14">
+      <Breadcrumbs items={[{ label: "Buy a Number" }]} />
       {/* Only reached when signed out, so there is no wallet to show and
           the panel's own prompts point at logging in. */}
       <BuyPanel

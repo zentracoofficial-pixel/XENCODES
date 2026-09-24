@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { searchServices, getInventoryStatus } from "@/lib/inventory";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { ServicesList } from "./services-list";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +37,7 @@ export default async function ServicesPage() {
 
   return (
     <Container className="py-10 sm:py-14">
+      <Breadcrumbs items={[{ label: "Services" }]} />
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Find your service
       </h1>
@@ -53,6 +56,18 @@ export default async function ServicesPage() {
           <ServicesList services={services} categories={categories} />
         </div>
       ) : null}
+
+      <p className="mt-10 text-sm text-muted-foreground">
+        Prices depend on the service and country you pick. See{" "}
+        <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
+          how pricing works
+        </Link>
+        , or check{" "}
+        <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
+          common questions
+        </Link>{" "}
+        before you buy.
+      </p>
     </Container>
   );
 }
