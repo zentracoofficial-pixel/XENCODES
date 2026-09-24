@@ -20,9 +20,14 @@ export default async function HistoryPage() {
   const session = await auth();
   const userId = session!.user.id;
 
+  // Bounded the same way the wallet page's own history is: a customer who
+  // has bought hundreds of numbers should not turn every visit to this page
+  // into an unbounded table scan and an ever-growing page of rows.
+  const HISTORY_LIMIT = 100;
   const activations = await prisma.activation.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
+    take: HISTORY_LIMIT,
   });
 
   return (

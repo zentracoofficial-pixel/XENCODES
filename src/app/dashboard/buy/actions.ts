@@ -116,23 +116,31 @@ export async function purchaseNumberAction(
 
   try {
     const activation = await prisma.$transaction(async (tx) => {
-      // Re-read inside the transaction so two purchases at once cannot both
-      // pass the balance check above.
-      const current = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
-      if (current.walletBalanceKobo < priceKobo) {
-        throw new Error("insufficient_balance");
-      }
-
-      await tx.user.update({
-        where: { id: current.id },
+      // A single conditional UPDATE, not a read then a separate write: two
+      // concurrent purchases (a double-click, two open tabs, a retried
+      // request) can both read the same pre-decrement balance under
+      // Postgres's default READ COMMITTED isolation before either commits,
+      // so a plain "read balance, then decrement" here would let both
+      // pass and both debit, even inside a transaction. Putting the
+      // balance check in the UPDATE's own WHERE clause makes the check and
+      // the debit one atomic statement: only the request that finds the
+      // row still affordable at the moment it actually runs can succeed,
+      // and Postgres serializes concurrent UPDATEs to the same row so the
+      // second one re-evaluates against the first one's already-applied
+      // result rather than a stale read.
+      const debited = await tx.user.updateMany({
+        where: { id: user.id, walletBalanceKobo: { gte: priceKobo } },
         data: { walletBalanceKobo: { decrement: priceKobo } },
       });
+      if (debited.count === 0) {
+        throw new Error("insufficient_balance");
+      }
 
       // Steps five to seven: the order, priced by the backend, carrying
       // the economics that were true when it was placed.
       const created = await tx.activation.create({
         data: {
-          userId: current.id,
+          userId: user.id,
           serviceSlug: service.slug,
           serviceName: service.name,
           countrySlug: country.slug,
@@ -156,7 +164,7 @@ export async function purchaseNumberAction(
       // side by side.
       await tx.walletTransaction.create({
         data: {
-          userId: current.id,
+          userId: user.id,
           amountKobo: -priceKobo,
           type: "PURCHASE",
           description: `${service.name} number, ${country.name}`,
@@ -285,18 +293,35 @@ export async function getActivationStateAction(
           : null;
 
   if (settled) {
-    const closed = await prisma.activation.update({
-      where: { id: activation.id },
-      data: { status: settled.status },
+    const userId = session.user.id;
+    const closed = await prisma.$transaction(async (tx) => {
+      // Atomic: only the caller that actually flips this activation out of
+      // WAITING gets to credit its refund. Without this guard, two
+      // concurrent settlements for the same activation (this poll firing
+      // twice, or racing a manual cancel) could each read "still WAITING"
+      // before either commits and each credit the wallet, minting money
+      // out of a single order with no cap on how many times.
+      const flipped = await tx.activation.updateMany({
+        where: { id: activation.id, status: "WAITING" },
+        data: { status: settled.status },
+      });
+      if (flipped.count === 0) return null;
+
+      await creditWallet(
+        userId,
+        activation.priceKobo,
+        "REFUND",
+        `Refund for ${activation.serviceName}, ${settled.why}`,
+        activation.id,
+        tx,
+      );
+
+      return tx.activation.findUniqueOrThrow({ where: { id: activation.id } });
     });
-    await creditWallet(
-      session.user.id,
-      activation.priceKobo,
-      "REFUND",
-      `Refund for ${activation.serviceName}, ${settled.why}`,
-      activation.id,
-    );
-    return toState(closed);
+
+    // A concurrent call already settled it: return its real current state
+    // rather than crediting anything a second time.
+    return toState(closed ?? (await prisma.activation.findUniqueOrThrow({ where: { id: activation.id } })));
   }
 
   return toState(activation);
@@ -325,18 +350,30 @@ export async function cancelActivationAction(
     }
   }
 
-  const cancelled = await prisma.activation.update({
-    where: { id: activation.id },
-    data: { status: "CANCELLED" },
+  const userId = session.user.id;
+  const cancelled = await prisma.$transaction(async (tx) => {
+    // Same atomic guard as the settlement path above: only the request
+    // that actually moves this activation out of WAITING credits the
+    // refund, so a cancel racing a poll (or two cancel requests for the
+    // same activation) cannot both pass a stale read and both credit.
+    const flipped = await tx.activation.updateMany({
+      where: { id: activation.id, status: "WAITING" },
+      data: { status: "CANCELLED" },
+    });
+    if (flipped.count === 0) return null;
+
+    await creditWallet(
+      userId,
+      activation.priceKobo,
+      "REFUND",
+      `Refund, cancelled ${activation.serviceName} activation`,
+      activation.id,
+      tx,
+    );
+
+    return tx.activation.findUniqueOrThrow({ where: { id: activation.id } });
   });
 
-  await creditWallet(
-    session.user.id,
-    activation.priceKobo,
-    "REFUND",
-    `Refund, cancelled ${activation.serviceName} activation`,
-    activation.id,
-  );
-
+  if (!cancelled) return null;
   return toState(cancelled);
 }

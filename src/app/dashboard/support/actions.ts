@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
+import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
 import { formatNaira } from "@/lib/currency";
@@ -23,8 +23,8 @@ export async function reportIssueAction(
   _prev: ReportState,
   formData: FormData,
 ): Promise<ReportState> {
-  const session = await auth();
-  if (!session?.user?.id) return { error: "Log in to report an issue." };
+  const user = await getActiveUser();
+  if (!user) return { error: "Log in to report an issue." };
 
   const activationId = String(formData.get("activationId") ?? "");
   const details = String(formData.get("details") ?? "").trim();
@@ -38,13 +38,13 @@ export async function reportIssueAction(
   }
 
   const activation = await prisma.activation.findFirst({
-    where: { id: activationId, userId: session.user.id },
+    where: { id: activationId, userId: user.id },
   });
   if (!activation) return { error: "We could not find that activation." };
 
   const ticket = await prisma.supportTicket.create({
     data: {
-      userId: session.user.id,
+      userId: user.id,
       subject: `Activation issue: ${activation.serviceName}`,
       relatedActivationId: activation.id,
       messages: { create: { author: "USER", body: details } },
@@ -52,7 +52,7 @@ export async function reportIssueAction(
   });
 
   const summary = [
-    `Customer: ${session.user.email}`,
+    `Customer: ${user.email}`,
     `Ticket: ${ticket.id}`,
     `Activation: ${activation.id}`,
     `Service: ${activation.serviceName}`,
@@ -91,8 +91,8 @@ export async function createGeneralTicketAction(
   _prev: ReportState,
   formData: FormData,
 ): Promise<ReportState> {
-  const session = await auth();
-  if (!session?.user?.id) return { error: "Log in to contact support." };
+  const user = await getActiveUser();
+  if (!user) return { error: "Log in to contact support." };
 
   const subject = String(formData.get("subject") ?? "").trim();
   const details = String(formData.get("details") ?? "").trim();
@@ -104,7 +104,7 @@ export async function createGeneralTicketAction(
 
   const ticket = await prisma.supportTicket.create({
     data: {
-      userId: session.user.id,
+      userId: user.id,
       subject,
       messages: { create: { author: "USER", body: details } },
     },
@@ -113,8 +113,8 @@ export async function createGeneralTicketAction(
   await sendEmailSafe({
     to: SUPPORT_INBOX,
     subject: `Support request: ${subject} (${ticket.id})`,
-    text: `Customer: ${session.user.email}\nTicket: ${ticket.id}\n\n${details}`,
-    html: `<p><strong>Customer:</strong> ${session.user.email}<br><strong>Ticket:</strong> ${ticket.id}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${details
+    text: `Customer: ${user.email}\nTicket: ${ticket.id}\n\n${details}`,
+    html: `<p><strong>Customer:</strong> ${user.email}<br><strong>Ticket:</strong> ${ticket.id}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${details
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")}</pre>`,
   });
@@ -143,15 +143,15 @@ export async function replyToTicketAsUserAction(
   _prev: ReplyState,
   formData: FormData,
 ): Promise<ReplyState> {
-  const session = await auth();
-  if (!session?.user?.id) return { error: "Log in to reply." };
+  const user = await getActiveUser();
+  if (!user) return { error: "Log in to reply." };
 
   const body = (formData.get("body") as string)?.trim();
   if (!body) return { error: "Write a message before sending." };
   if (body.length > 2000) return { error: "Keep it under 2000 characters." };
 
   const ticket = await prisma.supportTicket.findFirst({
-    where: { id: ticketId, userId: session.user.id },
+    where: { id: ticketId, userId: user.id },
   });
   if (!ticket) return { error: "That ticket no longer exists." };
 
@@ -168,8 +168,8 @@ export async function replyToTicketAsUserAction(
   await sendEmailSafe({
     to: SUPPORT_INBOX,
     subject: `Re: ${ticket.subject} (${ticket.id})`,
-    text: `Customer: ${session.user.email}\n\n${body}`,
-    html: `<p><strong>Customer:</strong> ${session.user.email}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${body
+    text: `Customer: ${user.email}\n\n${body}`,
+    html: `<p><strong>Customer:</strong> ${user.email}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${body
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")}</pre>`,
   });

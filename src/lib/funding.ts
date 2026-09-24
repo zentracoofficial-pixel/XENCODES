@@ -102,22 +102,31 @@ export async function completeTopUp(
 
     if (!row) return { credited: false, reason: "unknown_reference" };
     if (row.type !== "TOPUP") return { credited: false, reason: "not_a_topup" };
-    if (row.status === "SUCCESSFUL") {
-      // Already credited by an earlier delivery of the same event.
-      return { credited: false, reason: "already_credited" };
-    }
-    if (row.status !== "PENDING") {
-      return { credited: false, reason: `cannot_complete_from_${row.status}` };
-    }
 
-    await tx.walletTransaction.update({
-      where: { id: row.id },
+    // Atomic compare-and-swap: the status guard lives in the UPDATE's own
+    // WHERE clause, not in a separate read beforehand. The webhook and the
+    // customer's own return-from-checkout check both call this function
+    // for the same reference and can genuinely run concurrently; a plain
+    // "read status, then write" here would let both see PENDING before
+    // either commits and both credit the wallet, doubling a real payment.
+    // Only the caller whose UPDATE actually matches a still-PENDING row at
+    // the moment it runs proceeds to credit anything.
+    const flipped = await tx.walletTransaction.updateMany({
+      where: { providerReference, status: "PENDING" },
       data: {
         status: "SUCCESSFUL",
         completedAt: new Date(),
         providerTransactionId: providerTransactionId ?? row.providerTransactionId,
       },
     });
+
+    if (flipped.count === 0) {
+      // Someone else already moved it (or it was never PENDING); re-read
+      // to report which, without crediting anything here.
+      const current = await tx.walletTransaction.findUnique({ where: { providerReference } });
+      if (current?.status === "SUCCESSFUL") return { credited: false, reason: "already_credited" };
+      return { credited: false, reason: `cannot_complete_from_${current?.status ?? row.status}` };
+    }
 
     await tx.user.update({
       where: { id: row.userId },
@@ -128,20 +137,24 @@ export async function completeTopUp(
   });
 }
 
-/** Closes out a funding attempt that will not complete. Never touches the
- *  balance, because a pending top up never contributed to it. */
+/**
+ * Closes out a funding attempt that will not complete. Never touches the
+ * balance, because a pending top up never contributed to it.
+ *
+ * The PENDING guard is in the UPDATE's own WHERE clause, atomically, for
+ * the same reason completeTopUp()'s is: this can race a concurrent
+ * completeTopUp() call for the same reference, and a plain "read then
+ * write" could let this stomp a row completeTopUp() had just (correctly)
+ * moved to SUCCESSFUL back down to FAILED, leaving a credited wallet next
+ * to a ledger row that claims the payment failed.
+ */
 export async function settleFailedTopUp(
   providerReference: string,
   status: "FAILED" | "CANCELLED",
   failureReason?: string,
 ) {
-  const row = await prisma.walletTransaction.findUnique({
-    where: { providerReference },
-  });
-  if (!row || row.status !== "PENDING") return;
-
-  await prisma.walletTransaction.update({
-    where: { id: row.id },
+  await prisma.walletTransaction.updateMany({
+    where: { providerReference, status: "PENDING" },
     data: { status, failureReason, completedAt: new Date() },
   });
 }
@@ -192,14 +205,21 @@ export async function voidUnverifiedTopup(
       return { voided: false, reason: "not_an_unverified_topup" };
     }
 
-    await tx.walletTransaction.update({
-      where: { id: row.id },
+    // Atomic guard, matching the pattern above: an admin double-clicking
+    // "void" (or two admins acting on the same stale row at once) must not
+    // be able to decrement the wallet twice for one bad credit.
+    const flipped = await tx.walletTransaction.updateMany({
+      where: { id: transactionId, status: "SUCCESSFUL", providerTransactionId: null },
       data: {
         status: "FAILED",
         failureReason:
           "Voided by an admin: this credit had no verified KoraPay transaction behind it and predates payment verification.",
       },
     });
+    if (flipped.count === 0) {
+      return { voided: false, reason: "not_an_unverified_topup" };
+    }
+
     await tx.user.update({
       where: { id: row.userId },
       data: { walletBalanceKobo: { decrement: row.amountKobo } },
@@ -244,6 +264,26 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
   }
 
   if (charge.status === "success") {
+    // Best-effort cross-check: only compared when KoraPay's response
+    // actually includes the field (see ChargeStatusResult's own comment on
+    // why this is optional rather than assumed). A confirmed mismatch is
+    // never silently credited at the wrong figure; it is left PENDING for
+    // manual review instead, since crediting the pending row's own amount
+    // when KoraPay itself reports a different one charged would credit a
+    // customer more or less than they actually paid.
+    if (charge.amountKobo !== undefined && charge.amountKobo !== row.amountKobo) {
+      console.error(
+        `[funding] refusing to credit ${providerReference}: KoraPay confirmed ${charge.amountKobo} kobo but the pending request was for ${row.amountKobo} kobo.`,
+      );
+      return { state: "still_pending" };
+    }
+    if (charge.currency !== undefined && charge.currency !== WALLET_CURRENCY) {
+      console.error(
+        `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${WALLET_CURRENCY}".`,
+      );
+      return { state: "still_pending" };
+    }
+
     const result = await completeTopUp(providerReference, charge.providerTransactionId);
     return { state: result.credited || result.reason === "already_credited" ? "credited" : "failed" };
   }

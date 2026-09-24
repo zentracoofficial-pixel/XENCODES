@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { WalletTransactionType } from "@/generated/prisma/client";
 
+/** Whatever object prisma.$transaction's own callback receives: accepting
+ *  this shape (rather than importing a specific generated type name) lets
+ *  creditWallet join a transaction its caller already opened, without this
+ *  file needing to track exactly what Prisma calls that type internally. */
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 /**
  * Moves a balance and records why, atomically.
  *
@@ -13,6 +19,13 @@ import { WalletTransactionType } from "@/generated/prisma/client";
  * completeTopUp() in src/lib/funding.ts, which only runs after a payment
  * has been verified with the payment provider and only ever moves a row
  * that already exists as PENDING to SUCCESSFUL, once.
+ *
+ * Accepts an optional transaction client so a caller that must atomically
+ * pair this credit with another write (for example, an activation's status
+ * flip from WAITING to EXPIRED/CANCELLED/REFUNDED) can run both inside one
+ * transaction rather than two, closing the window where the status flip
+ * commits but the credit does not, or vice versa. With no client given,
+ * this opens its own transaction exactly as before.
  */
 export async function creditWallet(
   userId: string,
@@ -20,15 +33,17 @@ export async function creditWallet(
   type: Extract<WalletTransactionType, "REFUND" | "ADJUSTMENT">,
   description: string,
   activationId?: string,
+  tx?: TransactionClient,
 ) {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.update({
+  const run = async (client: TransactionClient) => {
+    const user = await client.user.update({
       where: { id: userId },
       data: { walletBalanceKobo: { increment: amountKobo } },
     });
-    await tx.walletTransaction.create({
+    await client.walletTransaction.create({
       data: { userId, amountKobo, type, description, activationId },
     });
     return user;
-  });
+  };
+  return tx ? run(tx) : prisma.$transaction(run);
 }

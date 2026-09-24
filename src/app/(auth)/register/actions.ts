@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { sendEmailSafe, verificationEmailContent } from "@/lib/email";
 import { getBaseUrl } from "@/lib/site-url";
 import { registerSchema } from "@/lib/validation/auth";
@@ -33,9 +34,23 @@ export async function registerAction(
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: { email, passwordHash },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: { email, passwordHash },
+    });
+  } catch (error) {
+    // The findUnique check above is not race-safe on its own: two
+    // concurrent registrations for the same address can both pass it
+    // before either commits. The database's own unique constraint on
+    // email is what actually prevents a duplicate row; this only turns the
+    // loser's constraint violation into the same friendly message the
+    // up-front check gives, instead of an unhandled exception.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { error: "An account with this email already exists." };
+    }
+    throw error;
+  }
 
   const token = crypto.randomBytes(32).toString("hex");
   await prisma.emailVerificationToken.create({

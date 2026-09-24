@@ -67,7 +67,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const ticket = raw?.ticket as string | undefined;
           if (!ticket) return null;
 
-          const userId = await verifyTwoFactorTicket(ticket);
+          // Only a ticket minted after a real TOTP check ever reaches here.
+          // A ticket minted right after the password step (see
+          // login/actions.ts) carries a different purpose and is rejected,
+          // which is what stops a captured pre-2FA ticket from completing
+          // sign-in on its own.
+          const userId = await verifyTwoFactorTicket(ticket, "2fa-verified");
           if (!userId) return null;
 
           const user = await prisma.user.findUnique({ where: { id: userId } });

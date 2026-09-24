@@ -81,21 +81,29 @@ export default async function AdminOrdersPage({
   // Distinct facet values are read from the orders that actually exist,
   // not from the live provider catalog: a filter should only ever offer a
   // value that can actually return a result.
+  // Bounded even though a service/country/provider vocabulary is small in
+  // practice: an unbounded distinct scan is still the one query in this
+  // file with no ceiling on rows read, so one is added defensively rather
+  // than trusted to stay small forever.
+  const FACET_LIMIT = 500;
   const [serviceFacets, countryFacets, providerFacets] = await Promise.all([
     prisma.activation.findMany({
       distinct: ["serviceSlug"],
       select: { serviceSlug: true, serviceName: true },
       orderBy: { serviceName: "asc" },
+      take: FACET_LIMIT,
     }),
     prisma.activation.findMany({
       distinct: ["countrySlug"],
       select: { countrySlug: true, countryName: true },
       orderBy: { countryName: "asc" },
+      take: FACET_LIMIT,
     }),
     prisma.activation.findMany({
       distinct: ["provider"],
       select: { provider: true },
       orderBy: { provider: "asc" },
+      take: FACET_LIMIT,
     }),
   ]);
 

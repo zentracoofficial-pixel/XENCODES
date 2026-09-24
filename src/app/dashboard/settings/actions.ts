@@ -3,15 +3,18 @@
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
+import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { createTwoFactorSecret, totpProvisioningUri, verifyTotpCode } from "@/lib/totp";
 import { passwordSchema } from "@/lib/validation/auth";
 
+/** A suspended or "deleted" account keeps a valid JWT until it expires on
+ *  its own; this is what actually stops it from changing a password or
+ *  touching 2FA in the meantime, since a bare session check would not. */
 async function requireUserId() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
-  return session.user.id;
+  const user = await getActiveUser();
+  if (!user) throw new Error("Not authenticated");
+  return user.id;
 }
 
 export interface ChangePasswordState {

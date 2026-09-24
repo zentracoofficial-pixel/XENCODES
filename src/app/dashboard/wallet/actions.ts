@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
+import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { createPendingTopUp, settleFailedTopUp, verifyAndSettleTopUp } from "@/lib/funding";
 import {
@@ -51,15 +51,18 @@ export interface StartTopUpResult {
  * behaviour this replaces.
  */
 export async function startTopUpAction(amountKobo: number): Promise<StartTopUpResult> {
-  const session = await auth();
-  if (!session?.user?.id) {
+  // A suspended or "deleted" account keeps a valid JWT until it expires on
+  // its own; this is what actually stops it from starting a funding
+  // attempt in the meantime, since session.user.id alone would not.
+  const user = await getActiveUser();
+  if (!user) {
     return { error: FUNDING_ERROR_COPY.not_authenticated };
   }
 
   const invalid: FundingError | null = validateTopUpAmount(amountKobo);
   if (invalid) return { error: FUNDING_ERROR_COPY[invalid] };
 
-  const pending = await createPendingTopUp(session.user.id, amountKobo);
+  const pending = await createPendingTopUp(user.id, amountKobo);
   const reference = pending.providerReference ?? undefined;
 
   // The fee is computed from settings at charge time, not stored on the
@@ -78,14 +81,12 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-
   try {
     const { checkoutUrl } = await initializeKorapayCharge({
       reference,
       amountKobo: totalChargedKobo,
-      email: user?.email ?? session.user.email ?? "",
-      name: user?.name,
+      email: user.email,
+      name: user.name,
     });
     revalidatePath("/dashboard/wallet");
     return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo, checkoutUrl };
@@ -122,11 +123,11 @@ export interface TopUpStatus {
  * verifyAndSettleTopUp() only ever acts once on a row that leaves PENDING.
  */
 export async function checkTopUpStatusAction(reference: string): Promise<TopUpStatus> {
-  const session = await auth();
-  if (!session?.user?.id) return { state: "unknown_reference" };
+  const user = await getActiveUser();
+  if (!user) return { state: "unknown_reference" };
 
   const row = await prisma.walletTransaction.findFirst({
-    where: { providerReference: reference, userId: session.user.id },
+    where: { providerReference: reference, userId: user.id },
   });
   if (!row) return { state: "unknown_reference" };
 
