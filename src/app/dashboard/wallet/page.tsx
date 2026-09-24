@@ -28,13 +28,6 @@ const typeMeta = {
   ADJUSTMENT: { label: "Account adjustment", icon: Sparkles },
 } as const;
 
-const STATUS_WORDING = {
-  PENDING: "awaiting payment",
-  SUCCESSFUL: "completed",
-  FAILED: "payment failed",
-  CANCELLED: "cancelled",
-} as const;
-
 const dateFormat: Intl.DateTimeFormatOptions = {
   day: "numeric",
   month: "short",
@@ -48,8 +41,13 @@ export default async function WalletPage() {
 
   const [user, transactions, settings] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
+    // A top-up the customer never actually completed (abandoned, or the
+    // checkout link expired without a payment attempt) is recorded as
+    // PENDING or CANCELLED, but was never money asked for and received or
+    // genuinely attempted, so it has no place in the customer's own
+    // history. Only a completed payment or a real declined attempt shows.
     prisma.walletTransaction.findMany({
-      where: { userId },
+      where: { userId, status: { in: ["SUCCESSFUL", "FAILED"] } },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
@@ -120,7 +118,7 @@ export default async function WalletPage() {
                     <p className="truncate text-xs text-muted-foreground">
                       {tx.status === "SUCCESSFUL"
                         ? tx.description
-                        : `${tx.description}, ${STATUS_WORDING[tx.status]}`}
+                        : `${tx.description}, payment failed`}
                     </p>
                   </div>
 

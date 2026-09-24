@@ -98,10 +98,12 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     console.error(`[wallet] KoraPay checkout failed to start for ${reference}:`, error);
     // The request was never opened at KoraPay's end, so there is nothing
     // to reconcile later: close it out now rather than leaving a pending
-    // row a customer can never actually pay.
+    // row a customer can never actually pay. CANCELLED, not FAILED: the
+    // customer never saw a checkout page or attempted a payment here, so
+    // this should not read as "your payment failed" in their history.
     await settleFailedTopUp(
       reference,
-      "FAILED",
+      "CANCELLED",
       error instanceof KorapayError ? error.message : "Failed to start checkout.",
     );
     revalidatePath("/dashboard/wallet");
