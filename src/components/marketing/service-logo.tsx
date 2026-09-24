@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
-import { brandIcons } from "@/data/brand-icons";
+import { resolveBrandIcon } from "@/lib/brand-match";
 
 const sizes = {
   sm: { box: "h-8 w-8 rounded-lg", glyph: 15, text: "text-[10px]" },
@@ -35,7 +35,7 @@ export function ServiceLogo({
   size?: keyof typeof sizes;
   className?: string;
 }) {
-  const icon = brandIcons[slug];
+  const icon = resolveBrandIcon(slug, name);
   const { box, glyph, text } = sizes[size];
 
   return (

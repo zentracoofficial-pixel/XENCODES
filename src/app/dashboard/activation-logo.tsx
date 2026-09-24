@@ -1,5 +1,5 @@
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import { brandIcons } from "@/data/brand-icons";
+import { resolveBrandIcon } from "@/lib/brand-match";
 
 /** Neutral tint for a service with no brand colour of its own. */
 const FALLBACK_COLOR = "#63756F";
@@ -26,7 +26,7 @@ export function ActivationLogo({
     <ServiceLogo
       slug={serviceSlug}
       name={serviceName}
-      color={brandIcons[serviceSlug]?.hex ?? FALLBACK_COLOR}
+      color={resolveBrandIcon(serviceSlug, serviceName)?.hex ?? FALLBACK_COLOR}
       size={size}
     />
   );
