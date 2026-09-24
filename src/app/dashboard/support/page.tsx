@@ -1,41 +1,111 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowUpRight, Mail } from "lucide-react";
+import { ArrowUpRight, Mail, MessageCircle } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { faqs } from "@/data/faq";
 import { ReportIssue } from "./report-issue";
+import { NewTicketForm } from "./new-ticket-form";
 
 export const metadata: Metadata = { title: "Support" };
 
+export const dynamic = "force-dynamic";
+
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "support@xencodes.com";
+
+const TICKET_STATUS_VARIANT = {
+  OPEN: "danger",
+  PENDING: "warning",
+  RESOLVED: "success",
+} as const;
+
+const TICKET_STATUS_LABEL = {
+  OPEN: "Open",
+  PENDING: "Waiting on us",
+  RESOLVED: "Resolved",
+} as const;
 
 export default async function SupportPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  // Only activations worth reporting: ones that failed or are stuck.
-  const reportable = await prisma.activation.findMany({
-    where: { userId, status: { in: ["WAITING", "EXPIRED"] } },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  const [reportable, tickets] = await Promise.all([
+    // Only activations worth reporting: ones that failed or are stuck.
+    prisma.activation.findMany({
+      where: { userId, status: { in: ["WAITING", "EXPIRED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    prisma.supportTicket.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+    }),
+  ]);
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Most answers are below. If something went wrong with a number, report
-          it and we will look into it.
+          Most answers are below. If something went wrong, open a ticket and
+          we will reply here and by email.
         </p>
       </div>
+
+      {tickets.length > 0 ? (
+        <section>
+          <h2 className="text-sm font-semibold">Your tickets</h2>
+          <Card className="mt-3 overflow-hidden">
+            <ul className="divide-y divide-border">
+              {tickets.map((ticket) => (
+                <li key={ticket.id}>
+                  <Link
+                    href={`/dashboard/support/${ticket.id}`}
+                    className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-background"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-mint-soft text-forest">
+                      <MessageCircle className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{ticket.subject}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        Updated{" "}
+                        {ticket.updatedAt.toLocaleDateString("en-NG", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </p>
+                    </div>
+                    <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>
+                      {TICKET_STATUS_LABEL[ticket.status]}
+                    </Badge>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="text-sm font-semibold">Common questions</h2>
         <div className="mt-3">
           <FaqAccordion items={faqs.slice(0, 6)} />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold">Start a new ticket</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Anything not about a specific number, a wallet question or
+          anything else.
+        </p>
+        <div className="mt-3">
+          <NewTicketForm />
         </div>
       </section>
 
