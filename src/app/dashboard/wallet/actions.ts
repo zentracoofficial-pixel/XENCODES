@@ -4,19 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createPendingTopUp, settleFailedTopUp, verifyAndSettleTopUp } from "@/lib/funding";
-import {
-  validateTopUpAmount,
-  calculateTopupFeeKobo,
-  FUNDING_ERROR_COPY,
-  type FundingError,
-} from "@/lib/funding-limits";
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_TOPUP_FEE_PERCENT,
-  DEFAULT_TOPUP_FEE_FLAT_KOBO,
-} from "@/lib/settings";
+import { validateTopUpAmount, FUNDING_ERROR_COPY, type FundingError } from "@/lib/funding-limits";
 import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
 
 export interface StartTopUpResult {
@@ -24,13 +12,10 @@ export interface StartTopUpResult {
   /** Our reference for the pending attempt, kept so the wallet page can
    *  poll it after a checkout redirect. */
   reference?: string;
-  /** What lands in the wallet once verified. Never includes the fee. */
+  /** What lands in the wallet once verified. KoraPay's own processing fee
+   *  (see initializeKorapayCharge's merchant_bears_cost) is added on top of
+   *  this at checkout and is never part of it. */
   amountKobo?: number;
-  /** The processing fee charged on top, for display. 0 when no fee is
-   *  configured. */
-  feeKobo?: number;
-  /** What KoraPay actually charges the customer: amountKobo + feeKobo. */
-  totalChargedKobo?: number;
   /** Set only when KoraPay is connected: the browser is sent here to pay.
    *  Absent means the request was recorded but there is nowhere to send
    *  the customer yet, which the UI shows plainly rather than pretending
@@ -63,37 +48,26 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
   const pending = await createPendingTopUp(session.user.id, amountKobo);
   const reference = pending.providerReference ?? undefined;
 
-  // The fee is computed from settings at charge time, not stored on the
-  // pending row: WalletTransaction.amountKobo is what completeTopUp()
-  // credits to the wallet once verified, and must stay exactly what the
-  // customer asked for. The fee only ever affects what KoraPay charges at
-  // checkout, never what lands in the balance.
-  const settings = await readSettings();
-  const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
-  const feeFlatKobo = readNumber(
-    settings,
-    SETTING_KEYS.topupFeeFlatKobo,
-    DEFAULT_TOPUP_FEE_FLAT_KOBO,
-  );
-  const feeKobo = calculateTopupFeeKobo(pending.amountKobo, feePercent, feeFlatKobo);
-  const totalChargedKobo = pending.amountKobo + feeKobo;
-
   if (!isKorapayConfigured() || !reference) {
     revalidatePath("/dashboard/wallet");
-    return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo };
+    return { reference, amountKobo: pending.amountKobo };
   }
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
 
   try {
+    // KoraPay is asked for exactly the amount the wallet will be credited.
+    // initializeKorapayCharge() tells KoraPay to add its own real
+    // transaction fee on top and collect that from the customer directly,
+    // so this business never pays it and never has to guess at it.
     const { checkoutUrl } = await initializeKorapayCharge({
       reference,
-      amountKobo: totalChargedKobo,
+      amountKobo: pending.amountKobo,
       email: user?.email ?? session.user.email ?? "",
       name: user?.name,
     });
     revalidatePath("/dashboard/wallet");
-    return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo, checkoutUrl };
+    return { reference, amountKobo: pending.amountKobo, checkoutUrl };
   } catch (error) {
     // Logged, not just recorded on the row: this is the one place a real
     // KoraPay rejection reason (bad credentials, a malformed field, an

@@ -22,6 +22,15 @@ import { SITE_URL } from "@/lib/site";
  *    practice but is sensitive to key ordering in principle; it is the
  *    documented and universally implemented approach, not an assumption
  *    specific to this integration.
+ * 3. `merchant_bears_cost: false` is documented as the field that tells
+ *    KoraPay itself to add its real transaction fee (whatever it actually
+ *    is for the channel the customer picks: card, bank transfer, etc.) on
+ *    top of `amount` and collect that total from the customer, while still
+ *    settling `amount` to the merchant. Confirmed by name and behaviour
+ *    across multiple independent references (KoraPay's own docs summaries
+ *    and a community SDK's field list), not verified against a live
+ *    response from this sandbox. Worth a real test top-up after deploy to
+ *    confirm the checkout page actually shows the added fee.
  */
 
 const BASE_URL = "https://api.korapay.com/merchant/api/v1";
@@ -139,6 +148,12 @@ export interface InitializeChargeResult {
  * Starts a hosted checkout: KoraPay returns a URL the customer's browser
  * is sent to, pays there, and is sent back to our own redirect_url. No
  * money moves here; this only asks KoraPay to open a page for it.
+ *
+ * `merchant_bears_cost: false` means the customer, not this business, pays
+ * KoraPay's own transaction fee: KoraPay adds its real fee for whichever
+ * channel is used on top of `amount` at checkout, and still settles exactly
+ * `amount` to the merchant. `input.amountKobo` should always be the amount
+ * the wallet is meant to be credited, never inflated with a guessed fee.
  */
 export async function initializeKorapayCharge(
   input: InitializeChargeInput,
@@ -154,6 +169,7 @@ export async function initializeKorapayCharge(
       narration: "Xencodes wallet top up",
       redirect_url: `${SITE_URL}/dashboard/wallet?reference=${input.reference}`,
       notification_url: `${SITE_URL}/api/webhooks/korapay`,
+      merchant_bears_cost: false,
     },
   );
 

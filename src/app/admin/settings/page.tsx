@@ -12,14 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_USD_TO_NGN_RATE,
-  DEFAULT_TOPUP_FEE_PERCENT,
-  DEFAULT_TOPUP_FEE_FLAT_KOBO,
-} from "@/lib/settings";
+import { readSettings, readNumber, SETTING_KEYS, DEFAULT_USD_TO_NGN_RATE } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
 import { availableAdapterIds, getNumberProvider, hasCredentials } from "@/lib/provider";
 import { getProviderSyncStatus } from "@/lib/provider-sync";
@@ -31,7 +24,7 @@ import {
   FUNDING_PROVIDER,
 } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { MarginForm, ProviderForm, UsdRateForm, TopupFeeForm } from "./settings-forms";
+import { MarginForm, ProviderForm, UsdRateForm } from "./settings-forms";
 import { SyncNowButton } from "./sync-now-button";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
@@ -264,23 +257,12 @@ export default async function AdminSettingsPage() {
         <div className="mt-5 border-t border-border pt-5">
           <h3 className="text-sm font-semibold">Processing fee</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Passed on to the customer at checkout, on top of the amount they
-            asked to add.
+            KoraPay&apos;s own transaction fee is passed to the customer
+            automatically at checkout, whatever that fee actually is for the
+            payment method they choose. There is nothing to configure here:
+            the wallet is always credited exactly what the customer asked to
+            add, and this business never pays that fee.
           </p>
-          <div className="mt-3">
-            <TopupFeeForm
-              feePercent={readNumber(
-                settings,
-                SETTING_KEYS.topupFeePercent,
-                DEFAULT_TOPUP_FEE_PERCENT,
-              )}
-              feeFlatKobo={readNumber(
-                settings,
-                SETTING_KEYS.topupFeeFlatKobo,
-                DEFAULT_TOPUP_FEE_FLAT_KOBO,
-              )}
-            />
-          </div>
         </div>
       </Card>
 
