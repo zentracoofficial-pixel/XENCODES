@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatNaira } from "@/lib/currency";
-import { MIN_TOPUP_KOBO, MAX_TOPUP_KOBO } from "@/lib/funding-limits";
+import { MIN_TOPUP_KOBO, MAX_TOPUP_KOBO, calculateTopupFeeKobo } from "@/lib/funding-limits";
 import { startTopUpAction, checkTopUpStatusAction } from "./actions";
 
 /**
@@ -25,7 +25,15 @@ import { startTopUpAction, checkTopUpStatusAction } from "./actions";
 
 const SUGGESTIONS_KOBO = [50_000, 100_000, 200_000, 500_000];
 
-export function AddFunds() {
+export function AddFunds({
+  feePercent,
+  feeFlatKobo,
+}: {
+  /** From admin Settings. 0 unless an admin has configured a real
+   *  processing fee to pass on to customers. */
+  feePercent: number;
+  feeFlatKobo: number;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [amount, setAmount] = useState("");
@@ -33,6 +41,8 @@ export function AddFunds() {
   const [pendingRef, setPendingRef] = useState<{
     reference: string;
     amountKobo: number;
+    feeKobo: number;
+    totalChargedKobo: number;
   } | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -64,6 +74,13 @@ export function AddFunds() {
     amountKobo >= MIN_TOPUP_KOBO &&
     amountKobo <= MAX_TOPUP_KOBO;
 
+  // Live preview only, so the customer sees the real total before they
+  // commit. The server recomputes this itself in startTopUpAction() from
+  // the same settings and is what actually decides what KoraPay charges;
+  // this can never be the source of truth for money moving.
+  const previewFeeKobo = valid ? calculateTopupFeeKobo(amountKobo, feePercent, feeFlatKobo) : 0;
+  const hasFee = previewFeeKobo > 0;
+
   function submit() {
     setError(null);
     startTransition(async () => {
@@ -80,6 +97,8 @@ export function AddFunds() {
         setPendingRef({
           reference: result.reference,
           amountKobo: result.amountKobo,
+          feeKobo: result.feeKobo ?? 0,
+          totalChargedKobo: result.totalChargedKobo ?? result.amountKobo,
         });
         setAmount("");
       }
@@ -139,6 +158,12 @@ export function AddFunds() {
           account. Your balance has not changed, and will not change until a
           payment is received and confirmed.
         </p>
+        {pendingRef.feeKobo > 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Includes a {formatNaira(pendingRef.feeKobo)} processing fee, total{" "}
+            {formatNaira(pendingRef.totalChargedKobo)}.
+          </p>
+        ) : null}
 
         <div className="mt-4 flex items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -216,6 +241,16 @@ export function AddFunds() {
         ))}
       </div>
 
+      {valid && hasFee ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Plus a {formatNaira(previewFeeKobo)} processing fee. Total to pay:{" "}
+          <span className="font-medium text-foreground">
+            {formatNaira(amountKobo + previewFeeKobo)}
+          </span>
+          . Your wallet is credited {formatNaira(amountKobo)}.
+        </p>
+      ) : null}
+
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
       <Button
@@ -223,7 +258,11 @@ export function AddFunds() {
         disabled={!valid || isPending}
         onClick={submit}
       >
-        {isPending ? "Creating request" : "Continue to payment"}
+        {isPending
+          ? "Creating request"
+          : hasFee
+            ? `Pay ${formatNaira(amountKobo + previewFeeKobo)}`
+            : "Continue to payment"}
         <ArrowRight className="h-4 w-4" />
       </Button>
     </section>
