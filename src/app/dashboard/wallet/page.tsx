@@ -10,6 +10,13 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
+import {
+  readSettings,
+  readNumber,
+  SETTING_KEYS,
+  DEFAULT_TOPUP_FEE_PERCENT,
+  DEFAULT_TOPUP_FEE_FLAT_KOBO,
+} from "@/lib/settings";
 import { AddFunds } from "./add-funds";
 
 export const metadata: Metadata = { title: "Wallet" };
@@ -39,14 +46,22 @@ export default async function WalletPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [user, transactions] = await Promise.all([
+  const [user, transactions, settings] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.walletTransaction.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    readSettings(),
   ]);
+
+  const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
+  const feeFlatKobo = readNumber(
+    settings,
+    SETTING_KEYS.topupFeeFlatKobo,
+    DEFAULT_TOPUP_FEE_FLAT_KOBO,
+  );
 
   return (
     <div className="space-y-6">
@@ -67,7 +82,7 @@ export default async function WalletPage() {
       </div>
 
       <Suspense fallback={null}>
-        <AddFunds />
+        <AddFunds feePercent={feePercent} feeFlatKobo={feeFlatKobo} />
       </Suspense>
 
       <section>

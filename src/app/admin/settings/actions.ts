@@ -135,6 +135,48 @@ export async function saveUsdRateAction(
 }
 
 /**
+ * The processing fee passed on to customers at wallet top-up, so KoraPay's
+ * cut is not silently absorbed by the business. Both fields default to 0
+ * (see settings.ts), so leaving this unset simply charges no fee, which is
+ * the safe default rather than a guessed rate matching nobody's actual
+ * KoraPay agreement.
+ */
+export async function saveTopupFeeSettingsAction(
+  _prev: SettingsState,
+  formData: FormData,
+): Promise<SettingsState> {
+  const admin = await requireAdmin();
+
+  const feePercent = Number(formData.get("feePercent"));
+  const feeFlatNaira = Number(formData.get("feeFlatNaira"));
+
+  if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 20) {
+    return { error: "Enter a fee percentage between 0 and 20." };
+  }
+  if (!Number.isFinite(feeFlatNaira) || feeFlatNaira < 0) {
+    return { error: "Enter a flat fee of 0 or more." };
+  }
+
+  const feeFlatKobo = Math.round(feeFlatNaira * 100);
+
+  await Promise.all([
+    writeSetting(SETTING_KEYS.topupFeePercent, String(feePercent)),
+    writeSetting(SETTING_KEYS.topupFeeFlatKobo, String(feeFlatKobo)),
+  ]);
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "topup_fee",
+    metadata: { feePercent, feeFlatKobo },
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/dashboard/wallet");
+  return { success: true };
+}
+
+/**
  * Runs the same sync the daily cron job runs, on demand. For confirming a
  * price change landed, or recovering from a run the schedule missed,
  * without waiting for the next scheduled tick.
