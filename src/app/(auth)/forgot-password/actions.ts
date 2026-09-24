@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe, passwordResetEmailContent } from "@/lib/email";
-import { getBaseUrl } from "@/lib/site-url";
+import { SITE_URL } from "@/lib/site";
 import { forgotPasswordSchema } from "@/lib/validation/auth";
 
 export interface ForgotPasswordState {
@@ -38,7 +38,7 @@ export async function forgotPasswordAction(
       },
     });
 
-    const resetUrl = `${getBaseUrl()}/reset-password?token=${token}`;
+    const resetUrl = `${SITE_URL}/reset-password?token=${token}`;
     // Non-throwing: this path deliberately answers identically whether or
     // not the address exists, so a delivery failure must not become the one
     // response difference that reveals a registered account.

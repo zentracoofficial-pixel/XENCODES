@@ -18,7 +18,7 @@ import {
 } from "@/lib/inventory";
 import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
-import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
 import { formatNaira } from "@/lib/currency";
 
@@ -66,11 +66,27 @@ export default async function HomePage() {
             "Virtual phone numbers for receiving SMS verification codes, priced in Naira.",
         }}
       />
+      {/* Helps Google identify Xencodes as an organization distinct from
+          the page content itself. Only fields that are actually true:
+          no sameAs (no public social profiles to point to yet), no
+          address or founding date that would be invented for this. */}
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: SITE_NAME,
+          url: SITE_URL,
+          logo: SITE_LOGO_URL,
+        }}
+      />
       <JsonLd
         data={{
           "@context": "https://schema.org",
           "@type": "FAQPage",
-          mainEntity: faqs.slice(0, 6).map((item) => ({
+          // Matches exactly what FaqAccordion below actually renders: the
+          // structured data must describe what's really on the page, not a
+          // longer list than a visitor (or a crawler) can actually see here.
+          mainEntity: faqs.slice(0, 5).map((item) => ({
             "@type": "Question",
             name: item.question,
             acceptedAnswer: { "@type": "Answer", text: item.answer },

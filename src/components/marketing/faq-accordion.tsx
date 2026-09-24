@@ -37,11 +37,18 @@ export function FaqAccordion({
                 />
               </button>
             </h3>
-            {isOpen ? (
-              <p className="px-5 pb-4 text-sm leading-relaxed text-muted-foreground text-pretty">
-                {item.answer}
-              </p>
-            ) : null}
+            {/* Always in the DOM, only visually hidden when collapsed: the
+                FAQPage structured data on this page lists every answer, and
+                that claim should match what a crawler actually finds in the
+                page's HTML rather than only what a click reveals. */}
+            <p
+              className={cn(
+                "px-5 pb-4 text-sm leading-relaxed text-muted-foreground text-pretty",
+                !isOpen && "hidden",
+              )}
+            >
+              {item.answer}
+            </p>
           </div>
         );
       })}

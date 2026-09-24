@@ -2,16 +2,21 @@ import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
+  description:
+    "The terms that apply to creating a Xencodes account, funding your wallet, and buying virtual numbers for SMS verification.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow="Legal" title="Terms of Service" description="Last updated September 2026." />
+        <Breadcrumbs items={[{ label: "Terms of Service" }]} />
+        <SectionHeading as="h1" eyebrow="Legal" title="Terms of Service" description="Last updated September 2026." />
         <div className="mx-auto mt-10 max-w-2xl space-y-8">
           <LegalSection title="1. Acceptance of terms">
             <p>

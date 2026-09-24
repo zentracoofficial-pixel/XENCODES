@@ -13,12 +13,18 @@ export function SectionHeading({
   description,
   action,
   className,
+  /** "h2" everywhere this labels a section within a page that already has
+   *  its own h1 (the homepage's "How it works", the trust section, and so
+   *  on). Pass "h1" only where this heading IS the page's main heading
+   *  (a legal page whose only heading otherwise would be this one). */
+  as: Heading = "h2",
 }: {
   eyebrow?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
+  as?: "h1" | "h2";
 }) {
   return (
     <div
@@ -33,14 +39,14 @@ export function SectionHeading({
             {eyebrow}
           </p>
         ) : null}
-        <h2
+        <Heading
           className={cn(
             "text-2xl font-semibold tracking-tight text-balance sm:text-[28px]",
             eyebrow && "mt-2.5",
           )}
         >
           {title}
-        </h2>
+        </Heading>
         {description ? (
           <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground text-pretty">
             {description}

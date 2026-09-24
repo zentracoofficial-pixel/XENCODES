@@ -37,6 +37,15 @@ export const metadata: Metadata = {
     follow: true,
     googleBot: { index: true, follow: true, "max-image-preview": "large" },
   },
+  // Set once Search Console gives you an HTML-tag verification value: add
+  // GOOGLE_SITE_VERIFICATION to this deployment's environment variables
+  // (just the token itself, not the whole meta tag). Left out of the
+  // rendered <head> entirely until then, rather than emitting an empty or
+  // placeholder tag, since either the meta tag is right or it should not
+  // be there. Never a value for this to invent.
+  ...(process.env.GOOGLE_SITE_VERIFICATION
+    ? { verification: { google: process.env.GOOGLE_SITE_VERIFICATION } }
+    : {}),
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,4 +1,4 @@
-import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
 
 /**
  * The one HTML shell every admin campaign email renders through, so a
@@ -45,7 +45,7 @@ const CANVAS = "#f4f5f4";
 const FONT_STACK =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
-const LOGO_URL = `${SITE_URL}/xencodes-logo.png`;
+const LOGO_URL = SITE_LOGO_URL;
 
 /** For text nodes. Does not cover attribute values: see escapeAttribute. */
 function escapeHtml(value: string): string {

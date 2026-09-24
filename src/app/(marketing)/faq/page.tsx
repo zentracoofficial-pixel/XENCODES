@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { JsonLd } from "@/components/seo/json-ld";
 import { faqs } from "@/data/faq";
 
@@ -28,6 +30,8 @@ export default function FaqPage() {
         }}
       />
 
+      <Breadcrumbs items={[{ label: "FAQ" }]} />
+
       <div className="mx-auto max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Questions
@@ -49,6 +53,18 @@ export default function FaqPage() {
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
+
+        <p className="mt-6 text-sm text-muted-foreground">
+          See the full{" "}
+          <Link href="/services" className="text-forest underline-offset-4 hover:underline">
+            list of services
+          </Link>{" "}
+          or read how{" "}
+          <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
+            pricing works
+          </Link>
+          .
+        </p>
       </div>
     </Container>
   );

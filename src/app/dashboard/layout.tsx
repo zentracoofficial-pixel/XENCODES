@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { requireActiveUser } from "@/lib/session";
 import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
+
+// A customer's wallet, orders and account settings must never be treated
+// as public SEO content, whatever links to them. robots.txt's disallow
+// keeps a well-behaved crawler out; this is what stops a linked URL from
+// still being indexed bare.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 /**
  * Runs before every dashboard page. See requireActiveUser(): this is what

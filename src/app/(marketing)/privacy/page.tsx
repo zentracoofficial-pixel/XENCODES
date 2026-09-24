@@ -2,16 +2,21 @@ import type { Metadata } from "next";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
+  description:
+    "What Xencodes collects when you create an account, buy a number, or fund your wallet, and how that information is used and kept.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow="Legal" title="Privacy Policy" description="Last updated September 2026." />
+        <Breadcrumbs items={[{ label: "Privacy Policy" }]} />
+        <SectionHeading as="h1" eyebrow="Legal" title="Privacy Policy" description="Last updated September 2026." />
         <div className="mx-auto mt-10 max-w-2xl space-y-8">
           <LegalSection title="1. Information we collect">
             <p>

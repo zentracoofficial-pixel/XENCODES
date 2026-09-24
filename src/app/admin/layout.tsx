@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/admin";
 import { AdminSidebar, AdminTopBar } from "./admin-nav";
+
+// Belt and suspenders alongside robots.txt's disallow: this is what
+// actually stops a URL under /admin from being indexed bare (no snippet)
+// if it were ever linked from somewhere outside the app, since a
+// disallowed-but-linked URL can still show up in results without this.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
