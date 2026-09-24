@@ -174,6 +174,15 @@ export type KorapayChargeStatus = "pending" | "processing" | "success" | "failed
 export interface ChargeStatusResult {
   status: KorapayChargeStatus;
   providerTransactionId: string;
+  /**
+   * What KoraPay itself confirms was charged, in kobo, when the response
+   * includes an amount field. Undefined rather than guessed when it does
+   * not: this sandbox cannot reach a live KoraPay response to confirm the
+   * exact field name, so a caller checks this defensively (only compares
+   * when present) rather than this function inventing a value.
+   */
+  amountKobo?: number;
+  currency?: string;
 }
 
 /**
@@ -185,13 +194,21 @@ export interface ChargeStatusResult {
  * been made to carry.
  */
 export async function verifyKorapayCharge(reference: string): Promise<ChargeStatusResult> {
-  const result = await call<{ reference: string; status: string }>(
-    "GET",
-    `/charges/${encodeURIComponent(reference)}`,
-  );
+  const result = await call<{
+    reference: string;
+    status: string;
+    amount?: number;
+    currency?: string;
+  }>("GET", `/charges/${encodeURIComponent(reference)}`);
 
   const status = result.data.status as KorapayChargeStatus;
-  return { status, providerTransactionId: result.data.reference };
+  return {
+    status,
+    providerTransactionId: result.data.reference,
+    amountKobo:
+      typeof result.data.amount === "number" ? Math.round(result.data.amount * 100) : undefined,
+    currency: result.data.currency,
+  };
 }
 
 /**

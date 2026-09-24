@@ -31,6 +31,17 @@ model User {
   walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
   twoFactorEnabled   Boolean   @default(false)
+  /// Consecutive wrong password or TOTP guesses since the last successful
+  /// one of either. Shared between both steps deliberately: a login is one
+  /// attempt to get into one account regardless of which factor is being
+  /// guessed, so there is one budget, not two independent ones to exhaust
+  /// separately. Reset to 0 on any successful password or TOTP check.
+  failedLoginAttempts Int      @default(0)
+  /// Set once failedLoginAttempts crosses the threshold in
+  /// src/lib/login-lockout.ts; both the password and TOTP checks refuse to
+  /// even attempt a comparison while this is in the future, which is what
+  /// actually stops unlimited guessing rather than just counting it.
+  lockedUntil        DateTime?
   /// Set the moment a sign-in succeeds. Used for "last active" in the admin
   /// user profile and for email targeting ("hasn't logged in recently");
   /// null means never recorded, either because the account has never signed

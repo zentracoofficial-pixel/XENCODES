@@ -26,11 +26,14 @@ export const maxDuration = 60;
  * write to SyncedOffer, never touch a wallet or an order) spam the
  * supplier's API from outside.
  *
- * With CRON_SECRET unset, the check is skipped rather than failing closed:
- * that keeps a manual `curl` against this route usable in an environment
- * that has not set the secret (this sandbox, most local dev), rather than
- * every environment without it silently never syncing. Production should
- * always set CRON_SECRET.
+ * With CRON_SECRET unset outside production, the check is skipped rather
+ * than failing closed: that keeps a manual `curl` against this route usable
+ * in an environment that has not set the secret (this sandbox, most local
+ * dev), rather than every dev/preview environment without it silently never
+ * syncing. In production, an unset CRON_SECRET fails closed instead: a real
+ * deployment with no secret configured would otherwise leave this route
+ * open to unauthenticated triggering from anywhere on the internet, which a
+ * missing environment variable should never silently do.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -39,6 +42,9 @@ export async function GET(request: Request) {
     if (header !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+  } else if (process.env.NODE_ENV === "production") {
+    console.error("[cron] CRON_SECRET is not set; refusing to run in production.");
+    return NextResponse.json({ error: "CRON_SECRET is not configured." }, { status: 401 });
   }
 
   const result = await runProviderSync();

@@ -8,6 +8,25 @@ import { loginSchema } from "@/lib/validation/auth";
 import { createTwoFactorTicket } from "@/lib/two-factor-ticket";
 import { TWO_FACTOR_COOKIE, TWO_FACTOR_CALLBACK_COOKIE } from "@/lib/two-factor-cookie";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import {
+  isLockedOut,
+  lockoutMinutesRemaining,
+  registerFailedAttempt,
+  clearFailedAttempts,
+} from "@/lib/login-lockout";
+
+/**
+ * A fixed, precomputed bcrypt hash (cost 12, matching real password hashes)
+ * that no real password will ever match. Compared against on an unknown
+ * email so this path takes roughly the same time as a real wrong-password
+ * check below, rather than returning immediately: without this, a response
+ * time difference alone (near-instant for "no such account" vs. a real
+ * bcrypt compare for "wrong password") is a timing oracle an attacker can
+ * use to enumerate which emails have accounts, even though the error
+ * message itself is already identical either way.
+ */
+const DUMMY_PASSWORD_HASH =
+  "$2b$12$z0O3k/q3jbmp.6LJprPwBetxZe/sUOYPXQpm74eds9mlhO.FFvWmS";
 
 export interface LoginState {
   error?: string;
@@ -32,16 +51,29 @@ export async function loginAction(
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
     return { error: "Invalid email or password." };
+  }
+
+  if (isLockedOut(user)) {
+    return {
+      error: `Too many failed attempts. Try again in about ${lockoutMinutesRemaining(user)} minute${lockoutMinutesRemaining(user) === 1 ? "" : "s"}.`,
+    };
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
+    await registerFailedAttempt(user.id);
     return { error: "Invalid email or password." };
   }
 
   if (user.twoFactorEnabled) {
-    const ticket = await createTwoFactorTicket(user.id);
+    // Clearing here, not after the TOTP step: the password itself was
+    // correct, and a mistyped TOTP code afterward is a separate guess
+    // against the same shared budget, not a reason to make the customer
+    // re-prove a password they already got right.
+    await clearFailedAttempts(user.id);
+    const ticket = await createTwoFactorTicket(user.id, "2fa-pending");
     const cookieStore = await cookies();
     const cookieOptions = {
       httpOnly: true,
@@ -54,6 +86,8 @@ export async function loginAction(
     cookieStore.set(TWO_FACTOR_CALLBACK_COOKIE, callbackUrl, cookieOptions);
     return { requiresTwoFactor: true };
   }
+
+  await clearFailedAttempts(user.id);
 
   // Credentials are already verified above; this call always succeeds and
   // redirects to the callback URL, so nothing after it will run.
