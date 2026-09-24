@@ -53,11 +53,17 @@ const STATUS_FILTERS: {
 export default async function AdminWalletPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; status?: string; q?: string; includeDeleted?: string }>;
+  searchParams: Promise<{
+    type?: string;
+    status?: string;
+    q?: string;
+    includeDeleted?: string;
+    page?: string;
+  }>;
 }) {
   await requireAdmin();
 
-  const { type, status, q, includeDeleted } = await searchParams;
+  const { type, status, q, includeDeleted, page: pageRaw } = await searchParams;
   const activeType = TYPE_FILTERS.find((f) => f.value === type)?.value ?? "ALL";
   // Defaults to only successful money, not "ALL": a pending, failed or
   // cancelled top-up attempt is not money the business has, and showing it
@@ -66,6 +72,7 @@ export default async function AdminWalletPage({
   const activeStatus = STATUS_FILTERS.find((f) => f.value === status)?.value ?? "SUCCESSFUL";
   const query = q?.trim();
   const showDeleted = includeDeleted === "1";
+  const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
 
   const where: Prisma.WalletTransactionWhereInput = {
     ...(activeType === "ALL" ? {} : { type: activeType }),
@@ -90,6 +97,7 @@ export default async function AdminWalletPage({
     prisma.walletTransaction.findMany({
       where,
       orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { user: { select: { email: true } } },
     }),
@@ -124,6 +132,9 @@ export default async function AdminWalletPage({
       status: activeStatus,
       q: query,
       includeDeleted: showDeleted ? "1" : undefined,
+      // Deliberately not carried forward by default: changing any filter
+      // is a new result set and should land on page 1. Only the actual
+      // Previous/Next links below pass page explicitly via extra.
       ...extra,
     };
     for (const [key, value] of Object.entries(merged)) {
@@ -132,6 +143,8 @@ export default async function AdminWalletPage({
     const search = params.toString();
     return search ? `/admin/wallet?${search}` : "/admin/wallet";
   };
+
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
 
   return (
     <div className="space-y-5">
@@ -313,12 +326,36 @@ export default async function AdminWalletPage({
         )}
       </Card>
 
-      {count > PAGE_SIZE ? (
-        <p className="text-xs text-muted-foreground">
-          Showing the {PAGE_SIZE} most recent of{" "}
-          {count.toLocaleString("en-NG")} matching transactions. Narrow the
-          search to see older ones.
-        </p>
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            href={link({ page: page > 1 ? String(page - 1) : undefined })}
+            aria-disabled={page <= 1}
+            className={cn(
+              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
+              page <= 1
+                ? "pointer-events-none opacity-40"
+                : "hover:border-mint hover:bg-mint-soft",
+            )}
+          >
+            Previous
+          </Link>
+          <p className="text-xs text-muted-foreground">
+            Page {page} of {totalPages} ({count.toLocaleString("en-NG")} total)
+          </p>
+          <Link
+            href={link({ page: String(page + 1) })}
+            aria-disabled={page >= totalPages}
+            className={cn(
+              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
+              page >= totalPages
+                ? "pointer-events-none opacity-40"
+                : "hover:border-mint hover:bg-mint-soft",
+            )}
+          >
+            Next
+          </Link>
+        </div>
       ) : null}
     </div>
   );
