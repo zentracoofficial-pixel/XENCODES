@@ -213,14 +213,6 @@ export function AddFunds() {
         ))}
       </div>
 
-      {valid ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          KoraPay may add its own processing fee for the payment method you
-          choose. You will see the exact total before you pay, and your
-          wallet is credited {formatNaira(amountKobo)} either way.
-        </p>
-      ) : null}
-
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
       <Button

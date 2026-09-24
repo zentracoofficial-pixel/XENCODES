@@ -257,11 +257,12 @@ export default async function AdminSettingsPage() {
         <div className="mt-5 border-t border-border pt-5">
           <h3 className="text-sm font-semibold">Processing fee</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            KoraPay&apos;s own transaction fee is passed to the customer
-            automatically at checkout, whatever that fee actually is for the
-            payment method they choose. There is nothing to configure here:
-            the wallet is always credited exactly what the customer asked to
-            add, and this business never pays that fee.
+            KoraPay&apos;s checkout currently follows this account&apos;s own
+            default fee setting, whichever way that is configured on
+            KoraPay&apos;s side. An attempt to force it to always bill the
+            customer via the API broke checkout on a real test payment and
+            was reverted, so nothing overrides that default from this
+            codebase right now.
           </p>
         </div>
       </Card>

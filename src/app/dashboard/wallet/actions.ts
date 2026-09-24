@@ -12,9 +12,7 @@ export interface StartTopUpResult {
   /** Our reference for the pending attempt, kept so the wallet page can
    *  poll it after a checkout redirect. */
   reference?: string;
-  /** What lands in the wallet once verified. KoraPay's own processing fee
-   *  (see initializeKorapayCharge's merchant_bears_cost) is added on top of
-   *  this at checkout and is never part of it. */
+  /** What lands in the wallet once verified. */
   amountKobo?: number;
   /** Set only when KoraPay is connected: the browser is sent here to pay.
    *  Absent means the request was recorded but there is nowhere to send
@@ -57,9 +55,6 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
 
   try {
     // KoraPay is asked for exactly the amount the wallet will be credited.
-    // initializeKorapayCharge() tells KoraPay to add its own real
-    // transaction fee on top and collect that from the customer directly,
-    // so this business never pays it and never has to guess at it.
     const { checkoutUrl } = await initializeKorapayCharge({
       reference,
       amountKobo: pending.amountKobo,
