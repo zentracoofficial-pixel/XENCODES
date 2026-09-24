@@ -50,8 +50,8 @@ export default async function AdminDashboardPage() {
     campaignRows,
     resolved,
   ] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { createdAt: { gte: startOfToday } } }),
+    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.user.count({ where: { deletedAt: null, createdAt: { gte: startOfToday } } }),
     prisma.activation.count(),
     prisma.activation.count({ where: { createdAt: { gte: startOfToday } } }),
     prisma.activation.count({ where: { status: "WAITING" } }),
@@ -87,6 +87,7 @@ export default async function AdminDashboardPage() {
     // fetched separately (each table has its own shape and timestamp) and
     // merged below rather than forced into one query.
     prisma.user.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: PER_SOURCE_LIMIT,
       select: { id: true, email: true, createdAt: true },

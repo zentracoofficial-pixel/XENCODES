@@ -247,8 +247,19 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
     const result = await completeTopUp(providerReference, charge.providerTransactionId);
     return { state: result.credited || result.reason === "already_credited" ? "credited" : "failed" };
   }
-  if (charge.status === "failed" || charge.status === "expired") {
-    await settleFailedTopUp(providerReference, "FAILED", `KoraPay reported "${charge.status}"`);
+  if (charge.status === "failed") {
+    // A real payment attempt that KoraPay declined: this is worth keeping
+    // visible in the customer's own history, since money was actually
+    // attempted for it.
+    await settleFailedTopUp(providerReference, "FAILED", `KoraPay reported "failed"`);
+    return { state: "failed" };
+  }
+  if (charge.status === "expired") {
+    // The checkout link timed out without the customer ever completing (or
+    // in many cases even starting) a payment attempt. CANCELLED, not
+    // FAILED, so it can be told apart from a real declined payment and kept
+    // out of the customer's transaction history.
+    await settleFailedTopUp(providerReference, "CANCELLED", `KoraPay reported "expired"`);
     return { state: "failed" };
   }
   return { state: "still_pending" };

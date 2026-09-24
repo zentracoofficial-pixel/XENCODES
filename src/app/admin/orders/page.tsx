@@ -61,17 +61,20 @@ export default async function AdminOrdersPage({
     provider?: string;
     from?: string;
     to?: string;
+    includeDeleted?: string;
   }>;
 }) {
   await requireAdmin();
 
-  const { status, q, sort, service, country, provider, from, to } = await searchParams;
+  const { status, q, sort, service, country, provider, from, to, includeDeleted } =
+    await searchParams;
   const activeFilter =
     STATUS_FILTERS.find((f) => f.value === status)?.value ?? "ALL";
   const activeSort: SortKey = sort && sort in SORTS ? (sort as SortKey) : "newest";
   const query = q?.trim();
   const fromDate = from ? new Date(`${from}T00:00:00`) : null;
   const toDate = to ? new Date(`${to}T23:59:59.999`) : null;
+  const showDeleted = includeDeleted === "1";
 
   // Distinct facet values are read from the orders that actually exist,
   // not from the live provider catalog: a filter should only ever offer a
@@ -99,6 +102,11 @@ export default async function AdminOrdersPage({
     ...(service ? { serviceSlug: service } : {}),
     ...(country ? { countrySlug: country } : {}),
     ...(provider ? { provider } : {}),
+    // A deleted account's own past orders are kept for financial records
+    // (see deleteUserAction in admin/users/actions.ts), but that is not the
+    // same as wanting them cluttering ordinary browsing here. Hidden by
+    // default; the toggle below still reaches them when needed.
+    ...(showDeleted ? {} : { user: { deletedAt: null } }),
     ...(fromDate || toDate
       ? {
           createdAt: {
@@ -142,6 +150,7 @@ export default async function AdminOrdersPage({
       provider,
       from,
       to,
+      includeDeleted: showDeleted ? "1" : undefined,
       ...extra,
     };
     for (const [key, value] of Object.entries(merged)) {
@@ -286,6 +295,13 @@ export default async function AdminOrdersPage({
           ))}
         </span>
       </div>
+
+      <Link
+        href={keep({ includeDeleted: showDeleted ? undefined : "1" })}
+        className="inline-block text-xs text-muted-foreground hover:text-forest hover:underline"
+      >
+        {showDeleted ? "Hide deleted accounts" : "Show deleted accounts"}
+      </Link>
 
       <Card className="overflow-hidden">
         {orders.length === 0 ? (

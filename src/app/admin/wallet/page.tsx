@@ -53,19 +53,25 @@ const STATUS_FILTERS: {
 export default async function AdminWalletPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; status?: string; q?: string }>;
+  searchParams: Promise<{ type?: string; status?: string; q?: string; includeDeleted?: string }>;
 }) {
   await requireAdmin();
 
-  const { type, status, q } = await searchParams;
+  const { type, status, q, includeDeleted } = await searchParams;
   const activeType = TYPE_FILTERS.find((f) => f.value === type)?.value ?? "ALL";
   const activeStatus =
     STATUS_FILTERS.find((f) => f.value === status)?.value ?? "ALL";
   const query = q?.trim();
+  const showDeleted = includeDeleted === "1";
 
   const where: Prisma.WalletTransactionWhereInput = {
     ...(activeType === "ALL" ? {} : { type: activeType }),
     ...(activeStatus === "ALL" ? {} : { status: activeStatus }),
+    // A deleted account's own past transactions are kept for financial
+    // records (see deleteUserAction in admin/users/actions.ts), but that is
+    // not the same as wanting them cluttering ordinary browsing here.
+    // Hidden by default; the toggle below still reaches them when needed.
+    ...(showDeleted ? {} : { user: { deletedAt: null } }),
     ...(query
       ? {
           OR: [
@@ -110,6 +116,7 @@ export default async function AdminWalletPage({
       type: activeType === "ALL" ? undefined : activeType,
       status: activeStatus === "ALL" ? undefined : activeStatus,
       q: query,
+      includeDeleted: showDeleted ? "1" : undefined,
       ...extra,
     };
     for (const [key, value] of Object.entries(merged)) {
@@ -182,21 +189,29 @@ export default async function AdminWalletPage({
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {STATUS_FILTERS.map((filter) => (
-          <Link
-            key={filter.value}
-            href={link({ status: filter.value === "ALL" ? undefined : filter.value })}
-            className={cn(
-              "inline-flex min-h-9 items-center rounded-lg px-2.5 text-xs font-medium transition-colors",
-              activeStatus === filter.value
-                ? "bg-mint-soft text-forest"
-                : "text-muted-foreground hover:bg-mint-soft",
-            )}
-          >
-            {filter.label}
-          </Link>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
+          {STATUS_FILTERS.map((filter) => (
+            <Link
+              key={filter.value}
+              href={link({ status: filter.value === "ALL" ? undefined : filter.value })}
+              className={cn(
+                "inline-flex min-h-9 items-center rounded-lg px-2.5 text-xs font-medium transition-colors",
+                activeStatus === filter.value
+                  ? "bg-mint-soft text-forest"
+                  : "text-muted-foreground hover:bg-mint-soft",
+              )}
+            >
+              {filter.label}
+            </Link>
+          ))}
+        </div>
+        <Link
+          href={link({ includeDeleted: showDeleted ? undefined : "1" })}
+          className="text-xs text-muted-foreground hover:text-forest hover:underline"
+        >
+          {showDeleted ? "Hide deleted accounts" : "Show deleted accounts"}
+        </Link>
       </div>
 
       <Card className="overflow-hidden">
