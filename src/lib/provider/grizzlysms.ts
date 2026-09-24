@@ -295,18 +295,40 @@ export class GrizzlySmsProvider implements NumberProvider {
     return { idToName };
   }
 
+  // slugify(name) is not guaranteed unique across a live catalog (two
+  // differently-punctuated or differently-capitalised names can collide).
+  // Silently taking the first match would risk a purchase resolving to the
+  // wrong provider service/country with no trace of why, so a collision is
+  // logged loudly instead — this cannot happen for the overwhelming
+  // majority of real names, but a purchase is money moving and deserves a
+  // paper trail on the rare case it does.
   private async resolveServiceCode(serviceSlug: string): Promise<string | null> {
     const services = await this.loadServices();
-    const match = services.find((s) => slugify(s.name) === serviceSlug);
-    return match?.code ?? null;
+    const matches = services.filter((s) => slugify(s.name) === serviceSlug);
+    if (matches.length > 1) {
+      console.error(
+        `[grizzlysms] slug "${serviceSlug}" matches ${matches.length} services: ` +
+          `${matches.map((m) => `${m.name} (${m.code})`).join(", ")}. ` +
+          "Using the first; verify this did not resolve to the wrong service.",
+      );
+    }
+    return matches[0]?.code ?? null;
   }
 
   private async resolveCountryId(countrySlug: string): Promise<string | null> {
     if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
+    const matches: Array<[id: string, name: string]> = [];
     for (const [id, name] of GrizzlySmsProvider.countryNamesCache ?? []) {
-      if (resolveCountryMeta(name).slug === countrySlug) return id;
+      if (resolveCountryMeta(name).slug === countrySlug) matches.push([id, name]);
     }
-    return null;
+    if (matches.length > 1) {
+      console.error(
+        `[grizzlysms] slug "${countrySlug}" matches ${matches.length} countries: ` +
+          `${matches.map(([id, name]) => `${name} (${id})`).join(", ")}. ` +
+          "Using the first; verify this did not resolve to the wrong country.",
+      );
+    }
+    return matches[0]?.[0] ?? null;
   }
 
   /**

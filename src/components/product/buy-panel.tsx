@@ -113,6 +113,11 @@ export function BuyPanel({
     list: CountryOption[];
   } | null>(null);
   const [country, setCountry] = useState<CountryOption | null>(null);
+  // The full country list for a service is small enough (typically well
+  // under a few hundred rows) to already be sitting in the browser once
+  // fetched, so filtering it against what's typed is done here rather than
+  // firing another request per keystroke, unlike the service catalog.
+  const [countryQuery, setCountryQuery] = useState("");
 
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +127,15 @@ export function BuyPanel({
   const countriesLoading = Boolean(
     service && countryData?.serviceSlug !== service.slug,
   );
+
+  const trimmedCountryQuery = countryQuery.trim().toLowerCase();
+  const visibleCountries = trimmedCountryQuery
+    ? countries.filter(
+        (item) =>
+          item.name.toLowerCase().includes(trimmedCountryQuery) ||
+          item.dialCode.toLowerCase().includes(trimmedCountryQuery),
+      )
+    : countries;
 
   const quoteFresh =
     service &&
@@ -139,25 +153,46 @@ export function BuyPanel({
   const countryRequest = useRef(0);
   const quoteRequest = useRef(0);
 
+  // A real timer debounce plus an AbortController: typing fast used to fire
+  // one request per keystroke and let every one of them run to completion
+  // server side, only discarding the stale *responses*. This actually
+  // cancels the in-flight request itself, not just its effect.
+  const serviceDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serviceAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (serviceDebounce.current) clearTimeout(serviceDebounce.current);
+      serviceAbort.current?.abort();
+    };
+  }, []);
+
   const searchServices = useCallback((query: string) => {
-    const token = ++serviceRequest.current;
+    if (serviceDebounce.current) clearTimeout(serviceDebounce.current);
     setServicesLoading(true);
 
-    // Debounced by the caller's typing rhythm rather than a timer: the
-    // request is cheap and the result is discarded unless it is the
-    // newest one.
-    fetch(`/api/inventory/services?q=${encodeURIComponent(query)}`)
-      .then((res) => res.json())
-      .then((data: { services?: ServiceOption[] }) => {
-        if (token !== serviceRequest.current) return;
-        setServices(data.services ?? []);
+    serviceDebounce.current = setTimeout(() => {
+      serviceAbort.current?.abort();
+      const controller = new AbortController();
+      serviceAbort.current = controller;
+      const token = ++serviceRequest.current;
+
+      fetch(`/api/inventory/services?q=${encodeURIComponent(query)}`, {
+        signal: controller.signal,
       })
-      .catch(() => {
-        if (token === serviceRequest.current) setServices([]);
-      })
-      .finally(() => {
-        if (token === serviceRequest.current) setServicesLoading(false);
-      });
+        .then((res) => res.json())
+        .then((data: { services?: ServiceOption[] }) => {
+          if (token !== serviceRequest.current) return;
+          setServices(data.services ?? []);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          if (token === serviceRequest.current) setServices([]);
+        })
+        .finally(() => {
+          if (token === serviceRequest.current) setServicesLoading(false);
+        });
+    }, 250);
   }, []);
 
   // Countries depend on the chosen service: only the ones that service is
@@ -274,7 +309,7 @@ export function BuyPanel({
     ),
   }));
 
-  const countryOptions: ComboboxOption[] = countries.map((item) => ({
+  const countryOptions: ComboboxOption[] = visibleCountries.map((item) => ({
     value: item.slug,
     label: item.name,
     hint: item.dialCode,
@@ -397,22 +432,34 @@ export function BuyPanel({
           autoFocus={!initialServiceSlug && !unavailable}
           onQueryChange={searchServices}
           onChange={(option) => {
+            // Re-picking the service already selected must not throw away
+            // the country the customer already chose for it.
+            if (option.value === service?.slug) {
+              setError(null);
+              return;
+            }
             const next = services.find((s) => s.slug === option.value);
             if (next) {
               setService(next);
               setCountry(null);
+              setCountryQuery("");
               setError(null);
             }
           }}
         />
 
         <Combobox
+          // Remounts on service change, so its own internal typed-text
+          // state can't linger from a previous service's country search.
+          key={service?.slug ?? "none"}
           label="Country"
           placeholder="Search countries"
           emptyMessage={
             countriesLoading
               ? "Checking availability..."
-              : "No country has stock for this service right now."
+              : trimmedCountryQuery && countries.length > 0
+                ? "No country matches that search."
+                : "No country has stock for this service right now."
           }
           options={countryOptions}
           value={selectedCountryOption}
@@ -421,6 +468,7 @@ export function BuyPanel({
           disabledMessage={
             unavailable ? "No numbers on sale right now" : "Choose a service first"
           }
+          onQueryChange={setCountryQuery}
           onChange={(option) => {
             const next = countries.find((c) => c.slug === option.value);
             if (next) {
