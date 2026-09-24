@@ -17,9 +17,16 @@ export const SETTING_KEYS = {
   defaultGrossMarginPercent: "default_gross_margin_percent",
   /** Gross margin for services on the exclusive tier, such as Fiverr. */
   exclusiveGrossMarginPercent: "exclusive_gross_margin_percent",
-  /** Which number provider adapter to use. See src/lib/provider/index.ts. */
+  /** Legacy single-provider selection, from before multiple providers could
+   *  be enabled at once. Read only as a one-time fallback when providerConfig
+   *  below has never been written; see src/lib/provider/config.ts. */
   providerId: "provider_id",
   providerEnabled: "provider_enabled",
+  /** JSON array of {id, enabled, priority} per provider, keyed by the
+   *  provider's own registry id. See src/lib/provider/config.ts, the only
+   *  reader/writer of this key. Not a secret: it never holds credentials,
+   *  only which registered providers are switched on and in what order. */
+  providerConfig: "provider_config_v2",
   /** Naira per one US dollar, used to convert a USD-priced provider like
    *  GrizzlySMS into the Naira prices this site charges in. */
   usdToNgnRate: "usd_to_ngn_rate",

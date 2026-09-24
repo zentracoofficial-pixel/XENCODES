@@ -4,80 +4,36 @@ import {
   SETTING_KEYS,
   DEFAULT_USD_TO_NGN_RATE,
 } from "@/lib/settings";
-import { GrizzlySmsProvider } from "./grizzlysms";
+import { readProviderConfig } from "./config";
+import { PROVIDER_DEFINITIONS, getProviderDefinition, ProviderConfigError } from "./registry";
 import type { NumberProvider } from "./types";
 
 export * from "./types";
+export * from "./registry";
+export * from "./config";
 
 /**
- * Resolves the number supplier Xencodes is using right now.
+ * Resolves the number supplier(s) Xencodes is buying from right now.
  *
- * There is no supplier connected. Xencodes previously bought from one and
- * no longer does, and the replacement has not been chosen, so every call
- * below reports "not connected" and the product says so plainly rather
- * than inventing inventory to fill the gap.
+ * The core application never asks "is this GrizzlySMS": every caller here,
+ * in src/lib/inventory.ts, in src/app/dashboard/buy/actions.ts, and in the
+ * admin, speaks only in terms of NumberProvider. Which concrete adapters
+ * exist is registry.ts; which of them are switched on and in what order is
+ * config.ts; this file is what turns those two into live adapter instances
+ * a caller can actually use.
  *
- * Connecting the next one is two steps and touches nothing else:
- *
- * 1. Write an adapter implementing NumberProvider in this folder. Its
- *    credentials come from the environment, never from the database, so a
- *    production secret is never stored where the admin panel could read it
- *    back.
- * 2. Register it in ADAPTERS below under the id an admin selects in
- *    Settings.
- *
- * Nothing outside this folder changes: the buy flow, pricing, orders and
- * admin all already speak the NumberProvider interface.
+ * More than one provider can be enabled at once. getEnabledProviders()
+ * returns all of them, sorted by priority, so a caller that can meaningfully
+ * try more than one (the catalog sync, the live pair quote in
+ * inventory.ts) does. getNumberProvider() stays as a single-provider
+ * convenience for callers that only need to know "is anything connected
+ * at all" (the homepage's inventory status, the admin settings summary):
+ * it resolves to the first enabled, connected provider by priority.
  */
 
-/**
- * One entry per adapter with a real integration behind it. A factory reads
- * its own credentials from the environment; only the non-secret base URL
- * is passed in from here, and Settings never sees the key itself.
- *
- * "grizzlysms" needs GRIZZLYSMS_API_KEY set as an environment variable on
- * this deployment. With no key set, resolving it throws "not_configured"
- * rather than starting an adapter with an empty key that would fail on its
- * first real call, which is a substantially worse failure mode: a request
- * that quietly waits on a network call before reporting "no provider" is
- * indistinguishable from "the provider is slow" until it times out.
- */
-const ADAPTERS: Record<string, (usdToNgnRate: number) => NumberProvider> = {
-  grizzlysms: (usdToNgnRate) => {
-    const apiKey = process.env.GRIZZLYSMS_API_KEY;
-    if (!apiKey) {
-      throw new ProviderConfigError(
-        "GRIZZLYSMS_API_KEY is not set as an environment variable on this deployment.",
-      );
-    }
-    return new GrizzlySmsProvider({ apiKey, usdToNgnRate });
-  },
-};
-
-/** Thrown by a factory when its required environment variable is missing.
- *  Caught in getNumberProvider() and turned into a resolution an admin can
- *  actually act on, rather than a 500 the first time a page resolves it. */
-class ProviderConfigError extends Error {}
-
-/** Which adapters actually have an integration behind them. Empty today,
- *  which is what the admin panel reports rather than implying otherwise. */
-export function availableAdapterIds(): string[] {
-  return Object.keys(ADAPTERS);
-}
-
-/**
- * Whether an adapter's environment variable is actually set, independent of
- * the enabled toggle. Settings shows this so a disabled connection with a
- * missing key still reads as "credentials missing" rather than looking
- * identical to one that would work the moment it is switched on.
- *
- * Duplicates each factory's own check rather than instantiating it, since
- * instantiating just to test for a thrown error would run every adapter's
- * constructor for a page that only wants to know one boolean.
- */
-export function hasCredentials(adapterId: string): boolean {
-  if (adapterId === "grizzlysms") return Boolean(process.env.GRIZZLYSMS_API_KEY);
-  return false;
+async function usdToNgnRate(): Promise<number> {
+  const settings = await readSettings();
+  return readNumber(settings, SETTING_KEYS.usdToNgnRate, DEFAULT_USD_TO_NGN_RATE);
 }
 
 export type ProviderResolution =
@@ -89,32 +45,111 @@ export type ProviderResolution =
       configuredId?: string;
     };
 
-export async function getNumberProvider(): Promise<ProviderResolution> {
-  const settings = await readSettings();
-
-  const configuredId = settings[SETTING_KEYS.providerId]?.trim();
-  const enabled = settings[SETTING_KEYS.providerEnabled] === "true";
-  const usdToNgnRate = readNumber(
-    settings,
-    SETTING_KEYS.usdToNgnRate,
-    DEFAULT_USD_TO_NGN_RATE,
-  );
-
-  if (!configuredId) return { connected: false, reason: "not_configured" };
-  if (!enabled) return { connected: false, reason: "disabled", configuredId };
-
-  const factory = ADAPTERS[configuredId];
-  if (!factory) return { connected: false, reason: "no_adapter", configuredId };
+/** Resolves exactly one provider by id, regardless of its enabled state in
+ *  config. Used by the admin's "test connection" (which must be able to
+ *  test a provider before switching it on) and by anything that already
+ *  knows which provider fulfilled an order and needs that exact adapter
+ *  back, not whichever one currently sorts first. */
+export async function resolveProvider(id: string): Promise<ProviderResolution> {
+  const definition = getProviderDefinition(id);
+  if (!definition) return { connected: false, reason: "no_adapter", configuredId: id };
 
   try {
-    return { connected: true, provider: factory(usdToNgnRate) };
+    const rate = await usdToNgnRate();
+    return { connected: true, provider: definition.create({ usdToNgnRate: rate }) };
   } catch (error) {
     if (error instanceof ProviderConfigError) {
-      console.error(`[provider] "${configuredId}" is not fully configured:`, error.message);
-      return { connected: false, reason: "missing_credentials", configuredId };
+      console.error(`[provider] "${id}" is not fully configured:`, error.message);
+      return { connected: false, reason: "missing_credentials", configuredId: id };
     }
     throw error;
   }
+}
+
+export interface ResolvedProvider {
+  id: string;
+  label: string;
+  priority: number;
+  provider: NumberProvider;
+}
+
+/**
+ * Every provider an admin has switched on and that actually has credentials
+ * on this deployment, sorted lowest priority first (tried first). A
+ * provider that is enabled but missing its credentials is logged and
+ * skipped rather than included half-working: callers here can trust that
+ * every entry returned is genuinely usable right now.
+ */
+export async function getEnabledProviders(): Promise<ResolvedProvider[]> {
+  const config = await readProviderConfig();
+  const enabled = config
+    .filter((entry) => entry.enabled)
+    .sort((a, b) => a.priority - b.priority);
+
+  const resolved: ResolvedProvider[] = [];
+  for (const entry of enabled) {
+    const definition = getProviderDefinition(entry.id);
+    if (!definition) continue;
+    const resolution = await resolveProvider(entry.id);
+    if (resolution.connected) {
+      resolved.push({
+        id: entry.id,
+        label: definition.label,
+        priority: entry.priority,
+        provider: resolution.provider,
+      });
+    } else {
+      console.error(
+        `[provider] "${entry.id}" is enabled but not connected (${resolution.reason}); skipping it.`,
+      );
+    }
+  }
+  return resolved;
+}
+
+/**
+ * The first enabled, connected provider by priority, or a specific reason
+ * why nothing is available. For callers that only need one provider or
+ * just want to know whether numbers can be sold at all right now: the
+ * homepage's inventory status, the admin settings summary, and any caller
+ * not yet migrated to reason about more than one provider.
+ */
+export async function getNumberProvider(): Promise<ProviderResolution> {
+  const config = await readProviderConfig();
+  const enabled = config.filter((entry) => entry.enabled).sort((a, b) => a.priority - b.priority);
+
+  if (enabled.length === 0) return { connected: false, reason: "not_configured" };
+
+  for (const entry of enabled) {
+    const definition = getProviderDefinition(entry.id);
+    if (!definition) continue;
+    const resolution = await resolveProvider(entry.id);
+    if (resolution.connected) return resolution;
+  }
+
+  // Every enabled entry failed to resolve: report the first one's own
+  // reason, since that is the one an admin would look at first.
+  const first = enabled[0];
+  if (!getProviderDefinition(first.id)) {
+    return { connected: false, reason: "no_adapter", configuredId: first.id };
+  }
+  return { connected: false, reason: "missing_credentials", configuredId: first.id };
+}
+
+/** Which adapters actually have an integration behind them, for the admin
+ *  panel to render a row for even when disabled or unconfigured. */
+export function availableAdapterIds(): string[] {
+  return PROVIDER_DEFINITIONS.map((definition) => definition.id);
+}
+
+/** Whether an adapter's environment variable is actually set, independent
+ *  of whether it is enabled. */
+export function hasCredentials(adapterId: string): boolean {
+  return getProviderDefinition(adapterId)?.hasCredentials() ?? false;
+}
+
+export function providerLabel(id: string): string {
+  return getProviderDefinition(id)?.label ?? id;
 }
 
 /** Wording for the one place a customer sees this, and for the admin. */

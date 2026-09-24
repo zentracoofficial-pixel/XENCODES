@@ -4,7 +4,7 @@ import { Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
+import { getEnabledProviders, getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
 import { loadMarginRules, resolveMargin, quotePrice } from "@/lib/pricing";
 import { brandIcons } from "@/data/brand-icons";
 import { formatNaira } from "@/lib/currency";
@@ -40,47 +40,80 @@ export default async function AdminServicesPage({
   const { q } = await searchParams;
   const query = q?.trim().toLowerCase();
 
-  const [resolved, rules, settings] = await Promise.all([
+  const [resolved, enabledProviders, rules, settings] = await Promise.all([
     getNumberProvider(),
+    getEnabledProviders(),
     loadMarginRules(),
     prisma.serviceSetting.findMany(),
   ]);
 
   const settingBySlug = new Map(settings.map((row) => [row.slug, row]));
 
-  const live = resolved.connected
-    ? await resolved.provider.getServices().catch(() => [])
-    : [];
+  // Merged across every enabled provider: a service is listed the moment
+  // any one of them offers it, and the cheapest cost anywhere wins, the
+  // same rule quotePair() applies live at purchase time. providerServiceId
+  // is qualified by provider id once more than one provider reports the
+  // same slug, so an admin reconciling against a specific supplier's own
+  // dashboard can tell which id belongs to which.
+  const known = new Map<
+    string,
+    {
+      slug: string;
+      name: string;
+      color: string;
+      category: string;
+      providerServiceId: string | null;
+      cheapestCostKobo: number | null;
+    }
+  >();
+  let syncedAt: Date | null = null;
 
-  // Best effort and optional: an adapter offers this for free when it
-  // already has the pricing loaded, rather than one provider call per row.
-  const [cheapestCostByService, syncedAt] = resolved.connected
-    ? await Promise.all([
-        resolved.provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
-          Promise.resolve(new Map<string, number>()),
-        Promise.resolve(resolved.provider.getCatalogSyncedAt?.() ?? null),
-      ])
-    : [new Map<string, number>(), null];
+  for (const { id, provider } of enabledProviders) {
+    const [services, cheapestCostByService] = await Promise.all([
+      provider.getServices().catch(() => []),
+      provider.getCheapestCostByService?.().catch(() => new Map<string, number>()) ??
+        Promise.resolve(new Map<string, number>()),
+    ]);
+    const providerSyncedAt = provider.getCatalogSyncedAt?.() ?? null;
+    if (providerSyncedAt && (!syncedAt || providerSyncedAt > syncedAt)) syncedAt = providerSyncedAt;
+
+    for (const service of services) {
+      const cost = cheapestCostByService.get(service.slug) ?? null;
+      const idLabel = service.providerServiceId
+        ? enabledProviders.length > 1
+          ? `${id}:${service.providerServiceId}`
+          : service.providerServiceId
+        : null;
+
+      const existing = known.get(service.slug);
+      if (!existing) {
+        known.set(service.slug, {
+          slug: service.slug,
+          name: service.name,
+          // The same brand-colour rule as everywhere else a service
+          // appears: a real logo's own colour when one exists, the
+          // adapter's neutral default otherwise.
+          color: brandIcons[service.slug]?.hex ?? service.color,
+          category: service.category,
+          providerServiceId: idLabel,
+          cheapestCostKobo: cost,
+        });
+      } else {
+        if (idLabel && !existing.providerServiceId?.includes(idLabel)) {
+          existing.providerServiceId = existing.providerServiceId
+            ? `${existing.providerServiceId}, ${idLabel}`
+            : idLabel;
+        }
+        if (cost !== null && (existing.cheapestCostKobo === null || cost < existing.cheapestCostKobo)) {
+          existing.cheapestCostKobo = cost;
+        }
+      }
+    }
+  }
 
   // Any service an admin has already configured stays listed even with no
   // provider connected, so overrides remain visible and editable rather
   // than disappearing along with the supplier that prompted them.
-  const known = new Map(
-    live.map((service) => [
-      service.slug,
-      {
-        slug: service.slug,
-        name: service.name,
-        // The same brand-colour rule as everywhere else a service appears:
-        // a real logo's own colour when one exists, the adapter's neutral
-        // default otherwise.
-        color: brandIcons[service.slug]?.hex ?? service.color,
-        category: service.category,
-        providerServiceId: service.providerServiceId ?? null,
-        cheapestCostKobo: cheapestCostByService.get(service.slug) ?? null,
-      },
-    ]),
-  );
   for (const row of settings) {
     if (known.has(row.slug)) continue;
     known.set(row.slug, {
@@ -114,10 +147,12 @@ export default async function AdminServicesPage({
         <h1 className="text-2xl font-semibold tracking-tight">Services</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           What Xencodes sells, and the margin each one earns.
-          {resolved.connected ? ` Synchronized from ${resolved.provider.label}` : ""}
+          {enabledProviders.length > 0
+            ? ` Synchronized from ${enabledProviders.map((p) => p.label).join(", ")}`
+            : ""}
           {syncedAt
             ? `, last refreshed ${syncedAt.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit" })}.`
-            : resolved.connected
+            : enabledProviders.length > 0
               ? "."
               : ""}
         </p>

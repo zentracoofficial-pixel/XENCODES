@@ -4,12 +4,11 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
-import { availableAdapterIds } from "@/lib/provider";
 import { recordAudit } from "@/lib/audit";
-import { runProviderSync, type ProviderSyncResult } from "@/lib/provider-sync";
 
 function refresh() {
   revalidatePath("/admin/settings");
+  revalidatePath("/admin/providers");
   revalidatePath("/admin/services");
   revalidatePath("/admin");
   revalidatePath("/buy");
@@ -58,46 +57,6 @@ export async function saveMarginSettingsAction(
     targetType: "settings",
     targetId: "margins",
     metadata: { defaultPercent, exclusivePercent },
-  });
-
-  refresh();
-  return { success: true };
-}
-
-/**
- * Which number provider to use, and whether the connection is live.
- *
- * No API key field, deliberately. A supplier's credentials come from this
- * deployment's environment variables and are read only inside
- * src/lib/provider, so no secret is ever stored in the database or
- * readable back through this panel.
- */
-export async function saveProviderSettingsAction(
-  _prev: SettingsState,
-  formData: FormData,
-): Promise<SettingsState> {
-  const admin = await requireAdmin();
-
-  const providerId = (formData.get("providerId") as string)?.trim() ?? "";
-  const enabled = formData.get("providerEnabled") === "on";
-
-  if (providerId && !availableAdapterIds().includes(providerId)) {
-    return { error: "That provider has no integration built yet." };
-  }
-  if (enabled && !providerId) {
-    return { error: "Choose a provider before switching the connection on." };
-  }
-
-  await Promise.all([
-    writeSetting(SETTING_KEYS.providerId, providerId),
-    writeSetting(SETTING_KEYS.providerEnabled, String(enabled)),
-  ]);
-  await recordAudit({
-    actor: admin,
-    action: "settings.update",
-    targetType: "settings",
-    targetId: "provider",
-    metadata: { providerId, enabled },
   });
 
   refresh();
@@ -174,25 +133,4 @@ export async function saveTopupFeeSettingsAction(
   revalidatePath("/admin/settings");
   revalidatePath("/dashboard/wallet");
   return { success: true };
-}
-
-/**
- * Runs the same sync the daily cron job runs, on demand. For confirming a
- * price change landed, or recovering from a run the schedule missed,
- * without waiting for the next scheduled tick.
- */
-export async function runSyncNowAction(): Promise<ProviderSyncResult> {
-  const admin = await requireAdmin();
-
-  const result = await runProviderSync();
-  await recordAudit({
-    actor: admin,
-    action: "settings.sync_now",
-    targetType: "settings",
-    targetId: "provider_sync",
-    metadata: { ...result },
-  });
-
-  refresh();
-  return result;
 }
