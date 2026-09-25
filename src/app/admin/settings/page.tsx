@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CreditCard, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
+import { CreditCard, Mail, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
@@ -12,7 +12,9 @@ import { formatMoney } from "@/lib/currency";
 import { getEnabledCurrencies } from "@/lib/currency-config";
 import { FUNDING_PROVIDER } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { MarginForm, TopupFeeForm } from "./settings-forms";
+import { isEmailConfigured, emailFromAddress } from "@/lib/email";
+import { SUPPORT_EMAIL } from "@/lib/site";
+import { MarginForm, TopupFeeForm, TestEmailButton } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -122,6 +124,46 @@ export default async function AdminSettingsPage() {
           </Link>
           .
         </p>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <Mail className="h-4 w-4" />
+          Email
+          <Badge variant={isEmailConfigured() ? "success" : "warning"}>
+            {isEmailConfigured() ? "Connected" : "Not connected"}
+          </Badge>
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+          {isEmailConfigured()
+            ? "Resend is connected. Every outbound email — verification links, password resets, admin campaigns, support notifications — sends through it."
+            : "RESEND_API_KEY is not set on this deployment. Nothing is actually sent; every send attempt fails and is logged server-side."}
+        </p>
+        <dl className="mt-3 grid gap-2.5 sm:grid-cols-2">
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Currently sending as
+            </dt>
+            <dd className="mt-1 break-all text-sm font-medium">{emailFromAddress()}</dd>
+          </div>
+          <div className="rounded-lg border border-border px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Support notifications go to
+            </dt>
+            <dd className="mt-1 break-all text-sm font-medium">{SUPPORT_EMAIL}</dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs text-muted-foreground">
+          If &quot;currently sending as&quot; still shows{" "}
+          <code className="rounded bg-background px-1 py-0.5">onboarding@resend.dev</code>,
+          the <code className="rounded bg-background px-1 py-0.5">EMAIL_FROM</code> environment
+          variable is not live on this exact deployment yet — check it is set for Production
+          and that a deploy has actually run since. Resend also restricts that sandbox
+          address to only deliver to your own Resend account email.
+        </p>
+        <div className="mt-4 border-t border-border pt-4">
+          <TestEmailButton />
+        </div>
       </Card>
 
       <Card className="p-5">

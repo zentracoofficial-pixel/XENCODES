@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
 import { recordAudit } from "@/lib/audit";
+import { sendEmail, EmailDeliveryError, emailFromAddress } from "@/lib/email";
 
 function refresh() {
   revalidatePath("/admin/settings");
@@ -95,4 +96,44 @@ export async function saveTopupFeeSettingsAction(
   revalidatePath("/admin/settings");
   revalidatePath("/dashboard/wallet");
   return { success: true };
+}
+
+export interface TestEmailState {
+  status?: "sent" | "error";
+  message?: string;
+}
+
+/**
+ * A real send, to whichever admin clicks it, through the exact same
+ * sendEmail() every other outbound message in the app uses — never a
+ * dry-run or a client-side simulation. Exists so a misconfigured RESEND_API_KEY,
+ * an EMAIL_FROM that never actually took effect on this deployment, or a
+ * provider-side rejection shows up as the *exact* error Resend returned,
+ * right here, instead of something only visible by cross-referencing the
+ * Vercel and Resend dashboards by hand.
+ */
+export async function sendTestEmailAction(
+  _prev: TestEmailState,
+): Promise<TestEmailState> {
+  const admin = await requireAdmin();
+
+  try {
+    await sendEmail({
+      to: admin.email,
+      subject: "Xencodes test email",
+      text: `This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as "${emailFromAddress()}". If you received this, outbound email is working correctly.`,
+      html: `<p>This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as <strong>${emailFromAddress()}</strong>.</p><p>If you received this, outbound email is working correctly.</p>`,
+    });
+    return { status: "sent", message: `Sent to ${admin.email} as "${emailFromAddress()}".` };
+  } catch (error) {
+    return {
+      status: "error",
+      message:
+        error instanceof EmailDeliveryError
+          ? `[${error.code}] ${error.message}`
+          : error instanceof Error
+            ? error.message
+            : "Unknown error.",
+    };
+  }
 }

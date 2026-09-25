@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import {
   saveMarginSettingsAction,
   saveTopupFeeSettingsAction,
+  sendTestEmailAction,
   type SettingsState,
+  type TestEmailState,
 } from "./actions";
 
 const initial: SettingsState = {};
+const initialTestEmail: TestEmailState = {};
 
 const inputClass =
   "h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25";
@@ -125,6 +128,33 @@ export function TopupFeeForm({ feePercent }: { feePercent: number }) {
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save fee"}
       </Button>
+    </form>
+  );
+}
+
+/**
+ * A real send-to-yourself button, not a status check: the surest way to
+ * know whether outbound email actually works on this exact deployment right
+ * now is to try it and read back what actually happened, including
+ * Resend's own error text verbatim if it fails.
+ */
+export function TestEmailButton() {
+  const [state, formAction, pending] = useActionState(sendTestEmailAction, initialTestEmail);
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <Button type="submit" disabled={pending} variant="outline" size="sm">
+        {pending ? "Sending..." : "Send test email to myself"}
+      </Button>
+
+      {state.status === "sent" ? (
+        <p className="text-sm text-success">{state.message}</p>
+      ) : null}
+      {state.status === "error" ? (
+        <p className="whitespace-pre-wrap break-words rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
+          {state.message}
+        </p>
+      ) : null}
     </form>
   );
 }
