@@ -13,6 +13,7 @@ import {
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
 import { markTicketNotificationsRead } from "@/lib/notifications";
+import { TicketAutoRefresh } from "@/components/ticket-auto-refresh";
 import { TicketReplyForm } from "./reply-form";
 
 export const metadata: Metadata = { title: "Admin: Ticket" };
@@ -53,6 +54,7 @@ export default async function AdminTicketDetailPage({
 
   return (
     <div className="space-y-5">
+      <TicketAutoRefresh />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{ticket.subject}</h1>

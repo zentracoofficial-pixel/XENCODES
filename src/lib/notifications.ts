@@ -21,9 +21,15 @@ function snippet(body: string): string {
  * follow-up reply. Every active admin gets their own row, not a single
  * shared one: opening the ticket as one admin must not silently mark it
  * read for every other admin too (see markTicketNotificationsRead below).
+ *
+ * Takes the customer directly rather than looking it up from ticket.userId,
+ * since every call site already has the row in hand (it just created or
+ * loaded it) — an admin needs to know *who* wrote in, not just which ticket,
+ * so the title always names them.
  */
 export async function notifyAdminsOfSupportMessage(
   ticket: Pick<SupportTicket, "id" | "subject">,
+  customer: { email: string; name: string | null },
   messageBody: string,
 ): Promise<void> {
   const admins = await prisma.user.findMany({
@@ -32,11 +38,12 @@ export async function notifyAdminsOfSupportMessage(
   });
   if (admins.length === 0) return;
 
+  const who = customer.name?.trim() || customer.email;
   await prisma.notification.createMany({
     data: admins.map((admin) => ({
       userId: admin.id,
       ticketId: ticket.id,
-      title: `New message: ${ticket.subject}`,
+      title: `${who}: ${ticket.subject}`,
       body: snippet(messageBody),
     })),
   });

@@ -51,7 +51,7 @@ export async function reportIssueAction(
     },
   });
 
-  await notifyAdminsOfSupportMessage(ticket, details);
+  await notifyAdminsOfSupportMessage(ticket, user, details);
 
   const summary = [
     `Customer: ${user.email}`,
@@ -112,7 +112,7 @@ export async function createGeneralTicketAction(
     },
   });
 
-  await notifyAdminsOfSupportMessage(ticket, details);
+  await notifyAdminsOfSupportMessage(ticket, user, details);
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,
@@ -169,7 +169,7 @@ export async function replyToTicketAsUserAction(
     }),
   ]);
 
-  await notifyAdminsOfSupportMessage(ticket, body);
+  await notifyAdminsOfSupportMessage(ticket, user, body);
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,
