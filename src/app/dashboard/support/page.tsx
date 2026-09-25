@@ -7,14 +7,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { faqs } from "@/data/faq";
+import { SUPPORT_EMAIL } from "@/lib/site";
 import { ReportIssue } from "./report-issue";
 import { NewTicketForm } from "./new-ticket-form";
 
 export const metadata: Metadata = { title: "Support" };
 
 export const dynamic = "force-dynamic";
-
-const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "support@xencodes.com";
 
 const TICKET_STATUS_VARIANT = {
   OPEN: "danger",

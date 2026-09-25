@@ -7,13 +7,12 @@ import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
 import { formatMoney } from "@/lib/currency";
 import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
+import { SUPPORT_EMAIL as SUPPORT_INBOX } from "@/lib/site";
 
 export interface ReportState {
   error?: string;
   success?: boolean;
 }
-
-const SUPPORT_INBOX = process.env.SUPPORT_EMAIL ?? "support@xencodes.com";
 
 /**
  * Turns an activation problem into a support ticket the admin panel can

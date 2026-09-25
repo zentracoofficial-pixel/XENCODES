@@ -94,6 +94,7 @@ export function AdminSidebar({
             notifications={notifications}
             unreadCount={unreadCount}
             ticketBasePath="/admin/support"
+            align="left"
           />
         </div>
       </div>

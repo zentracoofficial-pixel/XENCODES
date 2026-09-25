@@ -69,6 +69,7 @@ export function DashboardSidebar({
           notifications={notifications}
           unreadCount={unreadCount}
           ticketBasePath="/dashboard/support"
+          align="left"
         />
       </div>
 
