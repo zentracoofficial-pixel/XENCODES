@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
 import { formatMoney } from "@/lib/currency";
 import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
-import { SUPPORT_NOTIFICATION_EMAIL as SUPPORT_INBOX } from "@/lib/site";
+import { SUPPORT_EMAIL as SUPPORT_INBOX } from "@/lib/site";
 
 export interface ReportState {
   error?: string;
