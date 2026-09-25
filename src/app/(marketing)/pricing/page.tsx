@@ -7,7 +7,7 @@ import { UnavailableNotice } from "@/components/product/unavailable-notice";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { getInventoryStatus, countServices } from "@/lib/inventory";
 import { formatMoney } from "@/lib/currency";
-import { getDefaultCurrency } from "@/lib/currency-config";
+import { getVisitorCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +42,10 @@ const FACTORS = [
  * question the buy page already answers correctly.
  */
 export default async function PricingPage() {
-  const [status, serviceCount, defaultCurrency] = await Promise.all([
+  const [status, serviceCount, visitorCurrency] = await Promise.all([
     getInventoryStatus(),
     countServices().catch(() => 0),
-    getDefaultCurrency(),
+    getVisitorCurrency(),
   ]);
 
   return (
@@ -97,9 +97,9 @@ export default async function PricingPage() {
         <div className="rounded-xl border border-border bg-surface p-5">
           <h2 className="font-medium">Top up what you want</h2>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            There are no fixed funding packages. Add any amount from{" "}
-            {formatMoney(defaultCurrency.minTopUpMinor, defaultCurrency.code)} and
-            spend it a number at a time.
+            {visitorCurrency.fundingProvider
+              ? `There are no fixed funding packages. Add any amount from ${formatMoney(visitorCurrency.minTopUpMinor, visitorCurrency.code)} and spend it a number at a time.`
+              : `Xencodes prices in ${visitorCurrency.code} for accounts outside Nigeria; funding is not connected for ${visitorCurrency.code} yet, so you can browse and see prices ahead of it going live.`}
           </p>
         </div>
       </div>

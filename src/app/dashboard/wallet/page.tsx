@@ -83,6 +83,7 @@ export default async function WalletPage() {
           maxTopUpMinor={currency.maxTopUpMinor}
           feePercent={feePercent}
           feeCapKobo={currency.feeCapMinor}
+          fundingProvider={currency.fundingProvider}
         />
       </Suspense>
 

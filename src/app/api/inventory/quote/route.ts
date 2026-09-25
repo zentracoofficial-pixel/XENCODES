@@ -33,9 +33,12 @@ export async function GET(request: Request) {
     );
   }
 
+  // The requested currency must be one of the two Xencodes actually sells
+  // in (NGN or USD); anything else falls back to the platform default.
   const requestedCurrency = params.get("currency");
-  const resolvedCurrency = requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null;
-  const currency = resolvedCurrency?.enabled ? resolvedCurrency : await getDefaultCurrency();
+  const currency =
+    (requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null) ??
+    (await getDefaultCurrency());
 
   const result = await quotePair(serviceSlug, countrySlug, currency);
 

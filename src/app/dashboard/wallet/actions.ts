@@ -61,6 +61,19 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
 
   const currency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
 
+  // Two different facts, not one: `fundingProvider` is whether any adapter
+  // exists in code at all for this currency (USD: none yet, structurally,
+  // regardless of environment variables); `fundingAvailable` is whether
+  // that adapter is actually configured on this deployment right now. A
+  // currency with no adapter is refused outright, with no row created at
+  // all, rather than recorded as a pending request that could never be
+  // completed by any deployment configuration change.
+  if (!currency.fundingProvider) {
+    return {
+      error: `${currency.code} funding is not available on Xencodes yet. You can still browse and see prices in ${currency.code}.`,
+    };
+  }
+
   const invalid: FundingError | null = validateTopUpAmount(
     amountKobo,
     currency.minTopUpMinor,

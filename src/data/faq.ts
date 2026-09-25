@@ -20,6 +20,11 @@ export const faqs: FaqItem[] = [
       "Create an account, add funds to your wallet, then search for your service on the homepage. Choosing a country buys the number straight away, so there is no long checkout to fill in.",
   },
   {
+    question: "What currency does Xencodes use?",
+    answer:
+      "Nigeria uses NGN, funded by card, bank transfer or USSD through KoraPay. Every other supported country, including Ghana, the UK and the US, uses USD. USD funding isn't connected yet, so an international account can browse and see USD prices ahead of that going live; nothing is charged until it is.",
+  },
+  {
     question: "How long does it take to receive an SMS?",
     answer:
       "Most codes arrive within a few seconds. Delivery depends on the service and the country, and each country shows its typical delivery time before you buy.",

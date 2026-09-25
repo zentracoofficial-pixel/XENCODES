@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Info, Loader2 } from "lucide-react";
+import { ArrowRight, Info, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
 import { calculateTopupFeeKobo } from "@/lib/funding-limits";
@@ -34,6 +34,7 @@ export function AddFunds({
   maxTopUpMinor,
   feePercent,
   feeCapKobo,
+  fundingProvider,
 }: {
   /** ISO 4217, the account's own currency. Every amount here is in this
    *  currency's minor unit. */
@@ -43,6 +44,11 @@ export function AddFunds({
   /** From admin Settings. Defaults to KoraPay's own published rate. */
   feePercent: number;
   feeCapKobo: number;
+  /** Which payment provider actually handles this currency's funding, or
+   *  null when none does. Null means no code path anywhere can process a
+   *  real payment in this currency yet, so the form itself is not shown at
+   *  all rather than accepting an amount it could never actually collect. */
+  fundingProvider: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -116,6 +122,22 @@ export function AddFunds({
         setAmount("");
       }
     });
+  }
+
+  if (!fundingProvider) {
+    return (
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold">Add funds</h2>
+        <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3">
+          <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <p className="text-sm text-warning">
+            {currency} funding is not available on Xencodes yet. You can
+            still browse and see prices in {currency}; nothing can be added
+            to this wallet until a {currency} payment method is connected.
+          </p>
+        </div>
+      </section>
+    );
   }
 
   if (returningReference && returnState) {
