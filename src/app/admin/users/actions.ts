@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { creditWallet } from "@/lib/wallet";
-import { nairaToKobo } from "@/lib/currency";
+import { majorToMinor } from "@/lib/currency";
 import { recordAudit } from "@/lib/audit";
 
 async function guardNotSelf(targetUserId: string, action: string) {
@@ -146,14 +146,17 @@ export async function adminCreditWalletAction(
     return { error: "Add a short note for the audit trail." };
   }
 
-  const kobo = nairaToKobo(amount);
-  await creditWallet(userId, kobo, "ADJUSTMENT", note);
+  // The admin types a major-unit amount (e.g. "500"); which currency that
+  // means is the target account's own, never assumed to be Naira.
+  const target = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const minorAmount = majorToMinor(amount, target.currency);
+  await creditWallet(userId, minorAmount, "ADJUSTMENT", note, target.currency);
   await recordAudit({
     actor: admin,
     action: "wallet.adjust",
     targetType: "user",
     targetId: userId,
-    metadata: { amountKobo: kobo, note },
+    metadata: { amountMinor: minorAmount, currency: target.currency, note },
   });
 
   revalidatePath(`/admin/users/${userId}`);

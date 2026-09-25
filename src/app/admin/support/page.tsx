@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import {
   ACTIVATION_STATUS_VARIANT,
@@ -159,7 +159,7 @@ export default async function AdminSupportPage() {
                   {ORDER_STATUS_LABEL[order.status]}
                 </Badge>
                 <span className="hidden shrink-0 text-sm tabular-nums text-muted-foreground sm:inline">
-                  {formatNaira(order.priceKobo)} refunded
+                  {formatMoney(order.priceKobo, order.currency)} refunded
                 </span>
                 <time className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground lg:block">
                   {order.createdAt.toLocaleDateString("en-NG", {

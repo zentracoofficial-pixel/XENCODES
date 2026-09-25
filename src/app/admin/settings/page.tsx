@@ -5,25 +5,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_USD_TO_NGN_RATE,
-  DEFAULT_TOPUP_FEE_PERCENT,
-  DEFAULT_TOPUP_FEE_CAP_KOBO,
-} from "@/lib/settings";
+import { readSettings, readNumber, SETTING_KEYS, DEFAULT_TOPUP_FEE_PERCENT } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
 import { getEnabledProviders, getNumberProvider } from "@/lib/provider";
-import { formatNaira } from "@/lib/currency";
-import {
-  WALLET_CURRENCY,
-  MIN_TOPUP_KOBO,
-  MAX_TOPUP_KOBO,
-  FUNDING_PROVIDER,
-} from "@/lib/funding-limits";
+import { formatMoney } from "@/lib/currency";
+import { getEnabledCurrencies } from "@/lib/currency-config";
+import { FUNDING_PROVIDER } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { MarginForm, UsdRateForm, TopupFeeForm } from "./settings-forms";
+import { MarginForm, TopupFeeForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -38,14 +27,14 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, enabledProviders, usdToNgnRateRow] =
+  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies] =
     await Promise.all([
       readSettings(),
       loadMarginRules(),
       prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
       getNumberProvider(),
       getEnabledProviders(),
-      prisma.setting.findUnique({ where: { key: SETTING_KEYS.usdToNgnRate } }),
+      getEnabledCurrencies(),
     ]);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
@@ -101,21 +90,14 @@ export default async function AdminSettingsPage() {
           <Link href="/admin/providers" className="text-forest hover:underline">
             Providers
           </Link>
-          .
+          . Every provider bills Xencodes in US dollars; the exchange rate
+          used to convert that into each currency customers actually pay in
+          is set per currency on{" "}
+          <Link href="/admin/currencies" className="text-forest hover:underline">
+            Currencies
+          </Link>
+          , not here.
         </p>
-        <div className="mt-5 border-t border-border pt-5">
-          <h3 className="text-sm font-semibold">Dollar conversion</h3>
-          <div className="mt-3">
-            <UsdRateForm
-              usdToNgnRate={readNumber(
-                settings,
-                SETTING_KEYS.usdToNgnRate,
-                DEFAULT_USD_TO_NGN_RATE,
-              )}
-              usdToNgnRateUpdatedAt={usdToNgnRateRow?.updatedAt.toISOString() ?? null}
-            />
-          </div>
-        </div>
       </Card>
 
       <Card className="p-5">
@@ -147,33 +129,33 @@ export default async function AdminSettingsPage() {
           <Wallet className="h-4 w-4" />
           Wallet
         </h2>
+        <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+          {enabledCurrencies.length} currenc{enabledCurrencies.length === 1 ? "y" : "ies"}{" "}
+          enabled. Each customer registers, is priced, and pays in exactly one
+          of these; enabling, disabling, exchange rates, and top-up bounds for
+          every currency live on{" "}
+          <Link href="/admin/currencies" className="text-forest hover:underline">
+            Currencies
+          </Link>
+          .
+        </p>
         <dl className="mt-3 grid gap-2.5 sm:grid-cols-3">
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Currency
-            </dt>
-            <dd className="mt-1 text-sm font-medium">{WALLET_CURRENCY}</dd>
-          </div>
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Minimum top up
-            </dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums">
-              {formatNaira(MIN_TOPUP_KOBO)}
-            </dd>
-          </div>
-          <div className="rounded-lg border border-border px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Maximum top up
-            </dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums">
-              {formatNaira(MAX_TOPUP_KOBO)}
-            </dd>
-          </div>
+          {enabledCurrencies.map((currency) => (
+            <div key={currency.code} className="rounded-lg border border-border px-4 py-3">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                {currency.code}
+                {currency.countryLabel ? ` — ${currency.countryLabel}` : ""}
+              </dt>
+              <dd className="mt-1 text-sm font-medium tabular-nums">
+                {formatMoney(currency.minTopUpMinor, currency.code)} to{" "}
+                {formatMoney(currency.maxTopUpMinor, currency.code)}
+              </dd>
+            </div>
+          ))}
         </dl>
         <p className="mt-3 text-xs text-muted-foreground">
-          Customers enter their own amount inside these bounds. There are no
-          fixed funding packages.
+          Customers enter their own amount inside their currency&apos;s bounds.
+          There are no fixed funding packages.
         </p>
         <div className="mt-5 border-t border-border pt-5">
           <h3 className="text-sm font-semibold">Processing fee</h3>
@@ -183,7 +165,12 @@ export default async function AdminSettingsPage() {
             KoraPay&apos;s separate direct charge APIs, and using it here
             broke checkout in a real test), so this fee is added to the
             amount requested at checkout instead, matching KoraPay&apos;s
-            own published rate by default below.
+            own published rate by default below. The cap on this fee is set
+            per currency on{" "}
+            <Link href="/admin/currencies" className="text-forest hover:underline">
+              Currencies
+            </Link>
+            .
           </p>
           <div className="mt-3">
             <TopupFeeForm
@@ -191,11 +178,6 @@ export default async function AdminSettingsPage() {
                 settings,
                 SETTING_KEYS.topupFeePercent,
                 DEFAULT_TOPUP_FEE_PERCENT,
-              )}
-              feeCapKobo={readNumber(
-                settings,
-                SETTING_KEYS.topupFeeCapKobo,
-                DEFAULT_TOPUP_FEE_CAP_KOBO,
               )}
             />
           </div>

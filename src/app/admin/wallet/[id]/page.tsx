@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
 import { isUnverifiedTopup } from "@/lib/funding";
 import { VoidTopupButton } from "../void-topup-button";
@@ -36,7 +36,9 @@ export default async function AdminTransactionPage({
 
   const tx = await prisma.walletTransaction.findUnique({
     where: { id },
-    include: { user: { select: { id: true, email: true, walletBalanceKobo: true } } },
+    include: {
+      user: { select: { id: true, email: true, walletBalanceKobo: true, currency: true } },
+    },
   });
   if (!tx) notFound();
 
@@ -73,7 +75,7 @@ export default async function AdminTransactionPage({
             )}
           >
             {settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
-            {tx.currency} {formatNaira(Math.abs(tx.amountKobo)).replace(/^₦/, "")}
+            {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">{tx.description}</p>
         </div>
@@ -117,10 +119,10 @@ export default async function AdminTransactionPage({
               {tx.user.email}
             </Link>
           </Row>
-          <Row label="Balance now">{formatNaira(tx.user.walletBalanceKobo)}</Row>
+          <Row label="Balance now">{formatMoney(tx.user.walletBalanceKobo, tx.user.currency)}</Row>
           <Row label="Type">{tx.type}</Row>
           <Row label="Amount">
-            {tx.currency} {formatNaira(Math.abs(tx.amountKobo)).replace(/^₦/, "")}
+            {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
           </Row>
           <Row label="Payment provider">{tx.provider ?? "Internal movement"}</Row>
           <Row label="Our reference">

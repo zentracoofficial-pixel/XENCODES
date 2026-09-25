@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { realisedMargin } from "@/lib/pricing";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import type { ActivationStatus, Prisma } from "@/generated/prisma/client";
@@ -383,10 +383,10 @@ export default async function AdminOrdersPage({
                         </span>
                       </td>
                       <td className="px-3 py-3 text-right font-medium tabular-nums">
-                        {formatNaira(order.priceKobo)}
+                        {formatMoney(order.priceKobo, order.currency)}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
-                        {priced ? formatNaira(order.providerCostKobo) : "n/a"}
+                        {priced ? formatMoney(order.providerCostKobo, order.currency) : "n/a"}
                       </td>
                       <td
                         className={cn(
@@ -396,7 +396,7 @@ export default async function AdminOrdersPage({
                             : "text-muted-foreground",
                         )}
                       >
-                        {priced ? formatNaira(order.grossProfitKobo) : "n/a"}
+                        {priced ? formatMoney(order.grossProfitKobo, order.currency) : "n/a"}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
                         {priced ? `${margin}%` : "n/a"}

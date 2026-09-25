@@ -9,11 +9,12 @@ import {
 import { resolveBrandIcon } from "@/lib/brand-match";
 import {
   loadMarginRules,
-  quoteFor,
-  isUsableCost,
+  quoteForCurrency,
+  isUsableUsdCost,
   type PriceQuote,
 } from "@/lib/pricing";
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
+import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -88,7 +89,8 @@ export interface InventoryCountry {
   flag: string;
   dialCode: string;
   nationalDigits: number;
-  /** What the customer would pay, in kobo. Never a supplier cost. */
+  /** What the customer would pay, in the minor unit of whichever currency
+   *  was quoted for. Never a supplier cost. */
   priceKobo: number;
   /** 0 to 100, only when the supplier actually reports it. */
   successRate?: number;
@@ -283,10 +285,11 @@ export interface CatalogHighlights {
 export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   const empty: CatalogHighlights = { startingPriceKobo: null, countryCount: null };
 
-  const [rules, disabledRows, cacheFresh] = await Promise.all([
+  const [rules, disabledRows, cacheFresh, defaultCurrency] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findMany({ where: { enabled: false } }),
     anyProviderCacheFresh(),
+    getDefaultCurrency(),
   ]);
   const disabled = new Set(disabledRows.map((row) => row.slug));
 
@@ -300,15 +303,15 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   if (cacheFresh) {
     const rows = await prisma.syncedOffer.findMany({
       where: { serviceSlug: { notIn: [...disabled] } },
-      select: { serviceSlug: true, costKobo: true, countrySlug: true },
+      select: { serviceSlug: true, costUsdCents: true, countrySlug: true },
     });
     if (rows.length > 0) {
       let startingPriceKobo: number | null = null;
       const countrySlugs = new Set<string>();
       for (const row of rows) {
         countrySlugs.add(row.countrySlug);
-        if (!isUsableCost(row.costKobo)) continue;
-        const quote = quoteFor(rules, row.costKobo, row.serviceSlug);
+        if (!isUsableUsdCost(row.costUsdCents)) continue;
+        const quote = quoteForCurrency(rules, row.costUsdCents, row.serviceSlug, defaultCurrency);
         if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
           startingPriceKobo = quote.customerPriceKobo;
         }
@@ -337,9 +340,9 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
       return [new Map<string, number>(), null] as const;
     });
 
-    for (const [slug, costKobo] of cheapestByService) {
-      if (disabled.has(slug) || !isUsableCost(costKobo)) continue;
-      const quote = quoteFor(rules, costKobo, slug);
+    for (const [slug, costUsdCents] of cheapestByService) {
+      if (disabled.has(slug) || !isUsableUsdCost(costUsdCents)) continue;
+      const quote = quoteForCurrency(rules, costUsdCents, slug, defaultCurrency);
       if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
         startingPriceKobo = quote.customerPriceKobo;
       }
@@ -392,6 +395,7 @@ export async function getServiceMeta(
  */
 export async function getServiceCountries(
   serviceSlug: string,
+  currency: CurrencyConfigEntry,
 ): Promise<InventoryCountry[]> {
   const [rules, serviceSetting, cacheFresh] = await Promise.all([
     loadMarginRules(),
@@ -402,8 +406,9 @@ export async function getServiceCountries(
 
   // Priced from cost read at read time, not from the price the sync wrote:
   // availability and cost only need to be as fresh as the last sync, but a
-  // margin rule an admin changes a minute ago should not wait for the next
-  // sync to take effect anywhere it is shown.
+  // margin rule (or the currency being quoted for) an admin changes a
+  // minute ago should not wait for the next sync to take effect anywhere it
+  // is shown.
   type CostOffer = {
     country: {
       slug: string;
@@ -412,7 +417,7 @@ export async function getServiceCountries(
       dialCode: string;
       nationalDigits: number;
     };
-    costKobo: number;
+    costUsdCents: number;
     stock: string;
     successRate?: number;
   };
@@ -424,11 +429,12 @@ export async function getServiceCountries(
       // More than one provider can have a row for the same country; the
       // customer sees one row per country, priced from whichever provider
       // is cheapest for that country right now, the same rule quotePair()
-      // applies live at purchase time.
+      // applies live at purchase time. Cost is always USD here, so this
+      // comparison is currency-agnostic regardless of who is asking.
       const cheapestByCountry = new Map<string, (typeof cached)[number]>();
       for (const row of cached) {
         const existing = cheapestByCountry.get(row.countrySlug);
-        if (!existing || row.costKobo < existing.costKobo) {
+        if (!existing || row.costUsdCents < existing.costUsdCents) {
           cheapestByCountry.set(row.countrySlug, row);
         }
       }
@@ -440,7 +446,7 @@ export async function getServiceCountries(
           dialCode: row.dialCode,
           nationalDigits: row.nationalDigits,
         },
-        costKobo: row.costKobo,
+        costUsdCents: row.costUsdCents,
         stock: row.stock,
       }));
     }
@@ -461,10 +467,10 @@ export async function getServiceCountries(
       }
       for (const offer of rows) {
         const existing = cheapestByCountry.get(offer.country.slug);
-        if (!existing || offer.costKobo < existing.costKobo) {
+        if (!existing || offer.costUsdCents < existing.costUsdCents) {
           cheapestByCountry.set(offer.country.slug, {
             country: offer.country,
-            costKobo: offer.costKobo,
+            costUsdCents: offer.costUsdCents,
             stock: offer.stock,
             successRate: offer.successRate,
           });
@@ -477,8 +483,8 @@ export async function getServiceCountries(
   return offers
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
-      if (!isUsableCost(offer.costKobo)) return [];
-      const quote = quoteFor(rules, offer.costKobo, serviceSlug);
+      if (!isUsableUsdCost(offer.costUsdCents)) return [];
+      const quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
       return [
         {
           slug: offer.country.slug,
@@ -517,6 +523,7 @@ export async function getServiceCountries(
 export async function quotePair(
   serviceSlug: string,
   countrySlug: string,
+  currency: CurrencyConfigEntry,
 ): Promise<QuoteResult> {
   const [providers, rules, serviceSetting] = await Promise.all([
     getEnabledProviders(),
@@ -564,10 +571,10 @@ export async function quotePair(
     // No usable cost means no knowable margin, so there is no price to
     // quote and nothing to sell from this provider. Refused here rather
     // than guessed, but another provider may still be able to sell it.
-    if (!isUsableCost(offer.costKobo)) {
+    if (!isUsableUsdCost(offer.costUsdCents)) {
       console.error(
         `[inventory] refusing to price "${serviceSlug}" in "${countrySlug}" via "${id}": ` +
-          `provider returned an unusable cost (${offer.costKobo})`,
+          `provider returned an unusable cost (${offer.costUsdCents})`,
       );
       sawUnpriceableOffer = true;
       continue;
@@ -583,10 +590,10 @@ export async function quotePair(
   }
 
   const winner = candidates.reduce((best, candidate) =>
-    candidate.offer.costKobo < best.offer.costKobo ? candidate : best,
+    candidate.offer.costUsdCents < best.offer.costUsdCents ? candidate : best,
   );
 
-  const quote = quoteFor(rules, winner.offer.costKobo, serviceSlug);
+  const quote = quoteForCurrency(rules, winner.offer.costUsdCents, serviceSlug, currency);
 
   return {
     ok: true,

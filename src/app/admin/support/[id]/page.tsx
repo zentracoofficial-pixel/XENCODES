@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import {
   ACTIVATION_STATUS_VARIANT,
@@ -107,7 +107,7 @@ export default async function AdminTicketDetailPage({
             <dl className="mt-2 space-y-1.5 text-sm">
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">Wallet balance</dt>
-                <dd className="tabular-nums">{formatNaira(ticket.user.walletBalanceKobo)}</dd>
+                <dd className="tabular-nums">{formatMoney(ticket.user.walletBalanceKobo, ticket.user.currency)}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">Account status</dt>
@@ -139,7 +139,7 @@ export default async function AdminTicketDetailPage({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{relatedOrder.serviceName}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {relatedOrder.countryName} · {formatNaira(relatedOrder.priceKobo)}
+                    {relatedOrder.countryName} · {formatMoney(relatedOrder.priceKobo, relatedOrder.currency)}
                   </p>
                 </div>
                 <Badge variant={ACTIVATION_STATUS_VARIANT[relatedOrder.status]}>

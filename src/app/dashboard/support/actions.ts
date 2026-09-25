@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 
 export interface ReportState {
   error?: string;
@@ -59,7 +59,7 @@ export async function reportIssueAction(
     `Country: ${activation.countryName}`,
     `Number: ${activation.phoneNumber}`,
     `Status: ${activation.status}`,
-    `Price: ${formatNaira(activation.priceKobo)}`,
+    `Price: ${formatMoney(activation.priceKobo, activation.currency)}`,
     `Bought: ${activation.createdAt.toISOString()}`,
     "",
     details,

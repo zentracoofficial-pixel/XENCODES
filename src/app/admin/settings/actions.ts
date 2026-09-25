@@ -64,41 +64,12 @@ export async function saveMarginSettingsAction(
 }
 
 /**
- * The Naira per US dollar rate GrizzlySMS's dollar-denominated costs are
- * converted at, before margin is applied. Kept separate from the provider
- * form's submit so an admin nudging this number does not also have to
- * retype the provider selection.
- */
-export async function saveUsdRateAction(
-  _prev: SettingsState,
-  formData: FormData,
-): Promise<SettingsState> {
-  const admin = await requireAdmin();
-
-  const rate = Number(formData.get("usdToNgnRate"));
-  if (!Number.isFinite(rate) || rate <= 0) {
-    return { error: "Enter a valid Naira per US dollar rate, greater than zero." };
-  }
-
-  await writeSetting(SETTING_KEYS.usdToNgnRate, String(rate));
-  await recordAudit({
-    actor: admin,
-    action: "settings.update",
-    targetType: "settings",
-    targetId: "usd_to_ngn_rate",
-    metadata: { rate },
-  });
-
-  refresh();
-  return { success: true };
-}
-
-/**
- * The processing fee passed on to customers at wallet top-up, so KoraPay's
- * cut is not silently absorbed by the business. Defaults to KoraPay's own
- * published rate (see DEFAULT_TOPUP_FEE_PERCENT/DEFAULT_TOPUP_FEE_CAP_KOBO
- * in settings.ts), so this only needs touching if KoraPay quotes this
- * account a different negotiated rate.
+ * The processing fee percentage passed on to customers at wallet top-up, so
+ * KoraPay's cut is not silently absorbed by the business. KoraPay's own
+ * published rate is one number regardless of currency, so this stays a
+ * single platform-wide setting; the fee's cap, unlike the percentage, does
+ * vary sensibly by currency and is set per-currency on /admin/currencies
+ * instead, not here.
  */
 export async function saveTopupFeeSettingsAction(
   _prev: SettingsState,
@@ -107,27 +78,18 @@ export async function saveTopupFeeSettingsAction(
   const admin = await requireAdmin();
 
   const feePercent = Number(formData.get("feePercent"));
-  const feeCapNaira = Number(formData.get("feeCapNaira"));
 
   if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 20) {
     return { error: "Enter a fee percentage between 0 and 20." };
   }
-  if (!Number.isFinite(feeCapNaira) || feeCapNaira < 0) {
-    return { error: "Enter a fee cap of 0 or more." };
-  }
 
-  const feeCapKobo = Math.round(feeCapNaira * 100);
-
-  await Promise.all([
-    writeSetting(SETTING_KEYS.topupFeePercent, String(feePercent)),
-    writeSetting(SETTING_KEYS.topupFeeCapKobo, String(feeCapKobo)),
-  ]);
+  await writeSetting(SETTING_KEYS.topupFeePercent, String(feePercent));
   await recordAudit({
     actor: admin,
     action: "settings.update",
     targetType: "settings",
     targetId: "topup_fee",
-    metadata: { feePercent, feeCapKobo },
+    metadata: { feePercent },
   });
 
   revalidatePath("/admin/settings");

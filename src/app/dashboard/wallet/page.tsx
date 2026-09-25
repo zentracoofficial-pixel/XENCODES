@@ -9,14 +9,14 @@ import {
 } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import {
   readSettings,
   readNumber,
   SETTING_KEYS,
   DEFAULT_TOPUP_FEE_PERCENT,
-  DEFAULT_TOPUP_FEE_CAP_KOBO,
 } from "@/lib/settings";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { AddFunds } from "./add-funds";
 
 export const metadata: Metadata = { title: "Wallet" };
@@ -54,8 +54,9 @@ export default async function WalletPage() {
     readSettings(),
   ]);
 
+  const currency =
+    (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
   const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
-  const feeCapKobo = readNumber(settings, SETTING_KEYS.topupFeeCapKobo, DEFAULT_TOPUP_FEE_CAP_KOBO);
 
   return (
     <div className="space-y-6">
@@ -71,12 +72,18 @@ export default async function WalletPage() {
           Current balance
         </p>
         <p className="mt-1.5 text-4xl font-semibold tabular-nums text-white">
-          {formatNaira(user.walletBalanceKobo)}
+          {formatMoney(user.walletBalanceKobo, user.currency)}
         </p>
       </div>
 
       <Suspense fallback={null}>
-        <AddFunds feePercent={feePercent} feeCapKobo={feeCapKobo} />
+        <AddFunds
+          currency={currency.code}
+          minTopUpMinor={currency.minTopUpMinor}
+          maxTopUpMinor={currency.maxTopUpMinor}
+          feePercent={feePercent}
+          feeCapKobo={currency.feeCapMinor}
+        />
       </Suspense>
 
       <section>
@@ -139,7 +146,7 @@ export default async function WalletPage() {
                     }
                   >
                     {settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
-                    {formatNaira(Math.abs(tx.amountKobo))}
+                    {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
                   </span>
                 </li>
               );

@@ -9,7 +9,8 @@ import {
   type ProviderCatalogEntry,
 } from "@/lib/provider";
 import { brandIcons } from "@/data/brand-icons";
-import { loadMarginRules, quoteFor, isUsableCost } from "@/lib/pricing";
+import { loadMarginRules, quoteForCurrency, isUsableUsdCost } from "@/lib/pricing";
+import { getDefaultCurrency } from "@/lib/currency-config";
 
 /**
  * The background job behind "browsing is fast, buying is live."
@@ -42,12 +43,12 @@ import { loadMarginRules, quoteFor, isUsableCost } from "@/lib/pricing";
 const WRITE_CHUNK_SIZE = 2_000;
 
 /**
- * The same integer-overflow lesson as isUsableCost() in pricing.ts, applied
- * to the other supplier-controlled number written to this table: stock
- * count. Confirmed as a second, separate real failure mode in production,
- * with a different anomalous value (3411291350) than the cost overflow
- * this file's isUsableCost() check already catches, and the same Postgres
- * "value out of range for type integer" error.
+ * The same integer-overflow lesson as isUsableUsdCost() in pricing.ts,
+ * applied to the other supplier-controlled number written to this table:
+ * stock count. Confirmed as a second, separate real failure mode in
+ * production, with a different anomalous value (3411291350) than the cost
+ * overflow this file's isUsableUsdCost() check already catches, and the
+ * same Postgres "value out of range for type integer" error.
  *
  * Clamped rather than dropped, unlike an unusable cost: stock count never
  * enters a price, it only decides the in_stock/low/out_of_stock bucket and
@@ -73,7 +74,9 @@ type OfferRow = {
   countryFlag: string;
   dialCode: string;
   nationalDigits: number;
-  costKobo: number;
+  costUsdCents: number;
+  /** Illustrative price only, in the platform's default currency. See
+   *  SyncedOffer.priceKobo's own doc comment in prisma/schema.prisma. */
   priceKobo: number;
   stock: string;
   stockCount: number;
@@ -106,13 +109,13 @@ async function upsertOffers(rows: OfferRow[], runStartedAt: Date): Promise<void>
     const chunk = rows.slice(i, i + WRITE_CHUNK_SIZE);
     const values = Prisma.join(
       chunk.map(
-        (row) => Prisma.sql`(${randomUUID()}, ${row.providerId}, ${row.serviceSlug}, ${row.serviceName}, ${row.serviceColor}, ${row.category}, ${row.countrySlug}, ${row.countryName}, ${row.countryFlag}, ${row.dialCode}, ${row.nationalDigits}, ${row.costKobo}, ${row.priceKobo}, ${row.stock}, ${row.stockCount}, ${runStartedAt})`,
+        (row) => Prisma.sql`(${randomUUID()}, ${row.providerId}, ${row.serviceSlug}, ${row.serviceName}, ${row.serviceColor}, ${row.category}, ${row.countrySlug}, ${row.countryName}, ${row.countryFlag}, ${row.dialCode}, ${row.nationalDigits}, ${row.costUsdCents}, ${row.priceKobo}, ${row.stock}, ${row.stockCount}, ${runStartedAt})`,
       ),
     );
 
     await prisma.$executeRaw`
       INSERT INTO "synced_offers"
-        ("id", "providerId", "serviceSlug", "serviceName", "serviceColor", "category", "countrySlug", "countryName", "countryFlag", "dialCode", "nationalDigits", "costKobo", "priceKobo", "stock", "stockCount", "syncedAt")
+        ("id", "providerId", "serviceSlug", "serviceName", "serviceColor", "category", "countrySlug", "countryName", "countryFlag", "dialCode", "nationalDigits", "costUsdCents", "priceKobo", "stock", "stockCount", "syncedAt")
       VALUES ${values}
       ON CONFLICT ("serviceSlug", "countrySlug", "providerId") DO UPDATE SET
         "serviceName" = EXCLUDED."serviceName",
@@ -122,7 +125,7 @@ async function upsertOffers(rows: OfferRow[], runStartedAt: Date): Promise<void>
         "countryFlag" = EXCLUDED."countryFlag",
         "dialCode" = EXCLUDED."dialCode",
         "nationalDigits" = EXCLUDED."nationalDigits",
-        "costKobo" = EXCLUDED."costKobo",
+        "costUsdCents" = EXCLUDED."costUsdCents",
         "priceKobo" = EXCLUDED."priceKobo",
         "stock" = EXCLUDED."stock",
         "stockCount" = EXCLUDED."stockCount",
@@ -198,7 +201,7 @@ async function collectCatalog(provider: NumberProvider): Promise<ProviderCatalog
       entries.push({
         service,
         country: offer.country,
-        costKobo: offer.costKobo,
+        costUsdCents: offer.costUsdCents,
         stock: offer.stock,
         stockCount: offer.stockCount,
       });
@@ -220,10 +223,11 @@ async function syncOneProvider(
   console.log(`[provider-sync] starting "${id}"`);
 
   try {
-    const [rules, disabledRows, catalog] = await Promise.all([
+    const [rules, disabledRows, catalog, defaultCurrency] = await Promise.all([
       loadMarginRules(),
       prisma.serviceSetting.findMany({ where: { enabled: false } }),
       collectCatalog(provider),
+      getDefaultCurrency(),
     ]);
     console.log(
       `[provider-sync] "${id}" catalog fetched: ${catalog.length} raw entries (${Date.now() - startedAt}ms elapsed)`,
@@ -244,15 +248,17 @@ async function syncOneProvider(
       if (entry.stock === "out_of_stock") continue;
       // An unusable cost means an unknowable margin, so there is no price
       // to cache against it. Dropped rather than guessed.
-      if (!isUsableCost(entry.costKobo)) continue;
+      if (!isUsableUsdCost(entry.costUsdCents)) continue;
 
       const pairKey = `${entry.service.slug}::${entry.country.slug}`;
       if (seenPairs.has(pairKey)) continue;
       seenPairs.add(pairKey);
 
       // The same centralized engine every displayed and charged price goes
-      // through. There is no second formula here.
-      const quote = quoteFor(rules, entry.costKobo, entry.service.slug);
+      // through, converted here into the platform's default currency purely
+      // for this browsing/highlight cache; quotePair() always recomputes
+      // fresh in the buyer's own currency at purchase time.
+      const quote = quoteForCurrency(rules, entry.costUsdCents, entry.service.slug, defaultCurrency);
       serviceSlugs.add(entry.service.slug);
       countrySlugs.add(entry.country.slug);
 
@@ -267,7 +273,7 @@ async function syncOneProvider(
         countryFlag: entry.country.flag,
         dialCode: entry.country.dialCode,
         nationalDigits: entry.country.nationalDigits,
-        costKobo: entry.costKobo,
+        costUsdCents: entry.costUsdCents,
         priceKobo: quote.customerPriceKobo,
         stock: entry.stock,
         stockCount: safeStockCount(entry.stockCount),

@@ -4,8 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatNaira } from "@/lib/currency";
-import { MIN_TOPUP_KOBO, MAX_TOPUP_KOBO, calculateTopupFeeKobo } from "@/lib/funding-limits";
+import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
+import { calculateTopupFeeKobo } from "@/lib/funding-limits";
 import { startTopUpAction, checkTopUpStatusAction } from "./actions";
 
 /**
@@ -23,12 +23,23 @@ import { startTopUpAction, checkTopUpStatusAction } from "./actions";
  * customer arrived back at this URL.
  */
 
-const SUGGESTIONS_KOBO = [50_000, 100_000, 200_000, 500_000];
+/** Suggestion chips scale off the account's own configured minimum rather
+ *  than a fixed Naira table, so they stay sensible for any currency's own
+ *  real-world value per unit. */
+const SUGGESTION_MULTIPLIERS = [5, 10, 20, 50];
 
 export function AddFunds({
+  currency,
+  minTopUpMinor,
+  maxTopUpMinor,
   feePercent,
   feeCapKobo,
 }: {
+  /** ISO 4217, the account's own currency. Every amount here is in this
+   *  currency's minor unit. */
+  currency: string;
+  minTopUpMinor: number;
+  maxTopUpMinor: number;
   /** From admin Settings. Defaults to KoraPay's own published rate. */
   feePercent: number;
   feeCapKobo: number;
@@ -67,11 +78,14 @@ export function AddFunds({
     };
   }, [returningReference]);
 
-  const amountKobo = Math.round(Number(amount.replace(/[^0-9.]/g, "")) * 100);
+  const amountKobo = majorToMinor(Number(amount.replace(/[^0-9.]/g, "")), currency);
   const valid =
     Number.isFinite(amountKobo) &&
-    amountKobo >= MIN_TOPUP_KOBO &&
-    amountKobo <= MAX_TOPUP_KOBO;
+    amountKobo >= minTopUpMinor &&
+    amountKobo <= maxTopUpMinor;
+  const suggestions = SUGGESTION_MULTIPLIERS.map((m) =>
+    Math.min(minTopUpMinor * m, maxTopUpMinor),
+  );
 
   // Live preview only, so the customer sees the real total before they
   // commit. The server recomputes this itself in startTopUpAction() from
@@ -153,14 +167,14 @@ export function AddFunds({
       <section className="rounded-xl border border-border bg-surface p-5">
         <h2 className="text-sm font-semibold">Funding request created</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          A pending top up of {formatNaira(pendingRef.amountKobo)} is on your
+          A pending top up of {formatMoney(pendingRef.amountKobo, currency)} is on your
           account. Your balance has not changed, and will not change until a
           payment is received and confirmed.
         </p>
         {pendingRef.feeKobo > 0 ? (
           <p className="mt-1 text-xs text-muted-foreground">
-            Includes a {formatNaira(pendingRef.feeKobo)} processing fee, total{" "}
-            {formatNaira(pendingRef.totalChargedKobo)}.
+            Includes a {formatMoney(pendingRef.feeKobo, currency)} processing fee, total{" "}
+            {formatMoney(pendingRef.totalChargedKobo, currency)}.
           </p>
         ) : null}
 
@@ -194,7 +208,7 @@ export function AddFunds({
       <h2 className="text-sm font-semibold">Add funds</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Enter how much you want to add. Any amount between{" "}
-        {formatNaira(MIN_TOPUP_KOBO)} and {formatNaira(MAX_TOPUP_KOBO)}.
+        {formatMoney(minTopUpMinor, currency)} and {formatMoney(maxTopUpMinor, currency)}.
       </p>
 
       <div className="mt-4 max-w-xs">
@@ -203,7 +217,7 @@ export function AddFunds({
         </label>
         <div className="relative mt-1.5">
           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-            NGN
+            {currency}
           </span>
           <input
             id="topup-amount"
@@ -225,28 +239,28 @@ export function AddFunds({
 
       {/* Shortcuts that fill the field, not a fixed set of packages. */}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {SUGGESTIONS_KOBO.map((kobo) => (
+        {suggestions.map((minorAmount) => (
           <button
-            key={kobo}
+            key={minorAmount}
             type="button"
             onClick={() => {
-              setAmount(String(kobo / 100));
+              setAmount(String(minorAmount / minorUnitDivisor(currency)));
               setError(null);
             }}
             className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium tabular-nums transition-colors hover:border-mint hover:bg-mint-soft"
           >
-            {formatNaira(kobo)}
+            {formatMoney(minorAmount, currency)}
           </button>
         ))}
       </div>
 
       {valid && hasFee ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          Plus a {formatNaira(previewFeeKobo)} processing fee. Total to pay:{" "}
+          Plus a {formatMoney(previewFeeKobo, currency)} processing fee. Total to pay:{" "}
           <span className="font-medium text-foreground">
-            {formatNaira(amountKobo + previewFeeKobo)}
+            {formatMoney(amountKobo + previewFeeKobo, currency)}
           </span>
-          . Your wallet is credited {formatNaira(amountKobo)}.
+          . Your wallet is credited {formatMoney(amountKobo, currency)}.
         </p>
       ) : null}
 
@@ -260,7 +274,7 @@ export function AddFunds({
         {isPending
           ? "Creating request"
           : hasFee
-            ? `Pay ${formatNaira(amountKobo + previewFeeKobo)}`
+            ? `Pay ${formatMoney(amountKobo + previewFeeKobo, currency)}`
             : "Continue to payment"}
         <ArrowRight className="h-4 w-4" />
       </Button>

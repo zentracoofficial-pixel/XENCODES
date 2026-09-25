@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import {
   ACTIVATION_STATUS_VARIANT,
@@ -95,7 +95,7 @@ export default async function TicketDetailPage({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{relatedOrder.serviceName}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {relatedOrder.countryName} · {formatNaira(relatedOrder.priceKobo)}
+                {relatedOrder.countryName} · {formatMoney(relatedOrder.priceKobo, relatedOrder.currency)}
               </p>
             </div>
             <Badge variant={ACTIVATION_STATUS_VARIANT[relatedOrder.status]}>

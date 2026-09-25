@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Coins,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -19,7 +20,7 @@ import { XenMark } from "@/components/layout/wordmark";
 import { logoutAction } from "@/app/dashboard/actions";
 
 /**
- * Eight screens, each of which does real work.
+ * Nine screens, each of which does real work.
  *
  * Refunds live inside Orders, because a refund is something that happened
  * to an order. Pricing lives inside Services, because a margin is a
@@ -34,6 +35,7 @@ const links = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/services", label: "Services", icon: Package },
   { href: "/admin/providers", label: "Providers", icon: Plug },
+  { href: "/admin/currencies", label: "Currencies", icon: Coins },
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/email", label: "Email", icon: Mail },
   { href: "/admin/support", label: "Support", icon: LifeBuoy },

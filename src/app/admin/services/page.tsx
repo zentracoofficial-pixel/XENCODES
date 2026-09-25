@@ -5,9 +5,10 @@ import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { getEnabledProviders, getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
-import { loadMarginRules, resolveMargin, quotePrice } from "@/lib/pricing";
+import { loadMarginRules, resolveMargin, quoteForCurrency, quotePrice } from "@/lib/pricing";
 import { brandIcons } from "@/data/brand-icons";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
+import { getDefaultCurrency, convertUsdCentsToCurrencyMinor } from "@/lib/currency-config";
 import { ServiceRow } from "./service-row";
 
 export const metadata: Metadata = { title: "Admin: Services" };
@@ -19,8 +20,10 @@ export const dynamic = "force-dynamic";
 const PAGE_SIZE = 150;
 const FALLBACK_COLOR = "#63756F";
 
-/** A worked example, so the margin rules are legible without arithmetic. */
-const EXAMPLE_COST_KOBO = 100_000; // 1,000 Naira
+/** A worked example, so the margin rules are legible without arithmetic. In
+ *  USD cents, like every supplier cost, then converted into the platform's
+ *  default currency the same way a real offer would be. */
+const EXAMPLE_COST_USD_CENTS = 100; // $1.00
 
 /**
  * Services and their pricing in one place.
@@ -40,11 +43,12 @@ export default async function AdminServicesPage({
   const { q } = await searchParams;
   const query = q?.trim().toLowerCase();
 
-  const [resolved, enabledProviders, rules, settings] = await Promise.all([
+  const [resolved, enabledProviders, rules, settings, defaultCurrency] = await Promise.all([
     getNumberProvider(),
     getEnabledProviders(),
     loadMarginRules(),
     prisma.serviceSetting.findMany(),
+    getDefaultCurrency(),
   ]);
 
   const settingBySlug = new Map(settings.map((row) => [row.slug, row]));
@@ -63,7 +67,7 @@ export default async function AdminServicesPage({
       color: string;
       category: string;
       providerServiceId: string | null;
-      cheapestCostKobo: number | null;
+      cheapestCostUsdCents: number | null;
     }
   >();
   let syncedAt: Date | null = null;
@@ -96,7 +100,7 @@ export default async function AdminServicesPage({
           color: brandIcons[service.slug]?.hex ?? service.color,
           category: service.category,
           providerServiceId: idLabel,
-          cheapestCostKobo: cost,
+          cheapestCostUsdCents: cost,
         });
       } else {
         if (idLabel && !existing.providerServiceId?.includes(idLabel)) {
@@ -104,8 +108,11 @@ export default async function AdminServicesPage({
             ? `${existing.providerServiceId}, ${idLabel}`
             : idLabel;
         }
-        if (cost !== null && (existing.cheapestCostKobo === null || cost < existing.cheapestCostKobo)) {
-          existing.cheapestCostKobo = cost;
+        if (
+          cost !== null &&
+          (existing.cheapestCostUsdCents === null || cost < existing.cheapestCostUsdCents)
+        ) {
+          existing.cheapestCostUsdCents = cost;
         }
       }
     }
@@ -122,7 +129,7 @@ export default async function AdminServicesPage({
       color: brandIcons[row.slug]?.hex ?? FALLBACK_COLOR,
       category: "Configured, not currently offered",
       providerServiceId: null,
-      cheapestCostKobo: null,
+      cheapestCostUsdCents: null,
     });
   }
 
@@ -135,11 +142,9 @@ export default async function AdminServicesPage({
     )
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const exclusiveExample = quotePrice(
-    EXAMPLE_COST_KOBO,
-    rules.exclusivePercent,
-  );
-  const defaultExample = quotePrice(EXAMPLE_COST_KOBO, rules.defaultPercent);
+  const exampleCostMinor = convertUsdCentsToCurrencyMinor(EXAMPLE_COST_USD_CENTS, defaultCurrency);
+  const exclusiveExample = quotePrice(exampleCostMinor, rules.exclusivePercent);
+  const defaultExample = quotePrice(exampleCostMinor, rules.defaultPercent);
 
   return (
     <div className="space-y-5">
@@ -163,9 +168,9 @@ export default async function AdminServicesPage({
         <p className="mt-1 text-sm text-muted-foreground">
           Gross margin, as a share of what the customer pays. Not markup: at{" "}
           {rules.defaultPercent}% the customer pays{" "}
-          {formatNaira(defaultExample.customerPriceKobo)} for a number that
-          costs {formatNaira(EXAMPLE_COST_KOBO)}, and{" "}
-          {formatNaira(defaultExample.grossProfitKobo)} of that is profit.
+          {formatMoney(defaultExample.customerPriceKobo, defaultCurrency.code)} for a number that
+          costs {formatMoney(exampleCostMinor, defaultCurrency.code)}, and{" "}
+          {formatMoney(defaultExample.grossProfitKobo, defaultCurrency.code)} of that is profit.
         </p>
         <dl className="mt-4 grid gap-2.5 sm:grid-cols-2">
           <div className="rounded-lg border border-border px-4 py-3">
@@ -176,8 +181,8 @@ export default async function AdminServicesPage({
               {rules.defaultPercent}%
             </dd>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {formatNaira(EXAMPLE_COST_KOBO)} cost sells for{" "}
-              {formatNaira(defaultExample.customerPriceKobo)}
+              {formatMoney(exampleCostMinor, defaultCurrency.code)} cost sells for{" "}
+              {formatMoney(defaultExample.customerPriceKobo, defaultCurrency.code)}
             </p>
           </div>
           <div className="rounded-lg border border-border px-4 py-3">
@@ -188,8 +193,8 @@ export default async function AdminServicesPage({
               {rules.exclusivePercent}%
             </dd>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {formatNaira(EXAMPLE_COST_KOBO)} cost sells for{" "}
-              {formatNaira(exclusiveExample.customerPriceKobo)}
+              {formatMoney(exampleCostMinor, defaultCurrency.code)} cost sells for{" "}
+              {formatMoney(exclusiveExample.customerPriceKobo, defaultCurrency.code)}
             </p>
           </div>
         </dl>
@@ -248,8 +253,16 @@ export default async function AdminServicesPage({
                 {services.slice(0, PAGE_SIZE).map((service) => {
                   const setting = settingBySlug.get(service.slug);
                   const resolvedRule = resolveMargin(rules, service.slug);
-                  const quote = service.cheapestCostKobo
-                    ? quotePrice(service.cheapestCostKobo, resolvedRule.percent)
+                  // Shown in the platform's default currency: illustrative
+                  // only, since the country picked at purchase decides the
+                  // real price in the buyer's own currency.
+                  const quote = service.cheapestCostUsdCents
+                    ? quoteForCurrency(
+                        rules,
+                        service.cheapestCostUsdCents,
+                        service.slug,
+                        defaultCurrency,
+                      )
                     : null;
                   return (
                     <ServiceRow
@@ -259,7 +272,8 @@ export default async function AdminServicesPage({
                       color={service.color}
                       category={service.category}
                       providerServiceId={service.providerServiceId}
-                      cheapestCostKobo={service.cheapestCostKobo}
+                      currency={defaultCurrency.code}
+                      cheapestCostKobo={quote?.providerCostKobo ?? null}
                       cheapestCustomerPriceKobo={quote?.customerPriceKobo ?? null}
                       enabled={setting?.enabled ?? true}
                       overridePercent={setting?.grossMarginPercent ?? null}

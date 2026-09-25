@@ -6,15 +6,15 @@ import { Button } from "@/components/ui/button";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { getInventoryStatus, countServices } from "@/lib/inventory";
-import { formatNaira } from "@/lib/currency";
-import { MIN_TOPUP_KOBO } from "@/lib/funding-limits";
+import { formatMoney } from "@/lib/currency";
+import { getDefaultCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Pay as you go pricing for virtual numbers in Naira. You pay per number, the price depends on the service and country, and no code means no charge.",
+    "Pay as you go pricing for virtual numbers, in your own currency. You pay per number, the price depends on the service and country, and no code means no charge.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -42,9 +42,10 @@ const FACTORS = [
  * question the buy page already answers correctly.
  */
 export default async function PricingPage() {
-  const [status, serviceCount] = await Promise.all([
+  const [status, serviceCount, defaultCurrency] = await Promise.all([
     getInventoryStatus(),
     countServices().catch(() => 0),
+    getDefaultCurrency(),
   ]);
 
   return (
@@ -97,7 +98,8 @@ export default async function PricingPage() {
           <h2 className="font-medium">Top up what you want</h2>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
             There are no fixed funding packages. Add any amount from{" "}
-            {formatNaira(MIN_TOPUP_KOBO)} and spend it a number at a time.
+            {formatMoney(defaultCurrency.minTopUpMinor, defaultCurrency.code)} and
+            spend it a number at a time.
           </p>
         </div>
       </div>
@@ -109,7 +111,7 @@ export default async function PricingPage() {
           </h2>
           <p className="mt-1 text-sm text-white/70">
             {serviceCount > 0
-              ? `Search ${serviceCount.toLocaleString("en-NG")} services and pick a country.`
+              ? `Search ${serviceCount.toLocaleString("en-US")} services and pick a country.`
               : "Search for your service and pick a country."}
           </p>
         </div>

@@ -7,6 +7,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { sendEmailSafe, verificationEmailContent } from "@/lib/email";
 import { SITE_URL } from "@/lib/site";
 import { registerSchema } from "@/lib/validation/auth";
+import { getEnabledCurrencies } from "@/lib/currency-config";
 
 export interface RegisterState {
   error?: string;
@@ -33,11 +34,19 @@ export async function registerAction(
     return { error: "An account with this email already exists." };
   }
 
+  // The picker only ever offers what an admin has actually enabled; a
+  // submission naming anything else (a stale value, a tampered request)
+  // falls back to the platform default rather than creating an account in
+  // a currency nobody configured a rate for.
+  const enabled = await getEnabledCurrencies();
+  const requestedCurrency = (formData.get("currency") as string)?.trim().toUpperCase();
+  const currency = enabled.find((c) => c.code === requestedCurrency)?.code ?? enabled[0]?.code ?? "NGN";
+
   const passwordHash = await bcrypt.hash(password, 12);
   let user;
   try {
     user = await prisma.user.create({
-      data: { email, passwordHash },
+      data: { email, passwordHash, currency },
     });
   } catch (error) {
     // The findUnique check above is not race-safe on its own: two

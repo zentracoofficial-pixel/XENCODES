@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { UserActions } from "./user-actions";
 import {
@@ -117,15 +117,15 @@ export default async function AdminUserDetailPage({
       </div>
 
       <MetricGrid>
-        <Metric label="Wallet balance" value={formatNaira(user.walletBalanceKobo)} />
+        <Metric label="Wallet balance" value={formatMoney(user.walletBalanceKobo, user.currency)} />
         <Metric
           label="Total funded"
-          value={formatNaira(fundedAgg._sum.amountKobo ?? 0)}
+          value={formatMoney(fundedAgg._sum.amountKobo ?? 0, user.currency)}
           hint="Confirmed payments"
         />
         <Metric
           label="Total spent"
-          value={formatNaira(Math.abs(spendAgg._sum.amountKobo ?? 0))}
+          value={formatMoney(Math.abs(spendAgg._sum.amountKobo ?? 0), user.currency)}
           hint="On numbers"
         />
         <Metric label="Orders" value={user._count.activations} />
@@ -171,7 +171,7 @@ export default async function AdminUserDetailPage({
                         </p>
                       </div>
                       <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                        {formatNaira(order.priceKobo)}
+                        {formatMoney(order.priceKobo, order.currency)}
                       </span>
                       <Badge variant={ACTIVATION_STATUS_VARIANT[order.status]}>
                         {ORDER_STATUS_LABEL[order.status]}
@@ -221,8 +221,7 @@ export default async function AdminUserDetailPage({
                             : "text-muted-foreground",
                         )}
                       >
-                        {tx.currency}{" "}
-                        {formatNaira(Math.abs(tx.amountKobo)).replace(/^₦/, "")}
+                        {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
                       </span>
                     </Link>
                   </li>
@@ -260,7 +259,7 @@ export default async function AdminUserDetailPage({
                         )}
                       >
                         {tx.amountKobo >= 0 ? "+" : "-"}
-                        {formatNaira(Math.abs(tx.amountKobo))}
+                        {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
                       </span>
                     </Link>
                   </li>
@@ -319,6 +318,7 @@ export default async function AdminUserDetailPage({
           email={user.email}
           status={user.status}
           role={user.role}
+          currency={user.currency}
           isSelf={admin.id === user.id}
           isDeleted={Boolean(user.deletedAt)}
           deletionImpact={deletionImpact}

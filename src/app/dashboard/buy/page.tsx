@@ -6,6 +6,7 @@ import { brandIcons } from "@/data/brand-icons";
 import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
 import { ActivationView } from "@/components/product/activation-view";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 
 /**
  * Buy a number, inside the dashboard.
@@ -53,6 +54,7 @@ export default async function DashboardBuyPage({
             countryName: row.countryName,
             phoneNumber: row.phoneNumber,
             priceKobo: row.priceKobo,
+            currency: row.currency,
             status: row.status,
             code: row.code,
             expiresAt: row.expiresAt.toISOString(),
@@ -62,14 +64,18 @@ export default async function DashboardBuyPage({
     }
   }
 
-  const [status, initialServices, user] = await Promise.all([
+  const [status, initialServices, user, defaultCurrency] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { walletBalanceKobo: true },
+      select: { walletBalanceKobo: true, currency: true },
     }),
+    getDefaultCurrency(),
   ]);
+  // Falls back to the platform default only if the account somehow carries
+  // a currency no longer enabled; never assumed to be Naira otherwise.
+  const currency = user ? ((await getCurrencyConfig(user.currency))?.code ?? defaultCurrency.code) : defaultCurrency.code;
 
   // A deep link to a service outside the first page still needs to arrive
   // selected, so fetch that one on its own.
@@ -85,6 +91,7 @@ export default async function DashboardBuyPage({
       initialServiceSlug={serviceSlug}
       signedIn
       walletBalanceKobo={user?.walletBalanceKobo ?? 0}
+      currency={currency}
       unavailableMessage={status.connected ? undefined : status.message}
       basePath="/dashboard/buy"
       walletHref="/dashboard/wallet"

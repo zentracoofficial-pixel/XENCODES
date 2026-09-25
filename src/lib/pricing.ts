@@ -4,6 +4,10 @@ import {
   DEFAULT_GROSS_MARGIN_PERCENT,
   EXCLUSIVE_GROSS_MARGIN_PERCENT,
 } from "@/lib/settings";
+import {
+  convertUsdCentsToCurrencyMinor,
+  type CurrencyConfigEntry,
+} from "@/lib/currency-config";
 
 /**
  * The one place a customer price is derived from a supplier cost.
@@ -152,8 +156,8 @@ export function isExclusiveService(serviceSlug: string) {
   return EXCLUSIVE_SERVICE_SLUGS.has(serviceSlug);
 }
 
-/** Postgres INTEGER's own ceiling. Every kobo column this app writes
- *  (SyncedOffer.costKobo/priceKobo, Activation.providerCostKobo/priceKobo)
+/** Postgres INTEGER's own ceiling. Every minor-unit column this app writes
+ *  (SyncedOffer.costUsdCents/priceKobo, Activation.providerCostKobo/priceKobo)
  *  is a 32-bit int, in both the synced-catalog cache and the live purchase
  *  path, since both eventually store whatever quotePrice() returns. */
 const POSTGRES_INT4_MAX = 2_147_483_647;
@@ -200,6 +204,26 @@ export function isUsableCost(costKobo: number | null | undefined): costKobo is n
     Number.isInteger(costKobo) &&
     costKobo > 0 &&
     costKobo <= MAX_USABLE_COST_KOBO
+  );
+}
+
+/**
+ * The same sanity check as isUsableCost(), applied to a provider's raw USD
+ * cost before it is ever converted into a customer's own currency. No real
+ * SMS-verification number costs anywhere near this; one reported anyway is
+ * exactly the "unknown cost" case worth refusing rather than converting and
+ * charging margin on. Independent of which currency it will become: a
+ * garbage USD figure is garbage before any exchange rate is applied to it.
+ */
+const MAX_USABLE_COST_USD_CENTS = 100_000; // $1,000
+
+export function isUsableUsdCost(usdCents: number | null | undefined): usdCents is number {
+  return (
+    typeof usdCents === "number" &&
+    Number.isFinite(usdCents) &&
+    Number.isInteger(usdCents) &&
+    usdCents > 0 &&
+    usdCents <= MAX_USABLE_COST_USD_CENTS
   );
 }
 
@@ -262,6 +286,24 @@ export function quoteFor(
 ): PriceQuote {
   const { percent, rule, ruleLabel } = resolveMargin(rules, serviceSlug);
   return quotePrice(providerCostKobo, percent, rule, ruleLabel);
+}
+
+/**
+ * The multi-currency entry point: converts a provider's raw USD cost into
+ * one specific currency at that currency's own admin-configured rate, then
+ * prices it exactly the way quoteFor() always has. This is the only place
+ * a USD cost and a target currency ever meet; quotePrice() itself never
+ * hears about USD or exchange rates at all, only a cost already expressed
+ * in the currency it is pricing for.
+ */
+export function quoteForCurrency(
+  rules: MarginRules,
+  usdCents: number,
+  serviceSlug: string,
+  currency: CurrencyConfigEntry,
+): PriceQuote {
+  const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
+  return quoteFor(rules, costMinor, serviceSlug);
 }
 
 /** Margin actually earned on a stored order, from the two exact figures

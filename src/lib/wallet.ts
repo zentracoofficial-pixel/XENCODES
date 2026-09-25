@@ -32,6 +32,11 @@ export async function creditWallet(
   amountKobo: number,
   type: Extract<WalletTransactionType, "REFUND" | "ADJUSTMENT">,
   description: string,
+  /** ISO 4217, the currency amountKobo is actually denominated in: the
+   *  refunded activation's own currency, or the target account's currency
+   *  for an admin adjustment. Required rather than left to the schema's own
+   *  "NGN" default, which would silently mislabel every non-NGN credit. */
+  currency: string,
   activationId?: string,
   tx?: TransactionClient,
 ) {
@@ -41,7 +46,7 @@ export async function creditWallet(
       data: { walletBalanceKobo: { increment: amountKobo } },
     });
     await client.walletTransaction.create({
-      data: { userId, amountKobo, type, description, activationId },
+      data: { userId, amountKobo, type, description, currency, activationId },
     });
     return user;
   };

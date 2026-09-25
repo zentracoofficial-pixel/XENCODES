@@ -28,13 +28,13 @@ export interface ProviderCapabilities {
 
 function capabilitiesOf(provider: {
   getFullCatalog?: unknown;
-  getProviderBalanceKobo?: unknown;
+  getProviderBalanceUsdCents?: unknown;
   getCatalogSyncedAt?: unknown;
   testConnection?: unknown;
 }): ProviderCapabilities {
   return {
     bulkCatalog: typeof provider.getFullCatalog === "function",
-    balance: typeof provider.getProviderBalanceKobo === "function",
+    balance: typeof provider.getProviderBalanceUsdCents === "function",
     catalogFreshness: typeof provider.getCatalogSyncedAt === "function",
     connectionTest: typeof provider.testConnection === "function",
   };
@@ -60,8 +60,11 @@ export interface ProviderDefinition {
   hasCredentials: () => boolean;
   /** Builds a live adapter instance. Reads its own credentials from
    *  process.env; throws ProviderConfigError when one is missing rather
-   *  than starting an adapter that would fail on its first real call. */
-  create: (config: { usdToNgnRate: number }) => NumberProvider;
+   *  than starting an adapter that would fail on its first real call. An
+   *  adapter never takes a currency or exchange rate: it only ever reports
+   *  cost in US cents (see src/lib/provider/types.ts), so nothing about
+   *  currency configuration belongs in how one is built. */
+  create: () => NumberProvider;
 }
 
 /**
@@ -80,14 +83,14 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
     label: "GrizzlySMS",
     envVarNames: ["GRIZZLYSMS_API_KEY"],
     hasCredentials: () => Boolean(process.env.GRIZZLYSMS_API_KEY),
-    create: ({ usdToNgnRate }) => {
+    create: () => {
       const apiKey = process.env.GRIZZLYSMS_API_KEY;
       if (!apiKey) {
         throw new ProviderConfigError(
           "GRIZZLYSMS_API_KEY is not set as an environment variable on this deployment.",
         );
       }
-      return new GrizzlySmsProvider({ apiKey, usdToNgnRate });
+      return new GrizzlySmsProvider({ apiKey });
     },
   },
 

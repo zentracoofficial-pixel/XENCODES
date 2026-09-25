@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "./activation-logo";
 import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
@@ -54,7 +54,7 @@ export default async function DashboardPage() {
             Wallet balance
           </p>
           <p className="mt-1.5 text-3xl font-semibold tabular-nums text-white">
-            {formatNaira(user.walletBalanceKobo)}
+            {formatMoney(user.walletBalanceKobo, user.currency)}
           </p>
           {/* An empty wallet is stated plainly here rather than left for
               the customer to discover at the moment they try to buy. */}
@@ -151,7 +151,7 @@ export default async function DashboardPage() {
                   </span>
                 ) : null}
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                  {formatNaira(activation.priceKobo)}
+                  {formatMoney(activation.priceKobo, activation.currency)}
                 </span>
                 <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
                   {ACTIVATION_STATUS_LABEL[activation.status]}

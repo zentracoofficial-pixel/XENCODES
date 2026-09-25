@@ -1,11 +1,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
-import {
-  WALLET_CURRENCY,
-  FUNDING_PROVIDER,
-  validateTopUpAmount,
-} from "@/lib/funding-limits";
+import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
 
 /**
@@ -27,11 +23,8 @@ import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
  */
 
 export {
-  WALLET_CURRENCY,
   FUNDING_PROVIDER,
-  MIN_TOPUP_KOBO,
-  MAX_TOPUP_KOBO,
-  FUNDING_ERROR_COPY,
+  fundingErrorCopy,
   validateTopUpAmount,
   type FundingError,
 } from "@/lib/funding-limits";
@@ -58,8 +51,13 @@ function newReference() {
 export async function createPendingTopUp(
   userId: string,
   amountKobo: number,
+  /** ISO 4217, the account's own currency. amountKobo is in this currency's
+   *  minor unit, never assumed to be Naira. */
+  currency: string,
+  minTopUpMinor: number,
+  maxTopUpMinor: number,
 ): Promise<WalletTransaction> {
-  const invalid = validateTopUpAmount(amountKobo);
+  const invalid = validateTopUpAmount(amountKobo, minTopUpMinor, maxTopUpMinor);
   if (invalid) throw new Error(invalid);
 
   return prisma.walletTransaction.create({
@@ -67,7 +65,7 @@ export async function createPendingTopUp(
       userId,
       type: "TOPUP",
       amountKobo,
-      currency: WALLET_CURRENCY,
+      currency,
       status: "PENDING",
       provider: FUNDING_PROVIDER.id,
       providerReference: newReference(),
@@ -277,9 +275,9 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
       );
       return { state: "still_pending" };
     }
-    if (charge.currency !== undefined && charge.currency !== WALLET_CURRENCY) {
+    if (charge.currency !== undefined && charge.currency !== row.currency) {
       console.error(
-        `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${WALLET_CURRENCY}".`,
+        `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${row.currency}".`,
       );
       return { state: "still_pending" };
     }

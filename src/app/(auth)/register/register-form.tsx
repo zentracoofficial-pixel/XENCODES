@@ -9,7 +9,14 @@ import { registerAction, type RegisterState } from "./actions";
 
 const initialState: RegisterState = {};
 
-export function RegisterForm() {
+export function RegisterForm({
+  currencies,
+}: {
+  /** Every currency an admin has enabled, lowest priority first (see
+   *  getEnabledCurrencies() in src/lib/currency-config.ts). Always at least
+   *  one: NGN can never be disabled. */
+  currencies: { code: string; label: string }[];
+}) {
   const [state, formAction, pending] = useActionState(registerAction, initialState);
 
   if (state.success) {
@@ -60,6 +67,32 @@ export function RegisterForm() {
             placeholder="••••••••"
           />
         </div>
+
+        {currencies.length > 1 ? (
+          <div>
+            <label htmlFor="currency" className="text-sm font-medium">
+              Currency
+            </label>
+            <select
+              id="currency"
+              name="currency"
+              defaultValue={currencies[0].code}
+              className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+            >
+              {currencies.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Numbers are priced and your wallet is charged in this currency.
+              It cannot be changed later.
+            </p>
+          </div>
+        ) : (
+          <input type="hidden" name="currency" value={currencies[0]?.code ?? "NGN"} />
+        )}
 
         {state.error ? (
           <p className="text-sm text-danger">{state.error}</p>

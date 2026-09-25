@@ -1,16 +1,22 @@
 /**
- * Funding limits and amount validation, with no server imports.
+ * Funding limits and amount validation, with no server imports (currency.ts,
+ * this file's one dependency, has none either).
  *
  * Kept separate from funding.ts so the browser can render and pre-validate
  * the amount field without dragging the database client and Node crypto
  * into the client bundle. The server still re-validates with the same
  * function: this is a convenience for the customer, never the check that
  * matters.
+ *
+ * Every bound here (min/max top-up, fee cap) is per-currency, sourced from
+ * the admin-configured CurrencyConfigEntry (see src/lib/currency-config.ts)
+ * rather than a single hardcoded Naira figure: "100" is a sensible floor for
+ * NGN but not for a currency with a very different real-world value per
+ * unit. Callers pass the resolved bounds in rather than this file assuming
+ * a currency, since currency-config.ts is server-only (it reads the
+ * database) and cannot be imported from here.
  */
-
-/** The currency the wallet is denominated in, and the one a payment will
- *  be charged in. Naira, matching the kobo amounts stored everywhere. */
-export const WALLET_CURRENCY = "NGN";
+import { formatMoney } from "@/lib/currency";
 
 /**
  * The intended payment provider.
@@ -23,35 +29,43 @@ export const WALLET_CURRENCY = "NGN";
  */
 export const FUNDING_PROVIDER = { id: "korapay", label: "KoraPay" } as const;
 
-/** Bounds on a single funding attempt, in kobo. Low enough to top up for
- *  one number, high enough to be useful, and deliberately a range rather
- *  than a set of packages: the amount is the customer's choice. */
-export const MIN_TOPUP_KOBO = 10_000; // 100 Naira
-export const MAX_TOPUP_KOBO = 50_000_000; // 500,000 Naira
-
 export type FundingError =
   | "not_authenticated"
   | "amount_too_low"
   | "amount_too_high"
   | "amount_invalid";
 
-function nairaWords(kobo: number) {
-  return `NGN ${(kobo / 100).toLocaleString("en-NG")}`;
+/** Wording for a funding error. `not_authenticated` and `amount_invalid`
+ *  need no currency; the two bound errors state the actual configured
+ *  min/max for the account's own currency, never a fixed Naira figure. */
+export function fundingErrorCopy(
+  error: FundingError,
+  currency: string,
+  minTopUpMinor: number,
+  maxTopUpMinor: number,
+): string {
+  switch (error) {
+    case "not_authenticated":
+      return "Log in to add funds.";
+    case "amount_invalid":
+      return "Enter a valid amount.";
+    case "amount_too_low":
+      return `The smallest top up is ${formatMoney(minTopUpMinor, currency)}.`;
+    case "amount_too_high":
+      return `The largest single top up is ${formatMoney(maxTopUpMinor, currency)}.`;
+  }
 }
 
-export const FUNDING_ERROR_COPY: Record<FundingError, string> = {
-  not_authenticated: "Log in to add funds.",
-  amount_invalid: "Enter a valid amount.",
-  amount_too_low: `The smallest top up is ${nairaWords(MIN_TOPUP_KOBO)}.`,
-  amount_too_high: `The largest single top up is ${nairaWords(MAX_TOPUP_KOBO)}.`,
-};
-
-export function validateTopUpAmount(amountKobo: number): FundingError | null {
+export function validateTopUpAmount(
+  amountKobo: number,
+  minTopUpMinor: number,
+  maxTopUpMinor: number,
+): FundingError | null {
   if (!Number.isFinite(amountKobo) || !Number.isInteger(amountKobo) || amountKobo <= 0) {
     return "amount_invalid";
   }
-  if (amountKobo < MIN_TOPUP_KOBO) return "amount_too_low";
-  if (amountKobo > MAX_TOPUP_KOBO) return "amount_too_high";
+  if (amountKobo < minTopUpMinor) return "amount_too_low";
+  if (amountKobo > maxTopUpMinor) return "amount_too_high";
   return null;
 }
 

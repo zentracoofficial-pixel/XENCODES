@@ -9,9 +9,11 @@
  *
  * Two rules the shape of this file exists to enforce:
  *
- * 1. Money crossing this boundary is always a COST, in kobo, never a
- *    customer price. Turning a cost into a price is src/lib/pricing.ts's
- *    job and only its job.
+ * 1. Money crossing this boundary is always a COST, in US cents, never a
+ *    customer price and never in the customer's own currency: a supplier
+ *    bills Xencodes in USD regardless of who a number is sold to. Turning
+ *    that cost into a customer price, in a customer's own currency, is
+ *    src/lib/pricing.ts's job and only its job.
  * 2. An adapter reports what the supplier actually said. Where the supplier
  *    reports nothing, the field is absent. Filling in a plausible-looking
  *    value reads to a customer as a measurement, and it is not one.
@@ -72,11 +74,15 @@ export interface ProviderAvailability {
   serviceSlug: string;
   country: ProviderCountry;
   /**
-   * What the supplier bills Xencodes for this pair, in kobo. Exact, never
-   * rounded to a tidy figure: rounding a cost down is how an order ends up
-   * billing the business.
+   * What the supplier bills Xencodes for this pair, in US cents. Always
+   * USD, regardless of which currency the eventual customer pays in: a
+   * provider bills Xencodes the same way no matter who the number is sold
+   * to. Converting this into a customer's own currency is the pricing
+   * engine's job (see quoteForCurrency() in src/lib/pricing.ts), never this
+   * adapter's. Exact, never rounded to a tidy figure: rounding a cost down
+   * is how an order ends up billing the business.
    */
-  costKobo: number;
+  costUsdCents: number;
   stock: StockLevel;
   /** How many numbers the supplier reports, when it reports a count. */
   stockCount?: number;
@@ -97,8 +103,9 @@ export interface ProviderAvailability {
 export interface ProviderCatalogEntry {
   service: ProviderService;
   country: ProviderCountry;
-  /** What the supplier bills Xencodes for this pair, in kobo. */
-  costKobo: number;
+  /** What the supplier bills Xencodes for this pair, in US cents. Always
+   *  USD; see ProviderAvailability.costUsdCents. */
+  costUsdCents: number;
   stock: StockLevel;
   stockCount?: number;
 }
@@ -162,18 +169,19 @@ export interface NumberProvider {
   ): Promise<ProviderAvailability | null>;
 
   /**
-   * Reserves a number. `maxCostKobo`, when given, is an additional
+   * Reserves a number. `maxCostUsdCents`, when given, is an additional
    * provider-side safety rail on top of the cost check the caller already
    * performed a moment earlier: an adapter that can pass a price ceiling to
    * its supplier should, so a cost that rose in the instant between the
    * quote and this call is refused by the supplier itself rather than
    * silently paid. It is a backstop, not a substitute for the caller's own
-   * check.
+   * check. In USD cents, the same currency every cost crossing this
+   * boundary is in, regardless of what currency the customer is paying.
    */
   purchaseNumber(
     serviceSlug: string,
     countrySlug: string,
-    maxCostKobo?: number,
+    maxCostUsdCents?: number,
   ): Promise<PurchasedNumber>;
 
   /** Polled while a customer waits. Carries the code once it arrives. */
@@ -201,10 +209,11 @@ export interface NumberProvider {
    */
   getFullCatalog?(): Promise<ProviderCatalogEntry[]>;
 
-  /** Xencodes' remaining credit with the supplier, in kobo, when the
-   *  supplier exposes it. Shown to the admin so a balance running out is
-   *  visible before it stops sales. */
-  getProviderBalanceKobo?(): Promise<number | null>;
+  /** Xencodes' remaining credit with the supplier, in US cents (suppliers
+   *  in this space bill and hold balance in USD), when the supplier exposes
+   *  it. Shown to the admin so a balance running out is visible before it
+   *  stops sales. */
+  getProviderBalanceUsdCents?(): Promise<number | null>;
 
   /** When the service and country catalog was last actually fetched from
    *  the supplier, or null before the first fetch. Read only, never
@@ -214,7 +223,7 @@ export interface NumberProvider {
   getCatalogSyncedAt?(): Date | null;
 
   /**
-   * The cheapest cost, in kobo, at which each service is currently sold
+   * The cheapest cost, in US cents, at which each service is currently sold
    * anywhere, keyed by our service slug. Optional and best effort: an
    * adapter that already fetched pricing broadly for another reason can
    * offer this for free; one that would need a dedicated call per service

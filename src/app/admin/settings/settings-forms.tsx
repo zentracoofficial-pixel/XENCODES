@@ -1,11 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
-import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   saveMarginSettingsAction,
-  saveUsdRateAction,
   saveTopupFeeSettingsAction,
   type SettingsState,
 } from "./actions";
@@ -86,52 +84,27 @@ export function MarginForm({
   );
 }
 
-export function TopupFeeForm({
-  feePercent,
-  feeCapKobo,
-}: {
-  feePercent: number;
-  feeCapKobo: number;
-}) {
+export function TopupFeeForm({ feePercent }: { feePercent: number }) {
   const [state, formAction, pending] = useActionState(saveTopupFeeSettingsAction, initial);
 
   return (
     <form action={formAction} className="space-y-4">
-      <div className="grid max-w-md gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="feePercent">
-            Percentage fee
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              id="feePercent"
-              name="feePercent"
-              type="number"
-              step="0.01"
-              min="0"
-              max="20"
-              defaultValue={feePercent}
-              className={inputClass}
-            />
-            <span className="text-sm text-muted-foreground">%</span>
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="feeCapNaira">
-            Fee cap
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">₦</span>
-            <input
-              id="feeCapNaira"
-              name="feeCapNaira"
-              type="number"
-              step="1"
-              min="0"
-              defaultValue={feeCapKobo / 100}
-              className={inputClass}
-            />
-          </div>
+      <div className="max-w-xs space-y-1.5">
+        <label className={labelClass} htmlFor="feePercent">
+          Percentage fee
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="feePercent"
+            name="feePercent"
+            type="number"
+            step="0.01"
+            min="0"
+            max="20"
+            defaultValue={feePercent}
+            className={inputClass}
+          />
+          <span className="text-sm text-muted-foreground">%</span>
         </div>
       </div>
 
@@ -140,9 +113,10 @@ export function TopupFeeForm({
         cost is paid by the customer rather than absorbed here. The wallet
         is still credited exactly the amount the customer asked for; only
         what they are charged at checkout includes this fee. Defaults to
-        KoraPay&apos;s own published local rate (1.5%, capped at ₦2,000 per
-        transaction) — only change this if KoraPay quotes this account a
-        different negotiated rate.
+        KoraPay&apos;s own published rate (1.5%) — only change this if
+        KoraPay quotes this account a different negotiated rate. The cap on
+        this fee is set per currency on Currencies, since a sensible cap
+        varies by currency the way the percentage does not.
       </p>
 
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
@@ -150,86 +124,6 @@ export function TopupFeeForm({
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save fee"}
-      </Button>
-    </form>
-  );
-}
-
-/** Naira depreciates against the dollar over time; a rate typed in once and
- *  never revisited quietly understates real cost until margin erodes or
- *  disappears. This is the one piece of "cost" in the whole pricing chain
- *  that isn't live, so it is the one thing that needs a nag. */
-const STALE_AFTER_DAYS = 7;
-
-function daysSince(iso: string) {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
-}
-
-export function UsdRateForm({
-  usdToNgnRate,
-  usdToNgnRateUpdatedAt,
-}: {
-  usdToNgnRate: number;
-  /** ISO timestamp of the last time an admin actually saved this rate, or
-   *  null if it has never been set (still running on the code default). */
-  usdToNgnRateUpdatedAt: string | null;
-}) {
-  const [state, formAction, pending] = useActionState(saveUsdRateAction, initial);
-
-  return (
-    <form action={formAction} className="space-y-4">
-      <div className="max-w-xs space-y-1.5">
-        <label className={labelClass} htmlFor="usdToNgnRate">
-          Naira per US dollar
-        </label>
-        <input
-          id="usdToNgnRate"
-          name="usdToNgnRate"
-          type="number"
-          step="0.01"
-          min="0"
-          defaultValue={usdToNgnRate}
-          className={inputClass}
-        />
-        <p className="text-xs text-muted-foreground">
-          Used to convert any dollar-priced provider&apos;s cost (GrizzlySMS
-          prices in US dollars) into Naira before margin is applied, so keep
-          it current.
-        </p>
-      </div>
-
-      {usdToNgnRateUpdatedAt === null ? (
-        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            This rate has never actually been set, it is still the code
-            default above. Confirm today&apos;s rate and save it before
-            trusting the prices customers see.
-          </p>
-        </div>
-      ) : daysSince(usdToNgnRateUpdatedAt) >= STALE_AFTER_DAYS ? (
-        <div className="flex max-w-xl items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            Last updated {daysSince(usdToNgnRateUpdatedAt)} days ago. Every
-            other number in this chain is live or admin-set on purpose; this
-            rate is the one exception, and it is the whole reason a sale
-            could quietly go below cost. Check today&apos;s rate and update
-            it if the Naira has moved.
-          </p>
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Updated {daysSince(usdToNgnRateUpdatedAt)}{" "}
-          {daysSince(usdToNgnRateUpdatedAt) === 1 ? "day" : "days"} ago.
-        </p>
-      )}
-
-      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
-
-      <Button type="submit" disabled={pending}>
-        {pending ? "Saving" : "Save rate"}
       </Button>
     </form>
   );

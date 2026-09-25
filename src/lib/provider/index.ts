@@ -1,9 +1,3 @@
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_USD_TO_NGN_RATE,
-} from "@/lib/settings";
 import { readProviderConfig } from "./config";
 import { PROVIDER_DEFINITIONS, getProviderDefinition, ProviderConfigError } from "./registry";
 import type { NumberProvider } from "./types";
@@ -31,11 +25,6 @@ export * from "./config";
  * it resolves to the first enabled, connected provider by priority.
  */
 
-async function usdToNgnRate(): Promise<number> {
-  const settings = await readSettings();
-  return readNumber(settings, SETTING_KEYS.usdToNgnRate, DEFAULT_USD_TO_NGN_RATE);
-}
-
 export type ProviderResolution =
   | { connected: true; provider: NumberProvider }
   | {
@@ -55,8 +44,7 @@ export async function resolveProvider(id: string): Promise<ProviderResolution> {
   if (!definition) return { connected: false, reason: "no_adapter", configuredId: id };
 
   try {
-    const rate = await usdToNgnRate();
-    return { connected: true, provider: definition.create({ usdToNgnRate: rate }) };
+    return { connected: true, provider: definition.create() };
   } catch (error) {
     if (error instanceof ProviderConfigError) {
       console.error(`[provider] "${id}" is not fully configured:`, error.message);
