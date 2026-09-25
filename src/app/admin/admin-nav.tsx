@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { XenMark } from "@/components/layout/wordmark";
+import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
 import { logoutAction } from "@/app/dashboard/actions";
 
 /**
@@ -71,14 +72,29 @@ function NavItems() {
   );
 }
 
-export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
+export function AdminSidebar({
+  adminEmail,
+  notifications,
+  unreadCount,
+}: {
+  adminEmail: string;
+  notifications: NotificationItem[];
+  unreadCount: number;
+}) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col bg-forest-dark lg:flex">
       <div className="flex h-16 items-center gap-2 px-5">
         <XenMark className="h-[22px] w-[22px] text-white" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold tracking-[-0.02em] text-white">Xencodes</p>
           <p className="text-[11px] text-white/40">Admin</p>
+        </div>
+        <div className="text-white [&_button]:text-white/70 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            ticketBasePath="/admin/support"
+          />
         </div>
       </div>
 
@@ -105,13 +121,26 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
   );
 }
 
-export function AdminTopBar() {
+export function AdminTopBar({
+  notifications,
+  unreadCount,
+}: {
+  notifications: NotificationItem[];
+  unreadCount: number;
+}) {
   return (
     <header className="bg-forest-dark lg:hidden">
       <div className="flex h-14 items-center gap-2 px-4">
         <XenMark className="h-5 w-5 text-white" />
         <p className="text-sm font-semibold text-white">Admin</p>
-        <form action={logoutAction} className="ml-auto">
+        <div className="ml-auto flex items-center gap-1 text-white [&_button]:text-white/70 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            ticketBasePath="/admin/support"
+          />
+        </div>
+        <form action={logoutAction}>
           <button
             type="submit"
             aria-label="Log out"

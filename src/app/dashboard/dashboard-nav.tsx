@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Wordmark } from "@/components/layout/wordmark";
+import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
 import { logoutAction } from "./actions";
 
 const links = [
@@ -51,13 +52,24 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function DashboardSidebar() {
+export function DashboardSidebar({
+  notifications,
+  unreadCount,
+}: {
+  notifications: NotificationItem[];
+  unreadCount: number;
+}) {
   return (
     <aside className="hidden w-60 shrink-0 border-r border-border bg-surface lg:flex lg:flex-col">
-      <div className="flex h-16 items-center px-5">
+      <div className="flex h-16 items-center justify-between px-5">
         <Link href="/" aria-label="Xencodes home">
           <Wordmark />
         </Link>
+        <NotificationBell
+          notifications={notifications}
+          unreadCount={unreadCount}
+          ticketBasePath="/dashboard/support"
+        />
       </div>
 
       <nav className="mt-2 flex flex-1 flex-col gap-0.5 px-3">
@@ -86,7 +98,13 @@ export function DashboardSidebar() {
   );
 }
 
-export function DashboardTopBar() {
+export function DashboardTopBar({
+  notifications,
+  unreadCount,
+}: {
+  notifications: NotificationItem[];
+  unreadCount: number;
+}) {
   return (
     <header className="border-b border-border bg-surface lg:hidden">
       <div className="flex h-14 items-center justify-between px-4">
@@ -94,6 +112,11 @@ export function DashboardTopBar() {
           <Wordmark className="text-base" />
         </Link>
         <div className="flex items-center gap-1">
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            ticketBasePath="/dashboard/support"
+          />
           <Link
             href="/dashboard/settings"
             aria-label="Account settings"

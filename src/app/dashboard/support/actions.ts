@@ -6,6 +6,7 @@ import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
 import { formatMoney } from "@/lib/currency";
+import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
 
 export interface ReportState {
   error?: string;
@@ -50,6 +51,8 @@ export async function reportIssueAction(
       messages: { create: { author: "USER", body: details } },
     },
   });
+
+  await notifyAdminsOfSupportMessage(ticket, details);
 
   const summary = [
     `Customer: ${user.email}`,
@@ -110,6 +113,8 @@ export async function createGeneralTicketAction(
     },
   });
 
+  await notifyAdminsOfSupportMessage(ticket, details);
+
   await sendEmailSafe({
     to: SUPPORT_INBOX,
     subject: `Support request: ${subject} (${ticket.id})`,
@@ -164,6 +169,8 @@ export async function replyToTicketAsUserAction(
       data: { status: "OPEN" },
     }),
   ]);
+
+  await notifyAdminsOfSupportMessage(ticket, body);
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,

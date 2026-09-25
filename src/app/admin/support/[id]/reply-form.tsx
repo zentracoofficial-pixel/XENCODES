@@ -36,12 +36,12 @@ export function TicketReplyForm({
           name="body"
           required
           rows={5}
-          placeholder="Write your reply. It's emailed to the customer as soon as you send it."
+          placeholder="Write your reply. The customer sees it in their dashboard as soon as you send it."
           className="h-auto w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
         />
         {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
         {state.success ? (
-          <p className="text-sm text-success">Reply sent and emailed to the customer.</p>
+          <p className="text-sm text-success">Reply sent. The customer will see it in their dashboard.</p>
         ) : null}
         <Button type="submit" disabled={formPending} size="sm">
           {formPending ? "Sending" : "Send reply"}

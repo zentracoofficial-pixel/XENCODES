@@ -73,6 +73,7 @@ model User {
   activations             Activation[]
   walletTransactions      WalletTransaction[]
   supportTickets          SupportTicket[]
+  notifications           Notification[]
 
   @@map("users")
 }
@@ -364,6 +365,7 @@ model SupportTicket {
   /// order it references is ever removed.
   relatedActivationId String?
   messages           SupportMessage[]
+  notifications      Notification[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -386,6 +388,32 @@ model SupportMessage {
 
   @@index([ticketId])
   @@map("support_messages")
+}
+
+/// An in-dashboard notification, currently only ever raised by the support
+/// system: one row per (recipient, event), so an admin opening a ticket
+/// only ever marks *their own* copy read, never another admin's, and a
+/// customer's unread badge is a real count of rows they have not yet
+/// opened rather than anything computed or trusted from the client.
+model Notification {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  /// Null until markTicketNotificationsRead() (src/lib/notifications.ts)
+  /// sets it, which only happens when the recipient's own server-rendered
+  /// view of that exact ticket loads — never from a client-side action, so
+  /// this can't be forged into "read" without the ticket actually having
+  /// been opened.
+  readAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, readAt])
+  @@index([ticketId])
+  @@map("notifications")
 }
 
 enum EmailCampaignStatus {
