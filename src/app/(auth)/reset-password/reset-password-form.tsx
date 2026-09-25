@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
 import { resetPasswordAction, type ResetPasswordState } from "./actions";
 
 const initialState: ResetPasswordState = {};
@@ -39,13 +40,13 @@ export function ResetPasswordForm({ token }: { token: string }) {
           <label htmlFor="password" className="text-sm font-medium">
             New password
           </label>
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             required
             minLength={8}
-            className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+            autoComplete="new-password"
+            className="mt-1.5"
             placeholder="••••••••"
           />
         </div>

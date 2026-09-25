@@ -6,6 +6,7 @@ import { quotePair } from "@/lib/inventory";
 import { resolveProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
+import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 
 /**
  * Buying a number, and waiting for its code.
@@ -30,6 +31,7 @@ export type PurchaseError =
   | "insufficient_balance"
   | "provider_unavailable"
   | "price_changed"
+  | "unverified_limit_reached"
   | "unknown";
 
 export interface PurchaseResult {
@@ -98,6 +100,20 @@ export async function purchaseNumberAction(
   // the actual enforcement is the atomic conditional UPDATE further down.
   if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
 
+  // Same fast, non-atomic shape as the balance check just above: a rough
+  // preliminary check so an account that is obviously already at its limit
+  // never reaches the supplier at all. Skipped entirely once verified — see
+  // getUnverifiedDailyPurchaseLimit() and countRecentSuccessfulPurchases() in
+  // src/lib/verification.ts, the one place this "10" and "24 hours" live.
+  // The real enforcement is the atomic re-check inside the transaction
+  // below, which a fast check like this cannot make race-safe on its own.
+  if (!user.emailVerified) {
+    const recentPurchases = await countRecentSuccessfulPurchases(user.id);
+    if (recentPurchases >= getUnverifiedDailyPurchaseLimit()) {
+      return { error: "unverified_limit_reached" };
+    }
+  }
+
   // The exact provider quotePair() just picked this pair's winning price
   // from, re-resolved fresh rather than trusting getNumberProvider(): with
   // more than one provider enabled, "the" provider is not a stable idea,
@@ -126,6 +142,25 @@ export async function purchaseNumberAction(
 
   try {
     const activation = await prisma.$transaction(async (tx) => {
+      // The real enforcement of the unverified purchase limit. The fast
+      // check above is only a courtesy that skips a supplier call for the
+      // common case; it is not race-safe on its own, since two concurrent
+      // requests for the same user could both read a count under the limit
+      // before either commits. pg_advisory_xact_lock serializes concurrent
+      // purchases for this exact user (hashtext turns the id into the
+      // lock's bigint key) so the second one always recounts against the
+      // first one's already-committed activation, the same way the balance
+      // UPDATE below closes the equivalent race for wallet debits. The lock
+      // is released automatically when this transaction ends, however it
+      // ends.
+      if (!user.emailVerified) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+        const recentPurchases = await countRecentSuccessfulPurchases(user.id, tx);
+        if (recentPurchases >= getUnverifiedDailyPurchaseLimit()) {
+          throw new Error("unverified_limit_reached");
+        }
+      }
+
       // A single conditional UPDATE, not a read then a separate write: two
       // concurrent purchases (a double-click, two open tabs, a retried
       // request) can both read the same pre-decrement balance under
@@ -199,6 +234,9 @@ export async function purchaseNumberAction(
 
     if (error instanceof Error && error.message === "insufficient_balance") {
       return { error: "insufficient_balance" };
+    }
+    if (error instanceof Error && error.message === "unverified_limit_reached") {
+      return { error: "unverified_limit_reached" };
     }
     return { error: "unknown" };
   }

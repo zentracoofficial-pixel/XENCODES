@@ -2,9 +2,10 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
 import { registerAction, type RegisterState } from "./actions";
 import type { CurrencyCode } from "@/lib/currency-config";
 
@@ -41,19 +42,6 @@ export function RegisterForm({
     },
   ];
 
-  if (state.success) {
-    return (
-      <Card className="flex flex-col items-center gap-3 p-8 text-center">
-        <CheckCircle2 className="h-10 w-10 text-success" />
-        <p className="text-lg font-semibold">Check your email</p>
-        <p className="text-sm text-muted-foreground">
-          We sent a verification link to your inbox. Click it to activate
-          your account.
-        </p>
-      </Card>
-    );
-  }
-
   return (
     <Card className="p-7 sm:p-8">
       <h1 className="text-xl font-semibold">Create your account</h1>
@@ -79,13 +67,13 @@ export function RegisterForm({
           <label htmlFor="password" className="text-sm font-medium">
             Password
           </label>
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             required
             minLength={8}
-            className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+            autoComplete="new-password"
+            className="mt-1.5"
             placeholder="••••••••"
           />
         </div>

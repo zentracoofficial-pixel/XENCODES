@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
 import { loginAction, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
@@ -53,12 +54,12 @@ export function LoginForm() {
               Forgot password?
             </Link>
           </div>
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             required
-            className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+            autoComplete="current-password"
+            className="mt-1.5"
             placeholder="••••••••"
           />
         </div>

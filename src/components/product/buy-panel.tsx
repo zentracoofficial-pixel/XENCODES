@@ -39,6 +39,8 @@ const errorCopy: Record<PurchaseError, string> = {
     "The number provider is not responding right now. Try again in a moment.",
   price_changed:
     "The price changed while you were deciding. Check the new price and confirm again.",
+  unverified_limit_reached:
+    "You've reached the purchase limit for unverified accounts. Verify your email to keep buying numbers.",
   unknown: "Something went wrong. Nothing was charged, so please try again.",
 };
 
@@ -132,6 +134,7 @@ export function BuyPanel({
 
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<PurchaseError | null>(null);
 
   const countries =
     service && countryData?.serviceSlug === service.slug ? countryData.list : [];
@@ -293,6 +296,7 @@ export function BuyPanel({
     }
 
     setError(null);
+    setErrorCode(null);
     startTransition(async () => {
       const result = await purchaseNumberAction(
         service.slug,
@@ -302,6 +306,7 @@ export function BuyPanel({
 
       if (result.error) {
         setError(errorCopy[result.error]);
+        setErrorCode(result.error);
         // A price that moved is not a dead end: show the new one so the
         // customer can decide against the current figure.
         if (result.error === "price_changed" && result.priceKobo !== undefined) {
@@ -562,9 +567,14 @@ export function BuyPanel({
       ) : null}
 
       {error ? (
-        <p className="mt-4 rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
-          {error}
-        </p>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-danger-soft px-3.5 py-2.5">
+          <p className="text-sm text-danger">{error}</p>
+          {errorCode === "unverified_limit_reached" ? (
+            <Button href="/verify-email" size="sm" variant="outline">
+              Verify email
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       <Button

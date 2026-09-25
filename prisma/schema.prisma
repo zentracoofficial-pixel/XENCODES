@@ -69,6 +69,7 @@ model User {
 
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  manualVerificationRequests ManualVerificationRequest[]
   activations             Activation[]
   walletTransactions      WalletTransaction[]
   supportTickets          SupportTicket[]
@@ -82,10 +83,55 @@ model EmailVerificationToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
+  /// Set the moment this exact token successfully verifies an account.
+  /// Mirrors PasswordResetToken.usedAt. Kept as a row (not deleted) once
+  /// used, unlike the pre-existing behaviour, so a second visit to the same
+  /// link — a browser re-opening it, an email scanner that already followed
+  /// it once, the user clicking it twice — can be told "you're already
+  /// verified" instead of the generic "invalid or expired" a deleted row
+  /// would otherwise produce indistinguishably from a token that never
+  /// existed. Checked by verifyEmailToken() in src/lib/verification.ts,
+  /// which is the only place this is ever set.
+  usedAt    DateTime?
   createdAt DateTime @default(now())
 
   @@index([userId])
   @@map("email_verification_tokens")
+}
+
+enum ManualVerificationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// A customer's own request for an admin to verify their email by hand,
+/// for when they cannot receive or complete the automated link (resend
+/// limit reached, a mail provider outage, a broken inbox). See
+/// src/lib/verification.ts for creation and src/app/admin/verification for
+/// the review UI. Deliberately outside EmailVerificationToken: this is a
+/// request for a human decision, not another automated capability, and
+/// mixing the two shapes into one table would make neither easy to reason
+/// about.
+model ManualVerificationRequest {
+  id         String                           @id @default(cuid())
+  userId     String
+  user       User                             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status     ManualVerificationRequestStatus  @default(PENDING)
+  /// What the customer said, when the form collects a reason. Optional:
+  /// the request is valid without one, since "my inbox isn't working" is
+  /// not always a thing someone can articulate further.
+  reason     String?
+  /// The admin who reviewed this, by email rather than a relation — the
+  /// same reasoning as AuditLog.actorEmail: the record must stay legible
+  /// even if that admin account is later changed or removed.
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime                         @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@map("manual_verification_requests")
 }
 
 model PasswordResetToken {
