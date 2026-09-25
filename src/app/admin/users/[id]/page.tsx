@@ -112,6 +112,9 @@ export default async function AdminUserDetailPage({
               {user.deletedAt ? "DELETED" : user.status}
             </Badge>
             {user.role === "ADMIN" ? <Badge variant="default">Admin</Badge> : null}
+            <Badge variant={user.emailVerified ? "success" : "warning"}>
+              {user.emailVerified ? "Email verified" : "Email unverified"}
+            </Badge>
           </p>
         </div>
       </div>

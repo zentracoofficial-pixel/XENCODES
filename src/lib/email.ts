@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { buildCampaignEmailHtml, buildCampaignEmailText } from "@/lib/email-template";
 
 /**
  * Outbound email, through Resend.
@@ -105,11 +106,30 @@ export async function sendEmailSafe(input: SendEmailInput): Promise<boolean> {
   }
 }
 
+/**
+ * Through the same branded shell every admin campaign renders through (see
+ * buildCampaignEmailHtml in src/lib/email-template.ts), not a bespoke plain
+ * one: a customer's first email from Xencodes should look like it came from
+ * the same product as the site, logo and all.
+ */
 export function verificationEmailContent(verifyUrl: string) {
+  const input = {
+    title: "Verify your email address",
+    body: [
+      "Thanks for creating a Xencodes account. Confirm this is really your email address to unlock full account access, including higher purchase limits.",
+      "If the button above doesn't work, copy and paste this link into your browser:",
+      verifyUrl,
+      "This link expires in 24 hours. If you didn't create a Xencodes account, you can safely ignore this email.",
+    ].join("\n\n"),
+    ctaText: "Verify my email",
+    ctaUrl: verifyUrl,
+    previewText: "Confirm your email address to finish setting up your Xencodes account.",
+  };
+
   return {
     subject: "Verify your Xencodes email address",
-    text: `Confirm your email address by visiting this link: ${verifyUrl}\n\nThis link expires in 24 hours.`,
-    html: `<p>Confirm your email address to finish setting up your Xencodes account.</p><p><a href="${verifyUrl}">Verify email address</a></p><p>This link expires in 24 hours.</p>`,
+    text: buildCampaignEmailText(input),
+    html: buildCampaignEmailHtml(input),
   };
 }
 

@@ -12,6 +12,7 @@ import {
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
 import { Metric, MetricGrid } from "../metric";
+import { ManualVerificationActions } from "./manual-verification-actions";
 
 export const metadata: Metadata = { title: "Admin: Support" };
 
@@ -46,6 +47,7 @@ export default async function AdminSupportPage() {
     tickets,
     failedToday,
     failures,
+    manualVerificationRequests,
   ] = await Promise.all([
     prisma.supportTicket.count({ where: { status: "OPEN" } }),
     prisma.supportTicket.count({ where: { status: "PENDING" } }),
@@ -65,6 +67,11 @@ export default async function AdminSupportPage() {
       take: 20,
       include: { user: { select: { email: true } } },
     }),
+    prisma.manualVerificationRequest.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      include: { user: { select: { email: true, createdAt: true } } },
+    }),
   ]);
 
   return (
@@ -81,6 +88,11 @@ export default async function AdminSupportPage() {
         <Metric label="Pending tickets" value={pendingCount} />
         <Metric label="Resolved tickets" value={resolvedCount} />
         <Metric label="Failed orders today" value={failedToday} tone={failedToday > 0 ? "warning" : "default"} />
+        <Metric
+          label="Verification requests"
+          value={manualVerificationRequests.length}
+          tone={manualVerificationRequests.length > 0 ? "warning" : "default"}
+        />
       </MetricGrid>
 
       <Card className="overflow-hidden">
@@ -115,6 +127,49 @@ export default async function AdminSupportPage() {
                     {ticket.status}
                   </Badge>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-border px-5 py-3.5">
+          <h2 className="text-sm font-semibold">Manual verification requests</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Customers who exhausted the email resend limit and asked to be
+            verified by hand.
+          </p>
+        </div>
+        {manualVerificationRequests.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            No pending verification requests.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {manualVerificationRequests.map((request) => (
+              <li
+                key={request.id}
+                className="flex flex-wrap items-center gap-3 px-5 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{request.user.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Joined{" "}
+                    {request.user.createdAt.toLocaleDateString("en-NG", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}{" "}
+                    · requested{" "}
+                    {request.createdAt.toLocaleDateString("en-NG", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                    {request.reason ? ` · "${request.reason}"` : ""}
+                  </p>
+                </div>
+                <ManualVerificationActions requestId={request.id} />
               </li>
             ))}
           </ul>

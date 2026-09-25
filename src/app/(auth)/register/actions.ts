@@ -1,17 +1,15 @@
 "use server";
 
-import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { sendEmailSafe, verificationEmailContent } from "@/lib/email";
-import { SITE_URL } from "@/lib/site";
+import { signIn } from "@/auth";
+import { sendVerificationEmail } from "@/lib/verification";
 import { registerSchema } from "@/lib/validation/auth";
 import { requestCountry, currencyForCountry } from "@/lib/currency-config";
 
 export interface RegisterState {
   error?: string;
-  success?: boolean;
 }
 
 export async function registerAction(
@@ -63,19 +61,31 @@ export async function registerAction(
     throw error;
   }
 
-  const token = crypto.randomBytes(32).toString("hex");
-  await prisma.emailVerificationToken.create({
-    data: {
-      token,
-      userId: user.id,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
+  // Never throws (see its own return type): the account already exists at
+  // this point, so a mail provider outage must not turn a completed signup
+  // into an error. Logged rather than surfaced, so a misconfigured
+  // deployment is visible in the function logs; the pending-verification
+  // screen's own resend button is the customer-facing recovery path if this
+  // first attempt didn't land.
+  const firstSend = await sendVerificationEmail(user);
+  if (!firstSend.ok) {
+    console.error(`[register] initial verification email to ${user.email} failed: ${firstSend.reason}`);
+  }
+
+  // Signed in immediately, the same way loginAction() signs a customer in
+  // after checking their password: an unverified account is a fully usable
+  // account here (see the restrictions actually enforced in
+  // src/app/dashboard/buy/actions.ts, not a login gate), so there is no
+  // reason to make someone who just proved their password twice log in
+  // again to reach it. Credentials are already known-good (this password
+  // hashed straight into the row above), so this call always succeeds and
+  // redirects; nothing after it runs.
+  await signIn("credentials", {
+    mode: "password",
+    email,
+    password,
+    redirectTo: "/verify-email",
   });
 
-  const verifyUrl = `${SITE_URL}/verify-email?token=${token}`;
-  // Non-throwing: the account already exists at this point, so a mail
-  // provider outage must not turn a completed signup into an error.
-  await sendEmailSafe({ to: email, ...verificationEmailContent(verifyUrl) });
-
-  return { success: true };
+  return {};
 }

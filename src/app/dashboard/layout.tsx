@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { requireActiveUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { getResendEligibility } from "@/lib/verification";
 import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
+import { VerificationBanner } from "./verification-banner";
 
 // A customer's wallet, orders and account settings must never be treated
 // as public SEO content, whatever links to them. robots.txt's disallow
@@ -20,7 +23,19 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await requireActiveUser();
+  const user = await requireActiveUser();
+
+  // Only queried for an unverified account: a verified customer (the
+  // overwhelming majority of page loads) skips both queries entirely.
+  const [eligibility, pendingRequest] = user.emailVerified
+    ? [null, null]
+    : await Promise.all([
+        getResendEligibility(user.id),
+        prisma.manualVerificationRequest.findFirst({
+          where: { userId: user.id },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -28,7 +43,23 @@ export default async function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardTopBar />
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-9">
-          <div className="mx-auto w-full max-w-4xl">{children}</div>
+          <div className="mx-auto w-full max-w-4xl">
+            {!user.emailVerified && eligibility ? (
+              <div className="mb-5">
+                <VerificationBanner
+                  initialResendLimitReached={eligibility.limitReached}
+                  initialManualStatus={
+                    pendingRequest?.status === "PENDING"
+                      ? "pending"
+                      : pendingRequest?.status === "REJECTED"
+                        ? "rejected"
+                        : "none"
+                  }
+                />
+              </div>
+            ) : null}
+            {children}
+          </div>
         </main>
       </div>
     </div>
