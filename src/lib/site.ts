@@ -31,10 +31,28 @@ export const SITE_TAGLINE = "Virtual numbers for SMS verification, worldwide";
 export const SITE_LOGO_URL = `${SITE_URL}/xencodes-logo.png`;
 
 /**
- * Where a customer's support activity (a new ticket, a follow-up reply) gets
- * emailed as a nudge on top of the in-dashboard notification system — see
- * src/lib/notifications.ts for the notifications themselves, which are the
- * actual system of record. Set SUPPORT_EMAIL in this deployment's
- * environment variables to change it without a code change.
+ * The support address shown to customers — the "Contact support" card on
+ * the dashboard, its mailto link. Purely for display; nothing is actually
+ * sent to it programmatically (see SUPPORT_NOTIFICATION_EMAIL below for
+ * that). Set SUPPORT_EMAIL in this deployment's environment variables to
+ * change it without a code change.
  */
 export const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL ?? "Xencodeshq@gmail.com").trim();
+
+/**
+ * Where a customer's support activity (a new ticket, a follow-up reply)
+ * actually gets emailed as a nudge on top of the in-dashboard notification
+ * system (src/lib/notifications.ts, the real system of record). Deliberately
+ * separate from SUPPORT_EMAIL above: this is the Resend account's own
+ * verified address, needed while EMAIL_FROM is still on Resend's sandbox
+ * sender (which can only deliver to the account's own email) — and there's
+ * no reason to change that once a real sending domain is fully live either,
+ * since who monitors this inbox and what customers are told to write to are
+ * two different questions. Never render this anywhere in the UI; it is
+ * purely an internal delivery address. Set SUPPORT_NOTIFICATION_EMAIL in
+ * this deployment's environment variables to change it without a code
+ * change.
+ */
+export const SUPPORT_NOTIFICATION_EMAIL = (
+  process.env.SUPPORT_NOTIFICATION_EMAIL ?? "Zentracoofficial@gmail.com"
+).trim();
