@@ -13,6 +13,7 @@ import {
   ACTIVATION_STATUS_VARIANT,
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
+import { markTicketNotificationsRead } from "@/lib/notifications";
 import { TicketReplyForm } from "./ticket-reply-form";
 
 export const metadata: Metadata = { title: "Support ticket" };
@@ -47,6 +48,10 @@ export default async function TicketDetailPage({
     include: { messages: { orderBy: { createdAt: "asc" } } },
   });
   if (!ticket) notFound();
+
+  // Viewing this exact ticket is what "read" means — see
+  // markTicketNotificationsRead() in src/lib/notifications.ts.
+  await markTicketNotificationsRead(userId, ticket.id);
 
   const relatedOrder = ticket.relatedActivationId
     ? await prisma.activation.findFirst({

@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { sendEmail, EmailDeliveryError } from "@/lib/email";
 import { recordAudit } from "@/lib/audit";
+import { notifyUserOfSupportReply } from "@/lib/notifications";
 
 export interface ReplyState {
   error?: string;
@@ -12,9 +12,10 @@ export interface ReplyState {
 }
 
 /**
- * An admin's reply: recorded on the ticket thread and emailed to the
- * customer in the same step, so the ticket stays the one place the whole
- * conversation lives even though the customer only ever sees email.
+ * An admin's reply: recorded on the ticket thread and raised as an
+ * in-dashboard notification for the customer — deliberately not emailed.
+ * The ticket thread itself is the one place the whole conversation lives;
+ * see notifyUserOfSupportReply() in src/lib/notifications.ts.
  */
 export async function replyToTicketAction(
   ticketId: string,
@@ -27,10 +28,7 @@ export async function replyToTicketAction(
   if (!body) return { error: "Write a reply before sending." };
   if (body.length > 5000) return { error: "Keep it under 5000 characters." };
 
-  const ticket = await prisma.supportTicket.findUnique({
-    where: { id: ticketId },
-    include: { user: { select: { email: true } } },
-  });
+  const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
   if (!ticket) return { error: "That ticket no longer exists." };
 
   await prisma.$transaction([
@@ -44,27 +42,7 @@ export async function replyToTicketAction(
     }),
   ]);
 
-  // The customer only ever sees this reply as an email, so a delivery
-  // failure is the admin's problem to know about, not something to hide
-  // behind a recorded message they will never receive. The message stays on
-  // the thread either way; only the reported outcome differs.
-  try {
-    await sendEmail({
-      to: ticket.user.email,
-      subject: `Re: ${ticket.subject}`,
-      text: body,
-      html: `<p>${body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`,
-    });
-  } catch (error) {
-    revalidatePath(`/admin/support/${ticketId}`);
-    revalidatePath("/admin/support");
-    return {
-      error:
-        error instanceof EmailDeliveryError
-          ? `Reply saved to the ticket, but the email was not delivered: ${error.message}`
-          : "Reply saved to the ticket, but the email could not be sent.",
-    };
-  }
+  await notifyUserOfSupportReply(ticket, body);
 
   revalidatePath(`/admin/support/${ticketId}`);
   revalidatePath("/admin/support");

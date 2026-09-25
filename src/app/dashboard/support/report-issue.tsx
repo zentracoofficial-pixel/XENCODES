@@ -31,7 +31,7 @@ export function ReportIssue({
         <div>
           <p className="text-sm font-medium text-forest">Report received</p>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            We will look into it and reply by email.
+            We will look into it and reply here in your dashboard.
           </p>
         </div>
       </div>

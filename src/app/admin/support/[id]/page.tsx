@@ -12,6 +12,7 @@ import {
   ACTIVATION_STATUS_VARIANT,
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
+import { markTicketNotificationsRead } from "@/lib/notifications";
 import { TicketReplyForm } from "./reply-form";
 
 export const metadata: Metadata = { title: "Admin: Ticket" };
@@ -30,7 +31,7 @@ export default async function AdminTicketDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const ticket = await prisma.supportTicket.findUnique({
     where: { id },
@@ -40,6 +41,11 @@ export default async function AdminTicketDetailPage({
     },
   });
   if (!ticket) notFound();
+
+  // Only this admin's own copy: another admin's unread notification for the
+  // same ticket is untouched — see markTicketNotificationsRead()'s doc
+  // comment in src/lib/notifications.ts.
+  await markTicketNotificationsRead(admin.id, ticket.id);
 
   const relatedOrder = ticket.relatedActivationId
     ? await prisma.activation.findUnique({ where: { id: ticket.relatedActivationId } })

@@ -52,7 +52,7 @@ export default async function SupportPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Most answers are below. If something went wrong, open a ticket and
-          we will reply here and by email.
+          we will reply right here in your dashboard.
         </p>
       </div>
 
