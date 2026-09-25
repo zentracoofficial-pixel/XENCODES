@@ -20,20 +20,21 @@ import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
+import { getDefaultCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Virtual Numbers for SMS Verification in Nigeria",
+  title: "Virtual Numbers for SMS Verification, Worldwide",
   description:
-    "Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go in Naira, refunded when no code arrives.",
+    "Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go in your own currency, refunded when no code arrives.",
   keywords: [
-    "virtual number Nigeria",
+    "virtual number for SMS verification",
     "SMS verification number",
     "WhatsApp verification number",
     "Telegram virtual number",
-    "receive SMS online Nigeria",
+    "receive SMS online",
   ],
   alternates: { canonical: "/" },
 };
@@ -45,14 +46,16 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, numbersDelivered, highlights] = await Promise.all([
-    getInventoryStatus(),
-    searchServices("").catch(() => []),
-    countServices().catch(() => 0),
-    // A real, live count, never invented: this is exactly what it says.
-    prisma.activation.count({ where: { status: "RECEIVED" } }),
-    getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
-  ]);
+  const [status, services, serviceCount, numbersDelivered, highlights, defaultCurrency] =
+    await Promise.all([
+      getInventoryStatus(),
+      searchServices("").catch(() => []),
+      countServices().catch(() => 0),
+      // A real, live count, never invented: this is exactly what it says.
+      prisma.activation.count({ where: { status: "RECEIVED" } }),
+      getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
+      getDefaultCurrency(),
+    ]);
 
   return (
     <>
@@ -63,7 +66,7 @@ export default async function HomePage() {
           name: SITE_NAME,
           url: SITE_URL,
           description:
-            "Virtual phone numbers for receiving SMS verification codes, priced in Naira.",
+            "Virtual phone numbers for receiving SMS verification codes, priced in your own currency.",
         }}
       />
       {/* Helps Google identify Xencodes as an organization distinct from
@@ -118,7 +121,7 @@ export default async function HomePage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Services</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {serviceCount.toLocaleString("en-NG")}
+                      {serviceCount.toLocaleString("en-US")}
                     </dd>
                   </div>
                 ) : null}
@@ -126,7 +129,7 @@ export default async function HomePage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Starting at</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {formatNaira(highlights.startingPriceKobo)}
+                      {formatMoney(highlights.startingPriceKobo, defaultCurrency.code)}
                     </dd>
                   </div>
                 ) : null}
@@ -134,7 +137,7 @@ export default async function HomePage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Locations</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {highlights.countryCount.toLocaleString("en-NG")}
+                      {highlights.countryCount.toLocaleString("en-US")}
                     </dd>
                   </div>
                 ) : null}
@@ -142,7 +145,7 @@ export default async function HomePage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Codes delivered</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {numbersDelivered.toLocaleString("en-NG")}
+                      {numbersDelivered.toLocaleString("en-US")}
                     </dd>
                   </div>
                 ) : null}
@@ -258,8 +261,8 @@ export default async function HomePage() {
                 body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
               },
               {
-                title: "Priced in Naira",
-                body: "Every price is shown in Naira, with nothing added at checkout.",
+                title: "Priced in your currency",
+                body: "Every price is shown in your own currency, with nothing added at checkout.",
               },
               {
                 title: "No code, no charge",

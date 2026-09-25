@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServiceCountries } from "@/lib/inventory";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 
 /**
  * The countries one service can actually be bought in, priced for
@@ -9,13 +10,24 @@ import { getServiceCountries } from "@/lib/inventory";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const serviceSlug = new URL(request.url).searchParams.get("service");
+  const params = new URL(request.url).searchParams;
+  const serviceSlug = params.get("service");
   if (!serviceSlug) {
     return NextResponse.json({ countries: [] }, { status: 400 });
   }
 
+  // The requested currency must actually be one an admin has enabled; a
+  // client sending anything else (a stale value, a tampered request) falls
+  // back to the platform default rather than pricing in a currency nobody
+  // configured a rate for.
+  const requestedCurrency = params.get("currency");
+  const resolved = requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null;
+  const currency = resolved?.enabled ? resolved : await getDefaultCurrency();
+
   try {
-    return NextResponse.json({ countries: await getServiceCountries(serviceSlug) });
+    return NextResponse.json({
+      countries: await getServiceCountries(serviceSlug, currency),
+    });
   } catch (error) {
     console.error(`[api] country lookup failed for "${serviceSlug}":`, error);
     return NextResponse.json(

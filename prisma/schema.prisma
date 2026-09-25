@@ -28,6 +28,16 @@ model User {
   emailVerified      DateTime?
   role               UserRole   @default(USER)
   status             UserStatus @default(ACTIVE)
+  /// ISO 4217 code for every money field on this account: walletBalanceKobo,
+  /// every WalletTransaction, every Activation this user creates. Chosen at
+  /// registration from whichever currencies are enabled (see
+  /// src/lib/currency-config.ts) and never silently reinterpreted: changing
+  /// a currency after money has moved would make every past amount mean
+  /// something different than what it said at the time. Enforced by
+  /// omission rather than a guard: nothing outside registerAction() in
+  /// src/app/(auth)/register/actions.ts ever writes this column, so there
+  /// is no code path that could change it later.
+  currency           String     @default("NGN")
   walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
   twoFactorEnabled   Boolean   @default(false)
@@ -131,12 +141,20 @@ model Activation {
   providerServiceId String?
   /// The supplier's own id for the country bought, captured the same way.
   providerCountryId String?
-  /// What the customer paid.
+  /// ISO 4217 code priceKobo/providerCostKobo/grossProfitKobo are all
+  /// denominated in: the buyer's own currency at the moment of purchase
+  /// (User.currency), captured here rather than looked up from the user
+  /// record so a historical order stays correctly labelled even if that
+  /// account's currency setting were ever revisited.
+  currency    String           @default("NGN")
+  /// What the customer paid, in `currency` above.
   priceKobo  Int
-  /// What the supplier billed Xencodes for this exact order, captured at
-  /// purchase time. Stored rather than recomputed because a supplier's
-  /// price moves: an order's margin has to be answerable later from what
-  /// was true when it was placed.
+  /// What the supplier billed Xencodes for this exact order, converted from
+  /// its native USD into `currency` at the admin-configured rate that was
+  /// live at purchase time, and captured here rather than recomputed
+  /// because both a supplier's USD price and the USD/currency rate move: an
+  /// order's margin has to be answerable later from what was true when it
+  /// was placed.
   providerCostKobo Int @default(0)
   /// priceKobo minus providerCostKobo, stored for the same reason. Gross
   /// margin is derived from these two rather than stored, so it can never
@@ -383,11 +401,21 @@ model SyncedOffer {
   countryFlag    String
   dialCode       String
   nationalDigits Int
-  /// What the supplier billed, at sync time. Never shown to a customer.
-  costKobo       Int
-  /// What the customer would pay, already run through the same margin
-  /// rules quotePair() uses, so a displayed price and a charged price
-  /// never come from two different formulas.
+  /// What the supplier billed, in USD cents, at sync time. Always USD
+  /// regardless of which currency a customer eventually pays in: GrizzlySMS
+  /// (and every provider in this API family) bills Xencodes in USD no
+  /// matter who the end customer is or what they are charged. Converting
+  /// this into a customer's own currency is quotePair()'s job, live, at the
+  /// rate in effect for that specific currency; this cache never does that
+  /// conversion itself. Never shown to a customer.
+  costUsdCents   Int
+  /// An illustrative price only, in the platform's default currency (see
+  /// src/lib/currency-config.ts), run through the same margin rules
+  /// quotePair() uses. Used for browsing/highlight figures (a homepage
+  /// "starting price", the admin services list) where showing one
+  /// representative number is enough. Never what anyone is actually
+  /// charged: quotePair() always recomputes fresh, in the buyer's own
+  /// currency, at purchase time, and never reads this column.
   priceKobo      Int
   stock          String
   stockCount     Int

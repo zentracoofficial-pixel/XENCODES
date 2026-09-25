@@ -21,6 +21,7 @@ export function UserActions({
   email,
   status,
   role,
+  currency,
   isSelf,
   isDeleted,
   deletionImpact,
@@ -29,6 +30,9 @@ export function UserActions({
   email: string;
   status: "ACTIVE" | "SUSPENDED";
   role: "USER" | "ADMIN";
+  /** ISO 4217, this account's own currency: what the admin's typed amount
+   *  below is interpreted in. */
+  currency: string;
   isSelf: boolean;
   isDeleted: boolean;
   deletionImpact: UserDeletionImpact;
@@ -147,7 +151,7 @@ export function UserActions({
               name="amount"
               type="number"
               step="1"
-              placeholder="Amount in ₦, e.g. 500 or -200"
+              placeholder={`Amount in ${currency}, e.g. 500 or -200`}
               required
               className="h-10 flex-1 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
             />

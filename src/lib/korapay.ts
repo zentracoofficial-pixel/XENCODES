@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { SITE_URL } from "@/lib/site";
+import { minorUnitDivisor } from "@/lib/currency";
 
 /**
  * KoraPay's Checkout Standard API: initialize a hosted checkout page,
@@ -72,8 +73,12 @@ function encryptionKey(): string {
   return key;
 }
 
-function koboToNaira(kobo: number): number {
-  return Math.round(kobo) / 100;
+/** KoraPay's `amount` field is always the base currency unit (Naira,
+ *  Cedi...), never the minor unit, regardless of which currency the charge
+ *  is in. See minorUnitDivisor() in src/lib/currency.ts for how many minor
+ *  units make one of those, per currency. */
+function minorToMajor(amountMinor: number, currency: string): number {
+  return Math.round(amountMinor) / minorUnitDivisor(currency);
 }
 
 interface KorapayEnvelope<T> {
@@ -136,6 +141,9 @@ async function call<T>(
 export interface InitializeChargeInput {
   reference: string;
   amountKobo: number;
+  /** ISO 4217, e.g. "NGN". Must be one KoraPay actually supports charging
+   *  and settling for this merchant account; never assumed to be NGN. */
+  currency: string;
   email: string;
   name?: string | null;
 }
@@ -157,8 +165,8 @@ export async function initializeKorapayCharge(
     "/charges/initialize",
     {
       reference: input.reference,
-      amount: koboToNaira(input.amountKobo),
-      currency: "NGN",
+      amount: minorToMajor(input.amountKobo, input.currency),
+      currency: input.currency,
       customer: { email: input.email, ...(input.name ? { name: input.name } : {}) },
       narration: "Xencodes wallet top up",
       redirect_url: `${SITE_URL}/dashboard/wallet?reference=${input.reference}`,
@@ -202,11 +210,12 @@ export async function verifyKorapayCharge(reference: string): Promise<ChargeStat
   }>("GET", `/charges/${encodeURIComponent(reference)}`);
 
   const status = result.data.status as KorapayChargeStatus;
+  const divisor = result.data.currency ? minorUnitDivisor(result.data.currency) : 100;
   return {
     status,
     providerTransactionId: result.data.reference,
     amountKobo:
-      typeof result.data.amount === "number" ? Math.round(result.data.amount * 100) : undefined,
+      typeof result.data.amount === "number" ? Math.round(result.data.amount * divisor) : undefined,
     currency: result.data.currency,
   };
 }

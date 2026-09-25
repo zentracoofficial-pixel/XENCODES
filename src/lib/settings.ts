@@ -27,15 +27,26 @@ export const SETTING_KEYS = {
    *  reader/writer of this key. Not a secret: it never holds credentials,
    *  only which registered providers are switched on and in what order. */
   providerConfig: "provider_config_v2",
-  /** Naira per one US dollar, used to convert a USD-priced provider like
-   *  GrizzlySMS into the Naira prices this site charges in. */
+  /** Legacy single-currency rate, from before more than one currency could
+   *  be enabled. Read only as a one-time fallback when currencyConfig below
+   *  has never been written; see src/lib/currency-config.ts. */
   usdToNgnRate: "usd_to_ngn_rate",
   /** Percentage of a wallet top-up passed on to the customer as KoraPay's
    *  own processing fee, so it is not silently absorbed by the business.
-   *  See src/lib/funding-limits.ts's calculateTopupFeeKobo(). */
+   *  A percentage rather than a fixed amount, so this one setting applies
+   *  across every enabled currency; the cap it is bounded by is per
+   *  currency (see src/lib/currency-config.ts) since a fixed cap in one
+   *  currency's minor units means nothing in another's. See
+   *  src/lib/funding-limits.ts's calculateTopupFeeKobo(). */
   topupFeePercent: "topup_fee_percent",
-  /** Ceiling on the fee in kobo, matching KoraPay's own fee cap. */
+  /** Legacy single-currency fee cap, from before more than one currency
+   *  could be enabled. Read only as a one-time fallback for NGN's own cap
+   *  when currencyConfig has never been written. */
   topupFeeCapKobo: "topup_fee_cap_kobo",
+  /** JSON array of per-currency config: {code, enabled, usdRate,
+   *  minTopUpMinor, maxTopUpMinor, feeCapMinor, priority}. See
+   *  src/lib/currency-config.ts, the only reader/writer of this key. */
+  currencyConfig: "currency_config_v1",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the

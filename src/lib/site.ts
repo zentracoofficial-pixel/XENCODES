@@ -20,7 +20,7 @@ export const SITE_URL = (
 
 export const SITE_NAME = "Xencodes";
 
-export const SITE_TAGLINE = "Virtual numbers for SMS verification in Nigeria";
+export const SITE_TAGLINE = "Virtual numbers for SMS verification, worldwide";
 
 /**
  * The Xencodes logo, as an absolute URL. Used wherever a logo needs one

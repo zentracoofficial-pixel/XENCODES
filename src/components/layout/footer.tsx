@@ -18,7 +18,7 @@ export function Footer() {
         <div>
           <Wordmark />
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-            Virtual numbers for SMS verification, priced in Naira.
+            Virtual numbers for SMS verification, priced in your own currency.
           </p>
         </div>
 

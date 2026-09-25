@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney, formatMultiCurrencySum } from "@/lib/currency";
+import { getDefaultCurrency } from "@/lib/currency-config";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
 import { isUnverifiedTopup } from "@/lib/funding";
 import type {
@@ -93,33 +94,42 @@ export default async function AdminWalletPage({
       : {}),
   };
 
-  const [transactions, count, fundedAgg, pendingAgg, unverifiedCount] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.walletTransaction.count({ where }),
-    // Confirmed money in. A pending top up is money asked for, not
-    // received, and counting it here would overstate what Xencodes holds.
-    prisma.walletTransaction.aggregate({
-      where: { type: "TOPUP", status: "SUCCESSFUL" },
-      _sum: { amountKobo: true },
-    }),
-    prisma.walletTransaction.aggregate({
-      where: { type: "TOPUP", status: "PENDING" },
-      _sum: { amountKobo: true },
-      _count: true,
-    }),
-    // A SUCCESSFUL top up with no provider transaction id: the current
-    // architecture cannot produce one, so any that exist predate it. See
-    // isUnverifiedTopup() in src/lib/funding.ts.
-    prisma.walletTransaction.count({
-      where: { type: "TOPUP", status: "SUCCESSFUL", providerTransactionId: null },
-    }),
-  ]);
+  const [transactions, count, fundedAgg, pendingAgg, unverifiedCount, defaultCurrency] =
+    await Promise.all([
+      prisma.walletTransaction.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        include: { user: { select: { email: true } } },
+      }),
+      prisma.walletTransaction.count({ where }),
+      // Confirmed money in, grouped by currency: a Naira total and a Cedi
+      // total are different facts. A pending top up is money asked for, not
+      // received, and counting it here would overstate what Xencodes holds.
+      prisma.walletTransaction.groupBy({
+        by: ["currency"],
+        where: { type: "TOPUP", status: "SUCCESSFUL" },
+        _sum: { amountKobo: true },
+      }),
+      prisma.walletTransaction.groupBy({
+        by: ["currency"],
+        where: { type: "TOPUP", status: "PENDING" },
+        _sum: { amountKobo: true },
+        _count: true,
+      }),
+      // A SUCCESSFUL top up with no provider transaction id: the current
+      // architecture cannot produce one, so any that exist predate it. See
+      // isUnverifiedTopup() in src/lib/funding.ts.
+      prisma.walletTransaction.count({
+        where: { type: "TOPUP", status: "SUCCESSFUL", providerTransactionId: null },
+      }),
+      getDefaultCurrency(),
+    ]);
+
+  const fundedRows = fundedAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
+  const pendingRows = pendingAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
+  const pendingCount = pendingAgg.reduce((sum, row) => sum + row._count, 0);
 
   const link = (extra: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -152,10 +162,10 @@ export default async function AdminWalletPage({
         <h1 className="text-2xl font-semibold tracking-tight">Wallet</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Customer funding, purchases and refunds.{" "}
-          {formatNaira(fundedAgg._sum.amountKobo ?? 0)} received in confirmed
-          payments
-          {pendingAgg._count > 0
-            ? `, with ${pendingAgg._count} funding ${pendingAgg._count === 1 ? "request" : "requests"} worth ${formatNaira(pendingAgg._sum.amountKobo ?? 0)} still awaiting payment.`
+          {formatMultiCurrencySum(fundedRows, defaultCurrency.code)} received in
+          confirmed payments
+          {pendingCount > 0
+            ? `, with ${pendingCount} funding ${pendingCount === 1 ? "request" : "requests"} worth ${formatMultiCurrencySum(pendingRows, defaultCurrency.code)} still awaiting payment.`
             : "."}
         </p>
       </div>
@@ -286,7 +296,7 @@ export default async function AdminWalletPage({
                         )}
                       >
                         {settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
-                        {formatNaira(Math.abs(tx.amountKobo))}
+                        {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
                       </td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">
                         {tx.currency}

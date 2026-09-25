@@ -7,7 +7,7 @@ import { createPendingTopUp, settleFailedTopUp, verifyAndSettleTopUp } from "@/l
 import {
   validateTopUpAmount,
   calculateTopupFeeKobo,
-  FUNDING_ERROR_COPY,
+  fundingErrorCopy,
   type FundingError,
 } from "@/lib/funding-limits";
 import {
@@ -15,8 +15,8 @@ import {
   readNumber,
   SETTING_KEYS,
   DEFAULT_TOPUP_FEE_PERCENT,
-  DEFAULT_TOPUP_FEE_CAP_KOBO,
 } from "@/lib/settings";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
 
 export interface StartTopUpResult {
@@ -56,24 +56,42 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
   // attempt in the meantime, since session.user.id alone would not.
   const user = await getActiveUser();
   if (!user) {
-    return { error: FUNDING_ERROR_COPY.not_authenticated };
+    return { error: fundingErrorCopy("not_authenticated", "NGN", 0, 0) };
   }
 
-  const invalid: FundingError | null = validateTopUpAmount(amountKobo);
-  if (invalid) return { error: FUNDING_ERROR_COPY[invalid] };
+  const currency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
 
-  const pending = await createPendingTopUp(user.id, amountKobo);
+  const invalid: FundingError | null = validateTopUpAmount(
+    amountKobo,
+    currency.minTopUpMinor,
+    currency.maxTopUpMinor,
+  );
+  if (invalid) {
+    return {
+      error: fundingErrorCopy(invalid, currency.code, currency.minTopUpMinor, currency.maxTopUpMinor),
+    };
+  }
+
+  const pending = await createPendingTopUp(
+    user.id,
+    amountKobo,
+    currency.code,
+    currency.minTopUpMinor,
+    currency.maxTopUpMinor,
+  );
   const reference = pending.providerReference ?? undefined;
 
-  // The fee is computed from settings at charge time, not stored on the
-  // pending row: WalletTransaction.amountKobo is what completeTopUp()
-  // credits to the wallet once verified, and must stay exactly what the
-  // customer asked for. The fee only ever affects what KoraPay is asked
-  // to charge at checkout, never what lands in the balance.
+  // The fee is computed at charge time, not stored on the pending row:
+  // WalletTransaction.amountKobo is what completeTopUp() credits to the
+  // wallet once verified, and must stay exactly what the customer asked
+  // for. The fee only ever affects what KoraPay is asked to charge at
+  // checkout, never what lands in the balance. The percent is still a
+  // single platform-wide setting (KoraPay's own rate does not vary by
+  // currency); the cap is per-currency, from this account's own currency
+  // config, the same way the top-up bounds above are.
   const settings = await readSettings();
   const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
-  const feeCapKobo = readNumber(settings, SETTING_KEYS.topupFeeCapKobo, DEFAULT_TOPUP_FEE_CAP_KOBO);
-  const feeKobo = calculateTopupFeeKobo(pending.amountKobo, feePercent, feeCapKobo);
+  const feeKobo = calculateTopupFeeKobo(pending.amountKobo, feePercent, currency.feeCapMinor);
   const totalChargedKobo = pending.amountKobo + feeKobo;
 
   if (!isKorapayConfigured() || !reference) {
@@ -85,6 +103,7 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     const { checkoutUrl } = await initializeKorapayCharge({
       reference,
       amountKobo: totalChargedKobo,
+      currency: currency.code,
       email: user.email,
       name: user.name,
     });

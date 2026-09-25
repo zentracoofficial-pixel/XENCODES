@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { realisedMargin } from "@/lib/pricing";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import {
@@ -100,14 +100,14 @@ export default async function AdminOrderDetailPage({
             </div>
             {priced ? (
               <dl className="grid grid-cols-2 sm:grid-cols-4">
-                <Figure label="Customer price" value={formatNaira(order.priceKobo)} />
+                <Figure label="Customer price" value={formatMoney(order.priceKobo, order.currency)} />
                 <Figure
                   label="Provider cost"
-                  value={formatNaira(order.providerCostKobo)}
+                  value={formatMoney(order.providerCostKobo, order.currency)}
                 />
                 <Figure
                   label="Gross profit"
-                  value={formatNaira(order.grossProfitKobo)}
+                  value={formatMoney(order.grossProfitKobo, order.currency)}
                   tone={order.grossProfitKobo > 0 ? "success" : "danger"}
                 />
                 <Figure label="Gross margin" value={`${margin}%`} />
@@ -126,7 +126,7 @@ export default async function AdminOrderDetailPage({
                   {PRICING_RULE_LABEL[order.pricingRule] ?? order.pricingRule}
                 </span>
                 {order.targetMarginPercent > 0
-                  ? `, targeting ${order.targetMarginPercent}%. Realised ${margin}% after rounding up to the nearest Naira.`
+                  ? `, targeting ${order.targetMarginPercent}%. Realised ${margin}% after rounding up to the nearest whole ${order.currency}.`
                   : "."}
               </p>
             ) : null}
@@ -213,7 +213,7 @@ export default async function AdminOrderDetailPage({
                         )}
                       >
                         {tx.amountKobo >= 0 ? "+" : "-"}
-                        {formatNaira(Math.abs(tx.amountKobo))}
+                        {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
                       </span>
                     </Link>
                   </li>

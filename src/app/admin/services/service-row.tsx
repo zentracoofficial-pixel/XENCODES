@@ -4,7 +4,7 @@ import { useActionState, useTransition } from "react";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import {
   setServiceEnabledAction,
   setServiceMarginAction,
@@ -19,6 +19,7 @@ export function ServiceRow({
   color,
   category,
   providerServiceId,
+  currency,
   cheapestCostKobo,
   cheapestCustomerPriceKobo,
   enabled,
@@ -35,10 +36,15 @@ export function ServiceRow({
   /** The supplier's own code for this service, when the adapter reports
    *  one. Reconciliation detail for the admin, never shown to a customer. */
   providerServiceId?: string | null;
-  /** Cheapest live cost anywhere for this service, in kobo. Null when the
-   *  provider has not priced it or is not connected. */
+  /** The platform's default currency (see src/lib/currency-config.ts), the
+   *  one every figure in this row is shown in. Illustrative only: the
+   *  country picked at purchase decides the real price and currency. */
+  currency: string;
+  /** Cheapest live cost anywhere for this service, converted into
+   *  `currency`'s minor unit. Null when the provider has not priced it or
+   *  is not connected. */
   cheapestCostKobo: number | null;
-  /** What quotePrice() turns that cheapest cost into at the resolved
+  /** What quoteForCurrency() turns that cheapest cost into at the resolved
    *  margin. Illustrative, since the country picked at purchase decides
    *  the real price; never used to charge anyone. */
   cheapestCustomerPriceKobo: number | null;
@@ -76,11 +82,11 @@ export function ServiceRow({
         )}
       </td>
       <td className="px-3 py-3 text-right text-sm tabular-nums">
-        {cheapestCostKobo !== null ? formatNaira(cheapestCostKobo) : "—"}
+        {cheapestCostKobo !== null ? formatMoney(cheapestCostKobo, currency) : "—"}
       </td>
       <td className="px-3 py-3 text-right text-sm tabular-nums">
         {cheapestCustomerPriceKobo !== null
-          ? formatNaira(cheapestCustomerPriceKobo)
+          ? formatMoney(cheapestCustomerPriceKobo, currency)
           : "—"}
       </td>
       <td className="px-3 py-3">

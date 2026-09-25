@@ -7,7 +7,7 @@ import { AlertTriangle, ArrowRight, Loader2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import {
   purchaseNumberAction,
   type PurchaseError,
@@ -79,6 +79,7 @@ export function BuyPanel({
   initialServiceSlug,
   signedIn,
   walletBalanceKobo,
+  currency,
   unavailableMessage,
   basePath = "/buy",
   walletHref = "/dashboard/wallet",
@@ -87,6 +88,10 @@ export function BuyPanel({
   initialServiceSlug?: string;
   signedIn: boolean;
   walletBalanceKobo: number;
+  /** The currency every price on this page is quoted and charged in: the
+   *  signed-in customer's own currency, or the platform default when
+   *  signed out. Never assumed to be Naira. */
+  currency: string;
   /** Set when no number provider is connected. Every control is disabled
    *  and this is shown, so the page never looks ready to sell something
    *  there is no supplier behind. */
@@ -220,7 +225,9 @@ export function BuyPanel({
     const token = ++countryRequest.current;
     const slug = service.slug;
 
-    fetch(`/api/inventory/countries?service=${encodeURIComponent(slug)}`)
+    fetch(
+      `/api/inventory/countries?service=${encodeURIComponent(slug)}&currency=${encodeURIComponent(currency)}`,
+    )
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -238,7 +245,7 @@ export function BuyPanel({
         setCountryData({ serviceSlug: slug, list: [] });
         setCountriesErrorFor(slug);
       });
-  }, [service]);
+  }, [service, currency]);
 
   // The price is fetched live for the exact pair, not read off the country
   // list, so the figure being confirmed is the current one.
@@ -252,7 +259,7 @@ export function BuyPanel({
     const pair = { serviceSlug: service.slug, countrySlug: country.slug };
 
     fetch(
-      `/api/inventory/quote?service=${encodeURIComponent(pair.serviceSlug)}&country=${encodeURIComponent(pair.countrySlug)}`,
+      `/api/inventory/quote?service=${encodeURIComponent(pair.serviceSlug)}&country=${encodeURIComponent(pair.countrySlug)}&currency=${encodeURIComponent(currency)}`,
     )
       .then((res) => res.json())
       .then((data: { available?: boolean; priceKobo?: number; message?: string }) => {
@@ -275,7 +282,7 @@ export function BuyPanel({
           message: "Could not check the price. Try again in a moment.",
         });
       });
-  }, [service, country]);
+  }, [service, country, currency]);
 
   function buy() {
     if (!service || !country || priceKobo === undefined) return;
@@ -343,7 +350,7 @@ export function BuyPanel({
     ),
     trailing: (
       <span className="shrink-0 text-sm font-semibold tabular-nums">
-        {formatNaira(item.priceKobo)}
+        {formatMoney(item.priceKobo, currency)}
       </span>
     ),
   }));
@@ -417,7 +424,7 @@ export function BuyPanel({
           </span>
           <span className="flex items-center gap-3">
             <span className="text-sm font-semibold tabular-nums">
-              {formatNaira(walletBalanceKobo)}
+              {formatMoney(walletBalanceKobo, currency)}
             </span>
             <Link
               href={walletHref}
@@ -529,7 +536,7 @@ export function BuyPanel({
               <div>
                 <p className="text-xs text-muted-foreground">You pay</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums">
-                  {formatNaira(priceKobo)}
+                  {formatMoney(priceKobo, currency)}
                 </p>
               </div>
               {country.successRate !== undefined ? (
@@ -545,7 +552,7 @@ export function BuyPanel({
       {signedIn && priceKobo !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            Add {formatNaira(priceKobo - walletBalanceKobo)} to your wallet to
+            Add {formatMoney(priceKobo - walletBalanceKobo, currency)} to your wallet to
             buy this number.
           </p>
           <Button href={walletHref} size="sm" variant="outline">

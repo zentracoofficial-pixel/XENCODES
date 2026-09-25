@@ -7,7 +7,7 @@ import {
   ActivationPanel,
   formatDuration,
 } from "@/components/product/activation-panel";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import {
   cancelActivationAction,
   getActivationStateAction,
@@ -122,7 +122,7 @@ export function ActivationView({
               <span className="text-xs text-muted-foreground">
                 {activation.status === "WAITING"
                   ? `Refunded automatically in ${formatDuration(remaining)} if no code arrives`
-                  : `Paid ${formatNaira(activation.priceKobo)}`}
+                  : `Paid ${formatMoney(activation.priceKobo, activation.currency)}`}
               </span>
               {activation.status === "WAITING" ? (
                 <button

@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney, formatMultiCurrencySum } from "@/lib/currency";
+import { getDefaultCurrency } from "@/lib/currency-config";
 import { getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
 import { realisedMargin } from "@/lib/pricing";
 import { Metric, MetricGrid } from "./metric";
@@ -65,24 +66,29 @@ export default async function AdminDashboardPage() {
         createdAt: { gte: startOfWeek },
       },
     }),
-    // Money customers actually paid in. Pending top ups are money asked
-    // for, not received, so they are not counted here.
-    prisma.walletTransaction.aggregate({
+    // Money customers actually paid in, grouped by currency: a Naira total
+    // and a Cedi total are different facts, never one blended figure. Money
+    // customers actually paid in. Pending top ups are money asked for, not
+    // received, so they are not counted here.
+    prisma.walletTransaction.groupBy({
+      by: ["currency"],
       where: { type: "TOPUP", status: "SUCCESSFUL" },
       _sum: { amountKobo: true },
     }),
-    prisma.walletTransaction.aggregate({
+    prisma.walletTransaction.groupBy({
+      by: ["currency"],
       where: { type: "PURCHASE", status: "SUCCESSFUL" },
       _sum: { amountKobo: true },
     }),
     // Margin is measured over orders that stood. A refunded order returns
     // the customer's money, so counting its profit as earned would
     // overstate what the business kept.
-    prisma.activation.aggregate({
+    prisma.activation.groupBy({
+      by: ["currency"],
       where: { status: "RECEIVED" },
       _sum: { priceKobo: true, providerCostKobo: true, grossProfitKobo: true },
     }),
-    prisma.user.aggregate({ _sum: { walletBalanceKobo: true } }),
+    prisma.user.groupBy({ by: ["currency"], _sum: { walletBalanceKobo: true } }),
     // The seven kinds of event a "recent activity" feed is meant to show,
     // fetched separately (each table has its own shape and timestamp) and
     // merged below rather than forced into one query.
@@ -128,19 +134,41 @@ export default async function AdminDashboardPage() {
     getNumberProvider(),
   ]);
 
-  const fundingKobo = fundingAgg._sum.amountKobo ?? 0;
-  const salesKobo = Math.abs(salesAgg._sum.amountKobo ?? 0);
-  const providerCostKobo = deliveredAgg._sum.providerCostKobo ?? 0;
-  const grossProfitKobo = deliveredAgg._sum.grossProfitKobo ?? 0;
-  const deliveredSalesKobo = deliveredAgg._sum.priceKobo ?? 0;
-  const marginPercent = realisedMargin(deliveredSalesKobo, providerCostKobo);
-  const customerBalancesKobo = balancesAgg._sum.walletBalanceKobo ?? 0;
+  const defaultCurrency = await getDefaultCurrency();
+
+  const fundingRows = fundingAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
+  const salesRows = salesAgg.map((row) => ({ currency: row.currency, amount: Math.abs(row._sum.amountKobo ?? 0) }));
+  const providerCostRows = deliveredAgg.map((row) => ({ currency: row.currency, amount: row._sum.providerCostKobo ?? 0 }));
+  const grossProfitRows = deliveredAgg.map((row) => ({ currency: row.currency, amount: row._sum.grossProfitKobo ?? 0 }));
+  const balanceRows = balancesAgg.map((row) => ({ currency: row.currency, amount: row._sum.walletBalanceKobo ?? 0 }));
+
+  // A single blended percentage across currencies would be as meaningless
+  // as a single blended sum. With one currency carrying volume (today's
+  // reality) this is exactly the old single figure; with more than one, each
+  // currency's own margin is shown rather than one figure claiming to speak
+  // for all of them.
+  const marginByCurrency = deliveredAgg
+    .filter((row) => (row._sum.priceKobo ?? 0) !== 0)
+    .map((row) => ({
+      currency: row.currency,
+      percent: realisedMargin(row._sum.priceKobo ?? 0, row._sum.providerCostKobo ?? 0),
+    }));
+  const marginHint =
+    marginByCurrency.length === 0
+      ? "0% margin on completed orders"
+      : marginByCurrency.length === 1
+        ? `${marginByCurrency[0].percent}% margin on completed orders`
+        : marginByCurrency.map((m) => `${m.currency} ${m.percent}%`).join(", ") +
+          " margin on completed orders";
 
   // Only asked for when a provider is connected and actually reports it.
   // Three distinct answers, because "no provider", "this one does not tell
   // us" and "it told us and the number is low" call for different actions.
-  const providerBalanceKobo = resolved.connected
-    ? await resolved.provider.getProviderBalanceKobo?.().catch(() => null) ?? null
+  // Always US cents (suppliers in this space bill and hold balance in USD
+  // regardless of which currencies customers pay in), so this is always
+  // shown in USD, never converted into any customer-facing currency.
+  const providerBalanceUsdCents = resolved.connected
+    ? (await resolved.provider.getProviderBalanceUsdCents?.().catch(() => null)) ?? null
     : null;
 
   const activity: ActivityRow[] = [
@@ -156,7 +184,7 @@ export default async function AdminDashboardPage() {
       key: `funded-${tx.id}`,
       href: `/admin/wallet/${tx.id}`,
       title: "Wallet funding",
-      subtitle: `${tx.user.email} · ${formatNaira(tx.amountKobo)}`,
+      subtitle: `${tx.user.email} · ${formatMoney(tx.amountKobo, tx.currency)}`,
       at: tx.completedAt ?? tx.createdAt,
       badge: { label: "Funded", variant: "success" as const },
     })),
@@ -289,19 +317,19 @@ export default async function AdminDashboardPage() {
             value={
               !resolved.connected
                 ? "Not connected"
-                : providerBalanceKobo === null
+                : providerBalanceUsdCents === null
                   ? "Not reported"
-                  : formatNaira(providerBalanceKobo)
+                  : formatMoney(providerBalanceUsdCents, "USD")
             }
             hint={
               !resolved.connected
                 ? "No provider to hold credit with"
-                : providerBalanceKobo === null
+                : providerBalanceUsdCents === null
                   ? "This provider does not report one"
-                  : "Credit remaining with the provider"
+                  : "Credit remaining with the provider, in USD"
             }
             tone={
-              providerBalanceKobo !== null && providerBalanceKobo <= 0
+              providerBalanceUsdCents !== null && providerBalanceUsdCents <= 0
                 ? "danger"
                 : "default"
             }
@@ -314,30 +342,30 @@ export default async function AdminDashboardPage() {
         <MetricGrid>
           <Metric
             label="Customer funding"
-            value={formatNaira(fundingKobo)}
+            value={formatMultiCurrencySum(fundingRows, defaultCurrency.code)}
             hint="Confirmed payments in"
             href="/admin/wallet?type=TOPUP"
           />
           <Metric
             label="Number sales"
-            value={formatNaira(salesKobo)}
+            value={formatMultiCurrencySum(salesRows, defaultCurrency.code)}
             hint="Charged to wallets"
             href="/admin/wallet?type=PURCHASE"
           />
           <Metric
             label="Provider cost"
-            value={formatNaira(providerCostKobo)}
+            value={formatMultiCurrencySum(providerCostRows, defaultCurrency.code)}
             hint="Billed on completed orders"
           />
           <Metric
             label="Gross profit"
-            value={formatNaira(grossProfitKobo)}
-            hint={`${marginPercent}% margin on completed orders`}
-            tone={grossProfitKobo > 0 ? "success" : "default"}
+            value={formatMultiCurrencySum(grossProfitRows, defaultCurrency.code)}
+            hint={marginHint}
+            tone={grossProfitRows.some((row) => row.amount > 0) ? "success" : "default"}
           />
           <Metric
             label="Customer balances"
-            value={formatNaira(customerBalancesKobo)}
+            value={formatMultiCurrencySum(balanceRows, defaultCurrency.code)}
             hint="Held on account, owed to customers"
           />
         </MetricGrid>

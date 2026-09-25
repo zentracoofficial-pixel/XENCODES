@@ -15,12 +15,12 @@ const DIRECTORY_LIMIT = 5000;
 export const metadata: Metadata = {
   title: "Supported Services",
   description:
-    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in Naira.",
+    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in your own currency.",
   keywords: [
-    "WhatsApp verification number Nigeria",
+    "WhatsApp verification number",
     "Telegram virtual number",
     "Instagram SMS verification",
-    "Fiverr phone verification Nigeria",
+    "Fiverr phone verification",
   ],
   alternates: { canonical: "/services" },
 };
@@ -43,7 +43,7 @@ export default async function ServicesPage() {
       </h1>
       <p className="mt-1.5 text-sm text-muted-foreground">
         {services.length > 0
-          ? `${services.length.toLocaleString("en-NG")} services available right now. Pick one to choose a country and see its price.`
+          ? `${services.length.toLocaleString("en-US")} services available right now. Pick one to choose a country and see its price.`
           : "Services appear here as soon as numbers are back on sale."}
       </p>
 

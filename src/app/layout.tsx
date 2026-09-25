@@ -23,12 +23,12 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_NAME}`,
   },
   description:
-    "Search for the service you need, choose a country, and receive your SMS verification code in real time. Pay as you go in Naira, with an automatic refund when no code arrives.",
+    "Search for the service you need, choose a country, and receive your SMS verification code in real time. Pay as you go in your own currency, with an automatic refund when no code arrives.",
   applicationName: SITE_NAME,
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
-    locale: "en_NG",
+    locale: "en_US",
     url: SITE_URL,
   },
   twitter: { card: "summary_large_image" },

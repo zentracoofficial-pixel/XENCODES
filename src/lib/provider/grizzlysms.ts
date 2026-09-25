@@ -81,10 +81,12 @@ function isFresh(entry: CachedAt<unknown> | undefined, ttlMs: number) {
 }
 
 /** GrizzlySMS's cost fields are USD, matching every reseller in this API
- *  family except the original .ru site. Converted here, once, so nothing
- *  downstream ever sees a dollar figure. */
-function usdToKobo(usd: number, usdToNgnRate: number) {
-  return Math.round(usd * usdToNgnRate * 100);
+ *  family except the original .ru site. Converted to cents here, once, so
+ *  nothing downstream ever sees a fractional-dollar figure; turning that USD
+ *  cost into a customer's own currency is the pricing engine's job (see
+ *  quoteForCurrency() in src/lib/pricing.ts), never this adapter's. */
+function usdToCents(usd: number) {
+  return Math.round(usd * 100);
 }
 
 function stockFromCount(count: number): StockLevel {
@@ -121,7 +123,6 @@ export class GrizzlySmsProvider implements NumberProvider {
   readonly label = "GrizzlySMS";
 
   private readonly apiKey: string;
-  private readonly usdToNgnRate: number;
 
   /**
    * Static, not per-instance. getNumberProvider() builds a fresh
@@ -140,9 +141,8 @@ export class GrizzlySmsProvider implements NumberProvider {
     CachedAt<Map<string, Map<string, { cost: number; count: number }>>>
   >();
 
-  constructor(config: { apiKey: string; usdToNgnRate: number }) {
+  constructor(config: { apiKey: string }) {
     this.apiKey = config.apiKey;
-    this.usdToNgnRate = config.usdToNgnRate;
   }
 
   /** Every call to the handler endpoint. Never logs the key, and the key
@@ -404,7 +404,7 @@ export class GrizzlySmsProvider implements NumberProvider {
       byCountry.push({
         serviceSlug,
         country: { ...resolveCountryMeta(name), providerCountryId: countryId },
-        costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
+        costUsdCents: usdToCents(entry.cost),
         stock: stockFromCount(entry.count),
         stockCount: entry.count,
       });
@@ -461,7 +461,7 @@ export class GrizzlySmsProvider implements NumberProvider {
             providerServiceId: code,
           },
           country,
-          costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
+          costUsdCents: usdToCents(entry.cost),
           stock: stockFromCount(entry.count),
           stockCount: entry.count,
         });
@@ -493,7 +493,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     return {
       serviceSlug,
       country: { ...resolveCountryMeta(name), providerCountryId: countryId },
-      costKobo: usdToKobo(entry.cost, this.usdToNgnRate),
+      costUsdCents: usdToCents(entry.cost),
       stock: stockFromCount(entry.count),
       stockCount: entry.count,
     };
@@ -502,7 +502,7 @@ export class GrizzlySmsProvider implements NumberProvider {
   async purchaseNumber(
     serviceSlug: string,
     countrySlug: string,
-    maxCostKobo?: number,
+    maxCostUsdCents?: number,
   ): Promise<PurchasedNumber> {
     const [code, countryId] = await Promise.all([
       this.resolveServiceCode(serviceSlug),
@@ -521,8 +521,8 @@ export class GrizzlySmsProvider implements NumberProvider {
     // risen past what Xencodes already quoted the customer, GrizzlySMS
     // itself refuses the request rather than this purchase silently
     // costing more than the order it is about to be attached to.
-    if (maxCostKobo !== undefined) {
-      const maxUsd = maxCostKobo / 100 / this.usdToNgnRate;
+    if (maxCostUsdCents !== undefined) {
+      const maxUsd = maxCostUsdCents / 100;
       params.maxPrice = maxUsd.toFixed(4);
     }
 
@@ -590,13 +590,13 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
   }
 
-  async getProviderBalanceKobo(): Promise<number | null> {
+  async getProviderBalanceUsdCents(): Promise<number | null> {
     try {
       const text = await this.call({ action: "getBalance" });
       const parts = parseColonResponse(text, "ACCESS_BALANCE");
       if (!parts || parts.length === 0) return null;
       const usd = Number(parts[0]);
-      return Number.isFinite(usd) ? usdToKobo(usd, this.usdToNgnRate) : null;
+      return Number.isFinite(usd) ? usdToCents(usd) : null;
     } catch {
       return null;
     }
@@ -670,7 +670,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     for (const service of services) {
       const usd = cheapestUsdByCode.get(service.code);
       if (usd !== undefined) {
-        result.set(slugify(service.name), usdToKobo(usd, this.usdToNgnRate));
+        result.set(slugify(service.name), usdToCents(usd));
       }
     }
     return result;

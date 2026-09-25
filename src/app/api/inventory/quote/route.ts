@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { quotePair } from "@/lib/inventory";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 
 /**
  * The live price for one pair, fetched with no cache in the way, so the
@@ -32,7 +33,11 @@ export async function GET(request: Request) {
     );
   }
 
-  const result = await quotePair(serviceSlug, countrySlug);
+  const requestedCurrency = params.get("currency");
+  const resolvedCurrency = requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null;
+  const currency = resolvedCurrency?.enabled ? resolvedCurrency : await getDefaultCurrency();
+
+  const result = await quotePair(serviceSlug, countrySlug, currency);
 
   if (!result.ok) {
     return NextResponse.json({

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { quotePair } from "@/lib/inventory";
 import { resolveProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
+import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 
 /**
  * Buying a number, and waiting for its code.
@@ -46,8 +47,24 @@ export async function purchaseNumberAction(
   const session = await auth();
   if (!session?.user?.id) return { error: "login_required" };
 
+  // Which account can pay, and in which currency, is established before any
+  // supplier lookup: everything downstream (the quote, the charge, the
+  // stored order) is priced in this account's own currency, never assumed
+  // to be Naira. Checked here too, rather than only later: a session issued
+  // before a suspension or deletion stays valid until it expires on its own
+  // (JWT strategy), so this is what actually stops it from spending money
+  // in the meantime. The proxy already keeps admins out of the buy flow;
+  // this is the authoritative check, in case someone calls this action
+  // directly.
+  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!user) return { error: "unknown" };
+  if (user.deletedAt || user.status !== "ACTIVE") return { error: "unknown" };
+  if (user.role === "ADMIN") return { error: "admin_account" };
+
+  const buyerCurrency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+
   // Step one to three: cost, rule, price. All server side, all live.
-  const quoted = await quotePair(serviceSlug, countrySlug);
+  const quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency);
   if (!quoted.ok) {
     if (quoted.reason === "no_provider") return { error: "no_provider" };
     if (quoted.reason === "provider_error") return { error: "provider_unavailable" };
@@ -76,16 +93,9 @@ export async function purchaseNumberAction(
   }
 
   // Step four: can they pay. Checked before the supplier is asked for a
-  // number, so a customer who cannot pay never consumes inventory.
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!user) return { error: "unknown" };
-  // A session issued before a suspension or deletion stays valid until it
-  // expires on its own (JWT strategy), so this is the check that actually
-  // stops it from spending money in the meantime.
-  if (user.deletedAt || user.status !== "ACTIVE") return { error: "unknown" };
-  // The proxy already keeps admins out of the buy flow; this is the
-  // authoritative check, in case someone calls this action directly.
-  if (user.role === "ADMIN") return { error: "admin_account" };
+  // number, so a customer who cannot pay never consumes inventory. This is
+  // a fast, non-atomic preliminary check against the balance read above;
+  // the actual enforcement is the atomic conditional UPDATE further down.
   if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
 
   // The exact provider quotePair() just picked this pair's winning price
@@ -150,6 +160,7 @@ export async function purchaseNumberAction(
           providerOrderId: assigned.providerOrderId,
           providerServiceId: quoted.providerServiceId ?? null,
           providerCountryId: quoted.providerCountryId ?? null,
+          currency: buyerCurrency.code,
           priceKobo,
           providerCostKobo: quote.providerCostKobo,
           grossProfitKobo: quote.grossProfitKobo,
@@ -168,6 +179,7 @@ export async function purchaseNumberAction(
           amountKobo: -priceKobo,
           type: "PURCHASE",
           description: `${service.name} number, ${country.name}`,
+          currency: buyerCurrency.code,
           activationId: created.id,
         },
       });
@@ -199,6 +211,8 @@ export interface ActivationState {
   countryName: string;
   phoneNumber: string;
   priceKobo: number;
+  /** ISO 4217; the currency priceKobo is denominated in. */
+  currency: string;
   status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
   code: string | null;
   expiresAt: string;
@@ -211,6 +225,7 @@ interface ActivationRow {
   countryName: string;
   phoneNumber: string;
   priceKobo: number;
+  currency: string;
   status: string;
   code: string | null;
   expiresAt: Date;
@@ -224,6 +239,7 @@ function toState(activation: ActivationRow): ActivationState {
     countryName: activation.countryName,
     phoneNumber: activation.phoneNumber,
     priceKobo: activation.priceKobo,
+    currency: activation.currency,
     status: activation.status as ActivationState["status"],
     code: activation.code,
     expiresAt: activation.expiresAt.toISOString(),
@@ -312,6 +328,7 @@ export async function getActivationStateAction(
         activation.priceKobo,
         "REFUND",
         `Refund for ${activation.serviceName}, ${settled.why}`,
+        activation.currency,
         activation.id,
         tx,
       );
@@ -367,6 +384,7 @@ export async function cancelActivationAction(
       activation.priceKobo,
       "REFUND",
       `Refund, cancelled ${activation.serviceName} activation`,
+      activation.currency,
       activation.id,
       tx,
     );

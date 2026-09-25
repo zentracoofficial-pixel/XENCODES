@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatNaira, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "../activation-logo";
 import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 
@@ -93,7 +93,7 @@ export default async function HistoryPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {formatNaira(activation.priceKobo)}
+                    {formatMoney(activation.priceKobo, activation.currency)}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {activation.createdAt.toLocaleString("en-NG", dateFormat)}
@@ -141,7 +141,7 @@ export default async function HistoryPage() {
                       </span>
                     ) : null}
                     <span className="text-sm tabular-nums text-muted-foreground">
-                      {formatNaira(activation.priceKobo)}
+                      {formatMoney(activation.priceKobo, activation.currency)}
                     </span>
                   </span>
                 </div>

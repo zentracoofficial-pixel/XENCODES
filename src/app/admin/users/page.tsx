@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const metadata: Metadata = { title: "Admin: Users" };
@@ -245,13 +245,13 @@ export default async function AdminUsersPage({
                       ) : null}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
-                      {formatNaira(user.walletBalanceKobo)}
+                      {formatMoney(user.walletBalanceKobo, user.currency)}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
                       {user._count.activations}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
-                      {formatNaira(spentByUser.get(user.id) ?? 0)}
+                      {formatMoney(spentByUser.get(user.id) ?? 0, user.currency)}
                     </td>
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {user.createdAt.toLocaleDateString("en-NG", {
