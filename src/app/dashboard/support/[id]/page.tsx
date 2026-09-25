@@ -14,6 +14,7 @@ import {
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
 import { markTicketNotificationsRead } from "@/lib/notifications";
+import { TicketAutoRefresh } from "@/components/ticket-auto-refresh";
 import { TicketReplyForm } from "./ticket-reply-form";
 
 export const metadata: Metadata = { title: "Support ticket" };
@@ -61,6 +62,7 @@ export default async function TicketDetailPage({
 
   return (
     <div className="space-y-5">
+      <TicketAutoRefresh />
       <Link
         href="/dashboard/support"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"

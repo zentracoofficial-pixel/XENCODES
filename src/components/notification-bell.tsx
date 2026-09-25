@@ -15,7 +15,7 @@ export interface NotificationItem {
   readAt: string | null;
 }
 
-const POLL_INTERVAL_MS = 20000;
+const POLL_INTERVAL_MS = 5000;
 
 /**
  * Module-scoped, not component state: the sidebar's bell and the mobile
