@@ -261,8 +261,8 @@ export default async function HomePage() {
                 body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
               },
               {
-                title: "Priced in your currency",
-                body: "Every price is shown in your own currency, with nothing added at checkout.",
+                title: "Priced in NGN or USD",
+                body: "Nigeria pays in NGN, everywhere else pays in USD, with nothing added at checkout.",
               },
               {
                 title: "No code, no charge",

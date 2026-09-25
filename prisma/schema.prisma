@@ -28,15 +28,17 @@ model User {
   emailVerified      DateTime?
   role               UserRole   @default(USER)
   status             UserStatus @default(ACTIVE)
-  /// ISO 4217 code for every money field on this account: walletBalanceKobo,
-  /// every WalletTransaction, every Activation this user creates. Chosen at
-  /// registration from whichever currencies are enabled (see
-  /// src/lib/currency-config.ts) and never silently reinterpreted: changing
-  /// a currency after money has moved would make every past amount mean
-  /// something different than what it said at the time. Enforced by
-  /// omission rather than a guard: nothing outside registerAction() in
-  /// src/app/(auth)/register/actions.ts ever writes this column, so there
-  /// is no code path that could change it later.
+  /// "NGN" or "USD", never any other value: a CHECK constraint enforces
+  /// this at the database level (see the two_currency_model migration),
+  /// since Prisma has no first-class enum-backed CHECK for an existing
+  /// String column here. NGN for Nigeria, USD for every other supported
+  /// country — never a currency per country. Chosen at registration (see
+  /// currencyForCountry() in src/lib/currency-config.ts) and never silently
+  /// reinterpreted: changing a currency after money has moved would make
+  /// every past amount mean something different than what it said at the
+  /// time. Enforced by omission rather than a guard: nothing outside
+  /// registerAction() in src/app/(auth)/register/actions.ts ever writes
+  /// this column, so there is no code path that could change it later.
   currency           String     @default("NGN")
   walletBalanceKobo Int       @default(0)
   twoFactorSecret    String?
@@ -141,11 +143,12 @@ model Activation {
   providerServiceId String?
   /// The supplier's own id for the country bought, captured the same way.
   providerCountryId String?
-  /// ISO 4217 code priceKobo/providerCostKobo/grossProfitKobo are all
-  /// denominated in: the buyer's own currency at the moment of purchase
-  /// (User.currency), captured here rather than looked up from the user
-  /// record so a historical order stays correctly labelled even if that
-  /// account's currency setting were ever revisited.
+  /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment):
+  /// what priceKobo/providerCostKobo/grossProfitKobo are all denominated
+  /// in, the buyer's own currency at the moment of purchase (User.currency),
+  /// captured here rather than looked up from the user record so a
+  /// historical order stays correctly labelled even if that were ever
+  /// revisited.
   currency    String           @default("NGN")
   /// What the customer paid, in `currency` above.
   priceKobo  Int
@@ -202,8 +205,9 @@ model WalletTransaction {
   type        WalletTransactionType
   amountKobo Int
   description String
-  /// ISO 4217. Stored per row rather than assumed globally so a future
-  /// second currency does not silently reinterpret old rows.
+  /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment).
+  /// Stored per row rather than assumed globally so NGN and USD movements
+  /// are never blended into one sum by an aggregate query.
   currency    String                @default("NGN")
   /// Defaults to SUCCESSFUL because every row that existed before funding
   /// was introduced was an already-settled purchase, refund or adjustment.

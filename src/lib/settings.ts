@@ -43,10 +43,15 @@ export const SETTING_KEYS = {
    *  could be enabled. Read only as a one-time fallback for NGN's own cap
    *  when currencyConfig has never been written. */
   topupFeeCapKobo: "topup_fee_cap_kobo",
-  /** JSON array of per-currency config: {code, enabled, usdRate,
-   *  minTopUpMinor, maxTopUpMinor, feeCapMinor, priority}. See
-   *  src/lib/currency-config.ts, the only reader/writer of this key. */
-  currencyConfig: "currency_config_v1",
+  /** JSON object keyed by the two fixed currency codes, {NGN: {usdRate,
+   *  minTopUpMinor, maxTopUpMinor, feeCapMinor}, USD: {...}}. Xencodes only
+   *  ever sells in NGN or USD, never a currency per country; see
+   *  src/lib/currency-config.ts, the only reader/writer of this key.
+   *  Versioned _v2 because the shape changed from an earlier array format;
+   *  the old key is abandoned, not migrated, since every value it could
+   *  hold is recoverable from the legacy usd_to_ngn_rate/topup_fee_cap_kobo
+   *  fallback below. */
+  currencyConfig: "currency_config_v2",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the

@@ -3,13 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { recordAudit } from "@/lib/audit";
-import { isValidCurrencyCode, majorToMinor } from "@/lib/currency";
-import {
-  upsertCurrency,
-  setCurrencyEnabled,
-  removeCurrency,
-  type CurrencyConfigEntry,
-} from "@/lib/currency-config";
+import { majorToMinor } from "@/lib/currency";
+import { updateCurrencySettings, type CurrencyCode } from "@/lib/currency-config";
 
 function refresh() {
   revalidatePath("/admin/currencies");
@@ -27,13 +22,11 @@ export interface CurrencyFormState {
 }
 
 /**
- * Adds a new currency, or replaces an existing one with the same code.
- *
- * Enabling a currency here is a real commercial claim: that KoraPay can
- * actually charge and settle it for this merchant account, and that the
- * admin has a real, current USD exchange rate for it. Neither of those
- * facts can be verified from inside this codebase, so this form only
- * records what an admin states; it never assumes or fabricates either one.
+ * Saves one currency's rate and top-up bounds. There is no add/remove here:
+ * NGN and USD are the whole set, permanently, so this only ever edits one
+ * of the two existing rows. usdRate is accepted but ignored for USD, since
+ * 1 USD converted into USD is always 1 USD and this form cannot be used to
+ * pretend otherwise.
  */
 export async function saveCurrencyAction(
   _prev: CurrencyFormState,
@@ -42,18 +35,16 @@ export async function saveCurrencyAction(
   const admin = await requireAdmin();
 
   const code = (formData.get("code") as string)?.trim().toUpperCase();
+  if (code !== "NGN" && code !== "USD") {
+    return { error: "Unknown currency." };
+  }
+
   const usdRate = Number(formData.get("usdRate"));
   const minTopUp = Number(formData.get("minTopUp"));
   const maxTopUp = Number(formData.get("maxTopUp"));
   const feeCap = Number(formData.get("feeCap"));
-  const priority = Number(formData.get("priority"));
-  const countryLabel = (formData.get("countryLabel") as string)?.trim() || undefined;
-  const enabled = formData.get("enabled") === "on";
 
-  if (!code || !isValidCurrencyCode(code)) {
-    return { error: "Enter a real ISO 4217 currency code, for example GHS." };
-  }
-  if (!Number.isFinite(usdRate) || usdRate <= 0) {
+  if (code === "NGN" && (!Number.isFinite(usdRate) || usdRate <= 0)) {
     return { error: "Enter a positive USD exchange rate." };
   }
   if (!Number.isFinite(minTopUp) || minTopUp <= 0) {
@@ -65,85 +56,32 @@ export async function saveCurrencyAction(
   if (!Number.isFinite(feeCap) || feeCap < 0) {
     return { error: "Enter a non-negative fee cap." };
   }
-  if (!Number.isInteger(priority)) {
-    return { error: "Priority must be a whole number." };
-  }
 
-  const entry: CurrencyConfigEntry = {
-    code,
-    enabled,
-    usdRate,
-    minTopUpMinor: majorToMinor(minTopUp, code),
-    maxTopUpMinor: majorToMinor(maxTopUp, code),
-    feeCapMinor: majorToMinor(feeCap, code),
-    priority,
-    countryLabel,
-  };
+  const currency = code as CurrencyCode;
+  const minTopUpMinor = majorToMinor(minTopUp, currency);
+  const maxTopUpMinor = majorToMinor(maxTopUp, currency);
+  const feeCapMinor = majorToMinor(feeCap, currency);
 
-  await upsertCurrency(entry);
+  await updateCurrencySettings(currency, {
+    ...(currency === "NGN" ? { usdRate } : {}),
+    minTopUpMinor,
+    maxTopUpMinor,
+    feeCapMinor,
+  });
   await recordAudit({
     actor: admin,
     action: "currency.save",
     targetType: "currency",
-    targetId: code,
+    targetId: currency,
     metadata: {
-      code: entry.code,
-      enabled: entry.enabled,
-      usdRate: entry.usdRate,
-      minTopUpMinor: entry.minTopUpMinor,
-      maxTopUpMinor: entry.maxTopUpMinor,
-      feeCapMinor: entry.feeCapMinor,
-      priority: entry.priority,
-      countryLabel: entry.countryLabel ?? null,
+      code: currency,
+      usdRate: currency === "NGN" ? usdRate : 1,
+      minTopUpMinor,
+      maxTopUpMinor,
+      feeCapMinor,
     },
   });
 
   refresh();
   return { success: true };
-}
-
-export interface CurrencyActionResult {
-  ok: boolean;
-  error?: string;
-}
-
-export async function toggleCurrencyEnabledAction(
-  code: string,
-  enabled: boolean,
-): Promise<CurrencyActionResult> {
-  const admin = await requireAdmin();
-  try {
-    await setCurrencyEnabled(code, enabled);
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Could not save." };
-  }
-
-  await recordAudit({
-    actor: admin,
-    action: enabled ? "currency.enable" : "currency.disable",
-    targetType: "currency",
-    targetId: code,
-    metadata: { code, enabled },
-  });
-
-  refresh();
-  return { ok: true };
-}
-
-export async function removeCurrencyAction(code: string): Promise<CurrencyActionResult> {
-  const admin = await requireAdmin();
-  const result = await removeCurrency(code);
-  if (!result.removed) {
-    return { ok: false, error: result.reason };
-  }
-
-  await recordAudit({
-    actor: admin,
-    action: "currency.remove",
-    targetType: "currency",
-    targetId: code,
-  });
-
-  refresh();
-  return { ok: true };
 }

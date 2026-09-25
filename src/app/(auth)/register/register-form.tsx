@@ -6,18 +6,40 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { registerAction, type RegisterState } from "./actions";
+import type { CurrencyCode } from "@/lib/currency-config";
 
 const initialState: RegisterState = {};
 
 export function RegisterForm({
-  currencies,
+  suggestedCurrency,
+  usdFundingAvailable,
 }: {
-  /** Every currency an admin has enabled, lowest priority first (see
-   *  getEnabledCurrencies() in src/lib/currency-config.ts). Always at least
-   *  one: NGN can never be disabled. */
-  currencies: { code: string; label: string }[];
+  /** NGN or USD, guessed from the request's own detected location. A
+   *  starting selection, never an assignment: geo-IP is wrong often enough
+   *  that the visitor can still pick the other option themselves. */
+  suggestedCurrency: CurrencyCode;
+  /** Whether a USD-capable payment provider is actually connected right
+   *  now. False today; shown honestly below rather than left unsaid, so
+   *  nobody registers expecting to fund a USD wallet that cannot yet be
+   *  funded. */
+  usdFundingAvailable: boolean;
 }) {
   const [state, formAction, pending] = useActionState(registerAction, initialState);
+
+  const options: { value: CurrencyCode; title: string; subtitle: string }[] = [
+    {
+      value: "NGN",
+      title: "Nigeria",
+      subtitle: "Wallet and pricing in NGN, funded via card, transfer or USSD.",
+    },
+    {
+      value: "USD",
+      title: "Outside Nigeria",
+      subtitle: usdFundingAvailable
+        ? "Wallet and pricing in USD."
+        : "Wallet and pricing in USD. Funding isn't connected yet, so you can browse and see prices, but not add funds yet.",
+    },
+  ];
 
   if (state.success) {
     return (
@@ -68,31 +90,33 @@ export function RegisterForm({
           />
         </div>
 
-        {currencies.length > 1 ? (
-          <div>
-            <label htmlFor="currency" className="text-sm font-medium">
-              Currency
-            </label>
-            <select
-              id="currency"
-              name="currency"
-              defaultValue={currencies[0].code}
-              className="mt-1.5 h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
-            >
-              {currencies.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              Numbers are priced and your wallet is charged in this currency.
-              It cannot be changed later.
-            </p>
+        <fieldset>
+          <legend className="text-sm font-medium">Where are you?</legend>
+          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+            {options.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface p-3 text-sm transition-colors has-[:checked]:border-mint has-[:checked]:bg-mint-soft"
+              >
+                <input
+                  type="radio"
+                  name="currency"
+                  value={option.value}
+                  defaultChecked={option.value === suggestedCurrency}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  <span className="block font-medium">{option.title}</span>
+                  <span className="block text-xs text-muted-foreground">{option.subtitle}</span>
+                </span>
+              </label>
+            ))}
           </div>
-        ) : (
-          <input type="hidden" name="currency" value={currencies[0]?.code ?? "NGN"} />
-        )}
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            This sets your wallet and pricing currency. It cannot be changed
+            later.
+          </p>
+        </fieldset>
 
         {state.error ? (
           <p className="text-sm text-danger">{state.error}</p>

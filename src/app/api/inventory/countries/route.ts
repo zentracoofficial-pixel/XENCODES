@@ -16,13 +16,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ countries: [] }, { status: 400 });
   }
 
-  // The requested currency must actually be one an admin has enabled; a
-  // client sending anything else (a stale value, a tampered request) falls
-  // back to the platform default rather than pricing in a currency nobody
-  // configured a rate for.
+  // The requested currency must be one of the two Xencodes actually sells
+  // in (NGN or USD); a client sending anything else (a stale value, a
+  // tampered request) falls back to the platform default rather than
+  // pricing in a currency that does not exist here.
   const requestedCurrency = params.get("currency");
-  const resolved = requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null;
-  const currency = resolved?.enabled ? resolved : await getDefaultCurrency();
+  const currency =
+    (requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null) ??
+    (await getDefaultCurrency());
 
   try {
     return NextResponse.json({

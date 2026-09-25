@@ -5,7 +5,7 @@ import { Container } from "@/components/ui/container";
 import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
-import { getDefaultCurrency } from "@/lib/currency-config";
+import { getVisitorCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +39,10 @@ export default async function BuyPage({
 
   // The first page of services, so the picker is useful before a single
   // keystroke. Everything past this comes from the search endpoint.
-  const [status, initialServices, defaultCurrency] = await Promise.all([
+  const [status, initialServices, visitorCurrency] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
-    getDefaultCurrency(),
+    getVisitorCurrency(),
   ]);
 
   // A deep link to a service that is not on the first page still needs to
@@ -63,7 +63,7 @@ export default async function BuyPage({
         initialServiceSlug={serviceSlug}
         signedIn={false}
         walletBalanceKobo={0}
-        currency={defaultCurrency.code}
+        currency={visitorCurrency.code}
         unavailableMessage={status.connected ? undefined : status.message}
       />
     </Container>

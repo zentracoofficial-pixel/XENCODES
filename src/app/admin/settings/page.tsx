@@ -130,21 +130,22 @@ export default async function AdminSettingsPage() {
           Wallet
         </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-          {enabledCurrencies.length} currenc{enabledCurrencies.length === 1 ? "y" : "ies"}{" "}
-          enabled. Each customer registers, is priced, and pays in exactly one
-          of these; enabling, disabling, exchange rates, and top-up bounds for
-          every currency live on{" "}
+          Exactly two: NGN for accounts in Nigeria, USD for everyone else.
+          Never a currency per country. Exchange rates, top-up bounds and
+          each one&apos;s actual funding status live on{" "}
           <Link href="/admin/currencies" className="text-forest hover:underline">
             Currencies
           </Link>
           .
         </p>
-        <dl className="mt-3 grid gap-2.5 sm:grid-cols-3">
+        <dl className="mt-3 grid gap-2.5 sm:grid-cols-2">
           {enabledCurrencies.map((currency) => (
             <div key={currency.code} className="rounded-lg border border-border px-4 py-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              <dt className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
                 {currency.code}
-                {currency.countryLabel ? ` — ${currency.countryLabel}` : ""}
+                <Badge variant={currency.fundingAvailable ? "success" : "warning"}>
+                  {currency.fundingAvailable ? "Funding live" : "Funding not connected"}
+                </Badge>
               </dt>
               <dd className="mt-1 text-sm font-medium tabular-nums">
                 {formatMoney(currency.minTopUpMinor, currency.code)} to{" "}
