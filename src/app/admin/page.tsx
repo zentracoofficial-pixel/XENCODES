@@ -9,7 +9,9 @@ import { formatMoney, formatMultiCurrencySum } from "@/lib/currency";
 import { getDefaultCurrency } from "@/lib/currency-config";
 import { getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
 import { realisedMargin } from "@/lib/pricing";
+import { getSystemHealth } from "@/lib/system-health";
 import { Metric, MetricGrid } from "./metric";
+import { SystemHealthCard } from "./system-health-card";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
@@ -170,6 +172,8 @@ export default async function AdminDashboardPage() {
   const providerBalanceUsdCents = resolved.connected
     ? (await resolved.provider.getProviderBalanceUsdCents?.().catch(() => null)) ?? null
     : null;
+
+  const health = await getSystemHealth();
 
   const activity: ActivityRow[] = [
     ...newUserRows.map((user) => ({
@@ -370,6 +374,8 @@ export default async function AdminDashboardPage() {
           />
         </MetricGrid>
       </section>
+
+      <SystemHealthCard signals={health} />
 
       <Card className="overflow-hidden">
         <div className="border-b border-border px-5 py-3.5">

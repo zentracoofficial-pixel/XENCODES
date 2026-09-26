@@ -7,8 +7,10 @@ import {
   getProviderCapabilities,
 } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
+import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
+import { FlaggedFailuresCard } from "./flagged-failures-card";
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -37,9 +39,10 @@ export const maxDuration = 60;
 export default async function AdminProvidersPage() {
   await requireAdmin();
 
-  const [config, statuses] = await Promise.all([
+  const [config, statuses, flagged] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
+    listFlaggedFailures(),
   ]);
   const configById = new Map(config.map((entry) => [entry.id, entry]));
 
@@ -108,6 +111,19 @@ export default async function AdminProvidersPage() {
           <ProviderCard key={row.id} {...row} />
         ))}
       </div>
+
+      <FlaggedFailuresCard
+        items={flagged.map((row) => ({
+          id: row.id,
+          providerId: row.providerId,
+          serviceSlug: row.serviceSlug,
+          countrySlug: row.countrySlug,
+          consecutiveFails: row.consecutiveFails,
+          totalFails: row.totalFails,
+          lastFailureReason: row.lastFailureReason,
+          lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
+        }))}
+      />
     </div>
   );
 }
