@@ -162,7 +162,7 @@ export default async function AdminSettingsPage() {
           address to only deliver to your own Resend account email.
         </p>
         <div className="mt-4 border-t border-border pt-4">
-          <TestEmailButton />
+          <TestEmailButton defaultTo={SUPPORT_EMAIL} />
         </div>
       </Card>
 

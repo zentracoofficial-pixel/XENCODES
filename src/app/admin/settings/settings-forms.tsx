@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   saveMarginSettingsAction,
   saveTopupFeeSettingsAction,
@@ -133,19 +134,36 @@ export function TopupFeeForm({ feePercent }: { feePercent: number }) {
 }
 
 /**
- * A real send-to-yourself button, not a status check: the surest way to
- * know whether outbound email actually works on this exact deployment right
- * now is to try it and read back what actually happened, including
- * Resend's own error text verbatim if it fails.
+ * A real send, not a status check: the surest way to know whether outbound
+ * email actually works on this exact deployment right now is to try it and
+ * read back what actually happened, including Resend's own error text
+ * verbatim if it fails.
+ *
+ * Defaults the recipient to the support inbox rather than the admin's own
+ * address: sending to your own @xencodes.com address only proves Resend
+ * accepts the message, since same-domain delivery has nothing to
+ * authenticate. The support inbox is normally an external address (Gmail,
+ * Outlook, ...), and whether an external mailbox actually places the
+ * message in the inbox rather than spam is the real question — editable so
+ * it can also be pointed at any other address to test.
  */
-export function TestEmailButton() {
+export function TestEmailButton({ defaultTo }: { defaultTo: string }) {
   const [state, formAction, pending] = useActionState(sendTestEmailAction, initialTestEmail);
 
   return (
     <form action={formAction} className="space-y-3">
-      <Button type="submit" disabled={pending} variant="outline" size="sm">
-        {pending ? "Sending..." : "Send test email to myself"}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          name="to"
+          type="email"
+          defaultValue={defaultTo}
+          placeholder="Address to test"
+          className={cn(inputClass, "h-9 w-64")}
+        />
+        <Button type="submit" disabled={pending} variant="outline" size="sm">
+          {pending ? "Sending..." : "Send test email"}
+        </Button>
+      </div>
 
       {state.status === "sent" ? (
         <p className="text-sm text-success">{state.message}</p>

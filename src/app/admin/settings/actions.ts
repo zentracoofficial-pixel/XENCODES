@@ -104,27 +104,36 @@ export interface TestEmailState {
 }
 
 /**
- * A real send, to whichever admin clicks it, through the exact same
- * sendEmail() every other outbound message in the app uses — never a
- * dry-run or a client-side simulation. Exists so a misconfigured RESEND_API_KEY,
- * an EMAIL_FROM that never actually took effect on this deployment, or a
- * provider-side rejection shows up as the *exact* error Resend returned,
- * right here, instead of something only visible by cross-referencing the
- * Vercel and Resend dashboards by hand.
+ * A real send, through the exact same sendEmail() every other outbound
+ * message in the app uses — never a dry-run or a client-side simulation.
+ * Exists so a misconfigured RESEND_API_KEY, an EMAIL_FROM that never
+ * actually took effect on this deployment, or a provider-side rejection
+ * shows up as the *exact* error Resend returned, right here, instead of
+ * something only visible by cross-referencing the Vercel and Resend
+ * dashboards by hand.
+ *
+ * Defaults to the clicking admin's own address, but accepts an explicit
+ * recipient too: sending to your own @xencodes.com address only proves
+ * Resend accepts the message, since same-domain delivery has nothing to
+ * authenticate. Whether an *external* inbox (Gmail, Outlook, ...) actually
+ * places it in the inbox rather than spam is a genuinely different
+ * question, and the only way to answer it is to send to that exact address.
  */
 export async function sendTestEmailAction(
   _prev: TestEmailState,
+  formData: FormData,
 ): Promise<TestEmailState> {
   const admin = await requireAdmin();
+  const to = String(formData.get("to") ?? "").trim() || admin.email;
 
   try {
     await sendEmail({
-      to: admin.email,
+      to,
       subject: "Xencodes test email",
       text: `This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as "${emailFromAddress()}". If you received this, outbound email is working correctly.`,
       html: `<p>This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as <strong>${emailFromAddress()}</strong>.</p><p>If you received this, outbound email is working correctly.</p>`,
     });
-    return { status: "sent", message: `Sent to ${admin.email} as "${emailFromAddress()}".` };
+    return { status: "sent", message: `Resend accepted it for ${to}, sent as "${emailFromAddress()}". If it doesn't land in that inbox within a minute, check spam/junk — Resend accepting it is not the same as the destination mailbox filing it under Inbox.` };
   } catch (error) {
     return {
       status: "error",
