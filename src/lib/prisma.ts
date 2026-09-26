@@ -34,8 +34,36 @@ function createPrismaClient() {
   return new PrismaClient({ adapter });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+let client: PrismaClient | undefined;
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+/**
+ * Deferring construction until first use (rather than the previous
+ * `export const prisma = createPrismaClient()`) matters at build time: Next
+ * imports every route module — including ones that never run, like
+ * /api/auth/[...nextauth] during "collect page data" — to inspect their
+ * exports, and an eager throw on a missing DATABASE_URL took the whole
+ * build down even on a Preview deployment with no database attached.
+ */
+function getPrisma(): PrismaClient {
+  if (globalForPrisma.prisma) return globalForPrisma.prisma;
+  if (!client) {
+    client = createPrismaClient();
+    if (process.env.NODE_ENV !== "production") {
+      globalForPrisma.prisma = client;
+    }
+  }
+  return client;
 }
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const real = getPrisma();
+    const value = Reflect.get(real, prop);
+    // $transaction/$queryRaw/$connect etc. are real functions that expect
+    // `this` to be the actual client — returning them unbound would hand
+    // the caller a function whose `this` is this Proxy, not `real`. Model
+    // delegates (prisma.user, prisma.order, ...) are plain objects, so this
+    // only ever binds the client's own top-level methods.
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
