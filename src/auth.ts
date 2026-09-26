@@ -29,7 +29,7 @@ async function completeSignIn(user: User) {
     data: { lastLoginAt: new Date() },
   });
 
-  return { id: user.id, email: user.email, name: user.name, role };
+  return { id: user.id, email: user.email, name: user.name, role, sessionVersion: user.sessionVersion };
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({

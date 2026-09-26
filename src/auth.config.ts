@@ -18,6 +18,13 @@ export const authConfig: NextAuthConfig = {
         // Explicit rather than relying on default claim merging, since the
         // proxy's ADMIN_EMAILS fallback below needs this to be reliably set.
         token.email = user.email ?? token.email;
+        // Stamped once, at sign-in, from whatever User.sessionVersion was at
+        // that moment — never refreshed afterward, which is the whole point:
+        // a later bump (password change, "log out everywhere") only shows up
+        // here on the NEXT sign-in, so the authoritative DB-comparison check
+        // in requireActiveUser()/requireAdmin() is what actually revokes the
+        // token in the meantime.
+        token.sessionVersion = (user as { sessionVersion?: number }).sessionVersion ?? 0;
       }
       return token;
     },
@@ -25,6 +32,7 @@ export const authConfig: NextAuthConfig = {
       if (session.user && token.id) {
         session.user.id = token.id as string;
         session.user.role = (token.role as "USER" | "ADMIN") ?? "USER";
+        session.user.sessionVersion = (token.sessionVersion as number | undefined) ?? 0;
         if (token.email) session.user.email = token.email as string;
       }
       return session;

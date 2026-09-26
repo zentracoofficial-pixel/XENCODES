@@ -3,6 +3,7 @@
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import { revalidatePath } from "next/cache";
+import { signOut } from "@/auth";
 import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { createTwoFactorSecret, totpProvisioningUri, verifyTotpCode } from "@/lib/totp";
@@ -42,8 +43,43 @@ export async function changePasswordAction(
   }
 
   const passwordHash = await bcrypt.hash(parsed.data, 12);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  // Bumping sessionVersion here, alongside the password itself, is what
+  // actually logs out every other device: sessions are JWT-only (see
+  // User.sessionVersion's schema comment), so there is no session row
+  // elsewhere to delete — this is the one thing that makes an
+  // already-issued token stop working before it would otherwise expire.
+  // This device's own token is stamped with the *old* version too, so it
+  // is invalidated exactly the same as every other one — there is no cheap
+  // way to re-mint just this device's JWT in place from inside a server
+  // action. Signing out here and asking for a fresh sign-in is the honest
+  // version of that, rather than showing "success" and leaving a token
+  // that silently stops working on the very next click.
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, sessionVersion: { increment: 1 } },
+  });
+  await signOut({ redirectTo: "/login?reason=password_changed" });
+  return { success: true };
+}
 
+export interface LogoutEverywhereState {
+  success?: boolean;
+}
+
+/**
+ * "Log out of all devices." Bumps sessionVersion, which invalidates every
+ * JWT already issued — including this one, since a JWT session has nothing
+ * server-side to leave this device signed in while revoking only others.
+ * Ends by signing this browser out too, so the result is unambiguous: every
+ * device, this one included, needs to sign in again.
+ */
+export async function logoutEverywhereAction(): Promise<LogoutEverywhereState> {
+  const userId = await requireUserId();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { sessionVersion: { increment: 1 } },
+  });
+  await signOut({ redirectTo: "/login?reason=logged_out_everywhere" });
   return { success: true };
 }
 

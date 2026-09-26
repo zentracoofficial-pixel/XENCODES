@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ChangePasswordForm } from "./change-password-form";
 import { TwoFactorSettings } from "./two-factor-settings";
+import { LogoutEverywhereButton } from "./logout-everywhere-button";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
 
         <ChangePasswordForm />
         <TwoFactorSettings enabled={user.twoFactorEnabled} />
+        <LogoutEverywhereButton />
       </div>
     </div>
   );
