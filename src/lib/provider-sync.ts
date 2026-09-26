@@ -11,6 +11,7 @@ import {
 import { brandIcons } from "@/data/brand-icons";
 import { loadMarginRules, quoteForCurrency, isUsableUsdCost } from "@/lib/pricing";
 import { getDefaultCurrency } from "@/lib/currency-config";
+import { checkProviderBalance } from "@/lib/provider-balance-monitor";
 
 /**
  * The background job behind "browsing is fast, buying is live."
@@ -347,6 +348,7 @@ export async function runProviderSync(providerId?: string): Promise<ProviderSync
       return { ok: false, error, providers: [{ id: providerId, label: definition.label, ok: false, error }] };
     }
 
+    await checkProviderBalanceSafely(providerId, definition.label, resolution.provider);
     const outcome = await syncOneProvider(providerId, definition.label, resolution.provider);
     return {
       ok: outcome.ok,
@@ -365,6 +367,7 @@ export async function runProviderSync(providerId?: string): Promise<ProviderSync
 
   const outcomes: ProviderSyncOutcome[] = [];
   for (const { id, label, provider } of enabled) {
+    await checkProviderBalanceSafely(id, label, provider);
     outcomes.push(await syncOneProvider(id, label, provider));
   }
 
@@ -382,6 +385,24 @@ export async function runProviderSync(providerId?: string): Promise<ProviderSync
           .join("; "),
     providers: outcomes,
   };
+}
+
+/**
+ * Balance monitoring is observability riding along on the same daily sync,
+ * not part of what the sync reports success/failure on — a supplier balance
+ * check failing (or a bug in the monitor itself) must never make the
+ * catalog sync itself look like it failed, or stop it from running.
+ */
+async function checkProviderBalanceSafely(
+  providerId: string,
+  label: string,
+  provider: NumberProvider,
+): Promise<void> {
+  try {
+    await checkProviderBalance(providerId, label, provider);
+  } catch (error) {
+    console.error(`[provider-sync] balance check threw for "${providerId}":`, error);
+  }
 }
 
 async function recordFailure(providerId: string, message: string): Promise<void> {

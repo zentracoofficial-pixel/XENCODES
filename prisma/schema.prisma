@@ -547,6 +547,55 @@ model ProviderSyncStatus {
   @@map("provider_sync_status")
 }
 
+/// The supplier's own account credit — never a customer wallet balance,
+/// which is User.walletBalanceKobo and lives entirely separately. One row
+/// per provider, upserted in place, read and written only by
+/// src/lib/provider-balance-monitor.ts.
+model ProviderBalanceStatus {
+  /// The provider's own registry id, e.g. "grizzlysms".
+  id                     String    @id
+  lastCheckedAt          DateTime?
+  /// Set only when the most recent check failed to reach the provider or
+  /// parse its response; cleared on the next successful check. A failed
+  /// check never touches currentBalanceUsdCents/isLow below — the last
+  /// known-good reading is left standing rather than guessed at as zero.
+  lastCheckError         String?
+  currentBalanceUsdCents Int?
+  /// Whether the last successful reading was at or below the configured
+  /// threshold. The one field the admin warning and the alert logic both
+  /// key off.
+  isLow                  Boolean   @default(false)
+  /// When the balance first crossed at-or-below the threshold for the
+  /// *current* low episode. Null while not low. Alerts for one episode are
+  /// counted from this timestamp (see ProviderBalanceAlert), so a fresh
+  /// episode after a recovery always starts its own count at zero,
+  /// regardless of how many alerts an earlier, already-resolved episode
+  /// sent within the same rolling 24 hours.
+  lowSince               DateTime?
+  /// When the balance most recently rose back above the threshold. Purely
+  /// informational for the admin panel; lowSince (not this) is what the
+  /// alert logic resets against.
+  recoveredAt            DateTime?
+  updatedAt              DateTime  @updatedAt
+
+  @@map("provider_balance_status")
+}
+
+/// One row per low-balance email actually sent. Append-only, and the
+/// source of truth for "how many alerts has this episode had so far" —
+/// counted from ProviderBalanceStatus.lowSince, never from a counter column,
+/// so the count is naturally correct across restarts/deploys and never
+/// needs its own reset logic.
+model ProviderBalanceAlert {
+  id              String   @id @default(cuid())
+  providerId      String
+  balanceUsdCents Int
+  sentAt          DateTime @default(now())
+
+  @@index([providerId, sentAt])
+  @@map("provider_balance_alerts")
+}
+
 /// A cached, already-priced service/country offer, written by the
 /// background sync (src/lib/provider-sync.ts) and read by the browse and
 /// search paths in src/lib/inventory.ts so a page view or a search

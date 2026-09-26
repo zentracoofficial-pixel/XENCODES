@@ -590,16 +590,21 @@ export class GrizzlySmsProvider implements NumberProvider {
     }
   }
 
+  /**
+   * Lets a network/HTTP failure from call() propagate as the ProviderError
+   * it already is, matching every other method in this adapter — an
+   * earlier version swallowed it into a plain `null` return, which made a
+   * failed request indistinguishable from "the response had no balance
+   * field", the one thing balance-monitoring code must never confuse (see
+   * src/lib/provider-balance-monitor.ts: a failed check must never be
+   * treated as a $0.00 balance and must never fire a low-balance alert).
+   */
   async getProviderBalanceUsdCents(): Promise<number | null> {
-    try {
-      const text = await this.call({ action: "getBalance" });
-      const parts = parseColonResponse(text, "ACCESS_BALANCE");
-      if (!parts || parts.length === 0) return null;
-      const usd = Number(parts[0]);
-      return Number.isFinite(usd) ? usdToCents(usd) : null;
-    } catch {
-      return null;
-    }
+    const text = await this.call({ action: "getBalance" });
+    const parts = parseColonResponse(text, "ACCESS_BALANCE");
+    if (!parts || parts.length === 0) return null;
+    const usd = Number(parts[0]);
+    return Number.isFinite(usd) ? usdToCents(usd) : null;
   }
 
   /**

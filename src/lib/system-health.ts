@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getEnabledProviders } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
+import { getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
 import { isKorapayConfigured } from "@/lib/korapay";
 import { isEmailConfigured } from "@/lib/email";
 
@@ -69,6 +70,21 @@ export async function getSystemHealth(): Promise<HealthSignal[]> {
             ? `Failing: ${status.lastFailureError}`
             : "Never synced",
         lastEventAt: status?.lastSuccessAt ?? null,
+      });
+
+      // Read-only here — no new request to the provider. The reading comes
+      // from whichever of the two existing check points (this dashboard's
+      // own load, or the daily sync cron) last ran checkProviderBalance().
+      const balance = await getProviderBalanceStatus(id);
+      signals.push({
+        label: `${label} balance check`,
+        state: balance?.lastCheckError ? "error" : balance?.isLow ? "warning" : "ok",
+        detail: balance?.lastCheckError
+          ? `Failing: ${balance.lastCheckError}`
+          : balance?.currentBalanceUsdCents !== null && balance?.currentBalanceUsdCents !== undefined
+            ? `$${(balance.currentBalanceUsdCents / 100).toFixed(2)}${balance.isLow ? " — low" : ""}`
+            : "Not checked yet",
+        lastEventAt: balance?.lastCheckedAt ?? null,
       });
     }
   }
