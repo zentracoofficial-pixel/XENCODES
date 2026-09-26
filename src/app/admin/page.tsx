@@ -43,7 +43,6 @@ export default async function AdminDashboardPage() {
     failedOrders,
     openSupport,
     fundingAgg,
-    salesAgg,
     deliveredAgg,
     balancesAgg,
     newUserRows,
@@ -79,14 +78,15 @@ export default async function AdminDashboardPage() {
       where: { type: "TOPUP", status: "SUCCESSFUL" },
       _sum: { amountKobo: true },
     }),
-    prisma.walletTransaction.groupBy({
-      by: ["currency"],
-      where: { type: "PURCHASE", status: "SUCCESSFUL" },
-      _sum: { amountKobo: true },
-    }),
-    // Margin is measured over orders that stood. A refunded order returns
-    // the customer's money, so counting its profit as earned would
-    // overstate what the business kept.
+    // Number sales, provider cost and gross profit are all measured over
+    // orders that actually stood (status RECEIVED) — never a WAITING order
+    // still in flight, and never one that ended EXPIRED, CANCELLED or
+    // REFUNDED. Each of those three reverses the customer's original debit
+    // with its own REFUND WalletTransaction (see getActivationStateAction()
+    // and cancelActivationAction() in src/app/dashboard/buy/actions.ts), so
+    // summing WalletTransaction PURCHASE rows instead — the earlier
+    // approach here — would keep counting a sale the business no longer
+    // has the money for.
     prisma.activation.groupBy({
       by: ["currency"],
       where: { status: "RECEIVED" },
@@ -141,7 +141,10 @@ export default async function AdminDashboardPage() {
   const defaultCurrency = await getDefaultCurrency();
 
   const fundingRows = fundingAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
-  const salesRows = salesAgg.map((row) => ({ currency: row.currency, amount: Math.abs(row._sum.amountKobo ?? 0) }));
+  // Same RECEIVED-only source deliveredAgg already provides provider cost
+  // and gross profit from, so "Number sales" can never disagree with them
+  // about which orders actually count.
+  const salesRows = deliveredAgg.map((row) => ({ currency: row.currency, amount: row._sum.priceKobo ?? 0 }));
   const providerCostRows = deliveredAgg.map((row) => ({ currency: row.currency, amount: row._sum.providerCostKobo ?? 0 }));
   const grossProfitRows = deliveredAgg.map((row) => ({ currency: row.currency, amount: row._sum.grossProfitKobo ?? 0 }));
   const balanceRows = balancesAgg.map((row) => ({ currency: row.currency, amount: row._sum.walletBalanceKobo ?? 0 }));

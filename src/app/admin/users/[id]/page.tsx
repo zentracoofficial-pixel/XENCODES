@@ -64,9 +64,12 @@ export default async function AdminUserDetailPage({
         orderBy: { createdAt: "desc" },
         take: 10,
       }),
-      prisma.walletTransaction.aggregate({
-        where: { userId: id, type: "PURCHASE", status: "SUCCESSFUL" },
-        _sum: { amountKobo: true },
+      // RECEIVED-only, same as admin/page.tsx's "Number sales": a PURCHASE
+      // wallet debit that was later refunded (EXPIRED, CANCELLED, REFUNDED)
+      // is money this customer got back, not money they spent.
+      prisma.activation.aggregate({
+        where: { userId: id, status: "RECEIVED" },
+        _sum: { priceKobo: true },
       }),
       prisma.walletTransaction.aggregate({
         where: { userId: id, type: "TOPUP", status: "SUCCESSFUL" },
@@ -128,7 +131,7 @@ export default async function AdminUserDetailPage({
         />
         <Metric
           label="Total spent"
-          value={formatMoney(Math.abs(spendAgg._sum.amountKobo ?? 0), user.currency)}
+          value={formatMoney(spendAgg._sum.priceKobo ?? 0, user.currency)}
           hint="On numbers"
         />
         <Metric label="Orders" value={user._count.activations} />

@@ -257,14 +257,11 @@ export async function purchaseNumberAction(
       return created;
     });
 
-    // Only reached once per genuinely new Activation: the two paths that
-    // hand back an *existing* order instead (the idempotencyKey lookup at
-    // the top of this function, and the P2002 race handled below) both
-    // return before this point, so a retried request or a double-click
-    // never reaches this a second time for the same purchase.
-    await notifyNumberPurchaseSale(activation.id).catch((error) => {
-      console.error(`[buy] sales notification failed for activation ${activation.id}:`, error);
-    });
+    // No sales notification here: a purchase reserving a number and
+    // debiting the wallet is not yet a completed sale, and the admin alert
+    // must not fire before the customer has actually received their code.
+    // See getActivationStateAction() below, which sends it once the order
+    // actually settles into RECEIVED.
 
     return { activationId: activation.id };
   } catch (error) {
@@ -398,6 +395,17 @@ export async function getActivationStateAction(
       where: { id: activation.id },
       data: { status: "RECEIVED", code: sms.code, receivedAt: now },
     });
+
+    // The sale notification fires here, not at purchase: a reserved number
+    // that never delivers a code is a refund, not a sale. Safe to call on
+    // every poll that finds a freshly-received order (including a rare
+    // concurrent double-settle) — notifyNumberPurchaseSale() reserves its
+    // one notification per activation through a database unique
+    // constraint, so a second call for the same order is always a no-op.
+    await notifyNumberPurchaseSale(received.id).catch((error) => {
+      console.error(`[buy] sales notification failed for activation ${received.id}:`, error);
+    });
+
     return toState(received);
   }
 
