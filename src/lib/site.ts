@@ -44,3 +44,14 @@ export const SITE_LOGO_URL = `${SITE_URL}/xencodes-logo.png`;
  * share this one address again.)
  */
 export const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL ?? "Xencodeshq@gmail.com").trim();
+
+/**
+ * Where a sales notification (successful wallet funding, successful number
+ * purchase — see src/lib/sales-notification.ts) is sent. Defaults to
+ * SUPPORT_EMAIL rather than a second hardcoded address, since both name the
+ * same inbox today; set SALES_NOTIFICATION_EMAIL to route sales alerts
+ * somewhere else without changing where support tickets land.
+ */
+export const SALES_NOTIFICATION_EMAIL = (
+  process.env.SALES_NOTIFICATION_EMAIL ?? SUPPORT_EMAIL
+).trim();

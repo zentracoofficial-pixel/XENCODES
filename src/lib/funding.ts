@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
 import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
+import { notifyWalletFundingSale } from "@/lib/sales-notification";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -93,7 +94,7 @@ export async function completeTopUp(
   providerReference: string,
   providerTransactionId?: string,
 ): Promise<{ credited: boolean; reason?: string }> {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const row = await tx.walletTransaction.findUnique({
       where: { providerReference },
     });
@@ -131,8 +132,23 @@ export async function completeTopUp(
       data: { walletBalanceKobo: { increment: row.amountKobo } },
     });
 
-    return { credited: true };
+    return { credited: true, walletTransactionId: row.id };
   });
+
+  // Outside the transaction deliberately: sending an email is a network
+  // call, and a database transaction should never stay open across one.
+  // Only reached on the one call, across every retry and every concurrent
+  // caller, whose UPDATE above actually flipped this row — see
+  // notifyWalletFundingSale()'s own comment on why that already makes this
+  // safe to call unconditionally here, with no idempotency check needed at
+  // this call site.
+  if (result.credited && result.walletTransactionId) {
+    await notifyWalletFundingSale(result.walletTransactionId).catch((error) => {
+      console.error(`[funding] sales notification failed for ${providerReference}:`, error);
+    });
+  }
+
+  return { credited: result.credited, reason: result.reason };
 }
 
 /**

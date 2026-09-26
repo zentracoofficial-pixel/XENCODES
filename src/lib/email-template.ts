@@ -53,6 +53,11 @@ export type EmailBlock =
   /** Someone else's words, verbatim: escaped, line breaks kept, and no
    *  formatting interpreted, since it is not ours to format. */
   | { type: "quote"; text: string }
+  /** A full-width, high-contrast bar for the one fact an internal
+   *  notification needs visible before anything else — a sale's amount and
+   *  outcome, a job's pass/fail. Never used in a customer-facing email:
+   *  a coloured status bar reads as an alert, not a welcome. */
+  | { type: "statusBanner"; label: string; value: string; tone: "success" | "warning" | "danger" }
   | { type: "divider" };
 
 export interface EmailMessage {
@@ -106,6 +111,25 @@ const DARK = {
   buttonText: "#04291f",
   panel: "#18231f",
   accent: "#0bd99a",
+} as const;
+
+// Status-banner tones. From src/app/globals.css's --success/--warning/
+// --danger pairs, each with a light-mode-appropriate soft background/text
+// and a dark-mode-appropriate one — the same pairing the admin UI's Badge
+// component uses, adapted for email (no CSS variables in mail clients).
+const TONES = {
+  success: {
+    light: { bg: "#e3f6ee", text: "#0b7a57", border: "#bfe8d7" },
+    dark: { bg: "#0f2b21", text: "#3ee0ab", border: "#1d4534" },
+  },
+  warning: {
+    light: { bg: "#fbf1de", text: "#8a5a00", border: "#f0dcb0" },
+    dark: { bg: "#332508", text: "#f0b93d", border: "#4d3a13" },
+  },
+  danger: {
+    light: { bg: "#fbeae8", text: "#a32218", border: "#f3cdc8" },
+    dark: { bg: "#33130f", text: "#f2897b", border: "#4d1f18" },
+  },
 } as const;
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -256,6 +280,22 @@ function quote(text: string): string {
   );
 }
 
+function statusBanner(label: string, value: string, tone: "success" | "warning" | "danger"): string {
+  const t = TONES[tone];
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="xc-banner xc-banner-${tone}" style="width:100%;margin:0 0 20px;background-color:${t.light.bg};border:1px solid ${t.light.border};border-radius:10px;border-collapse:separate;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <p class="xc-banner-label" style="margin:0 0 4px;font-family:${FONT};font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${t.light.text};">${escapeHtml(
+        label,
+      )}</p>
+      <p class="xc-banner-value" style="margin:0;font-family:${FONT};font-size:26px;line-height:32px;font-weight:700;letter-spacing:-0.3px;color:${t.light.text};">${escapeHtml(
+        value,
+      )}</p>
+    </td>
+  </tr>
+</table>`;
+}
+
 function divider(): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:28px 0;">
   <tr><td class="xc-divider" style="border-top:1px solid ${LIGHT.border};font-size:1px;line-height:1px;height:1px;">&nbsp;</td></tr>
@@ -299,6 +339,8 @@ function renderBlock(block: EmailBlock): string {
       return block.rows.length ? details(block.rows) : "";
     case "quote":
       return block.text.trim() ? quote(block.text) : "";
+    case "statusBanner":
+      return statusBanner(block.label, block.value, block.tone);
     case "divider":
       return divider();
   }
@@ -325,7 +367,13 @@ ${p}.xc-btn-a { background-color:${DARK.button} !important; color:${DARK.buttonT
 ${p}.xc-panel { background-color:${DARK.panel} !important; border-color:${DARK.border} !important; }
 ${p}.xc-quote { border-left-color:${DARK.accent} !important; }
 ${p}.xc-divider { border-top-color:${DARK.border} !important; }
-${p}.xc-preheader { color:${DARK.canvas} !important; }`;
+${p}.xc-preheader { color:${DARK.canvas} !important; }
+${p}.xc-banner-success { background-color:${TONES.success.dark.bg} !important; border-color:${TONES.success.dark.border} !important; }
+${p}.xc-banner-success .xc-banner-label, ${p}.xc-banner-success .xc-banner-value { color:${TONES.success.dark.text} !important; }
+${p}.xc-banner-warning { background-color:${TONES.warning.dark.bg} !important; border-color:${TONES.warning.dark.border} !important; }
+${p}.xc-banner-warning .xc-banner-label, ${p}.xc-banner-warning .xc-banner-value { color:${TONES.warning.dark.text} !important; }
+${p}.xc-banner-danger { background-color:${TONES.danger.dark.bg} !important; border-color:${TONES.danger.dark.border} !important; }
+${p}.xc-banner-danger .xc-banner-label, ${p}.xc-banner-danger .xc-banner-value { color:${TONES.danger.dark.text} !important; }`;
 }
 
 function stylesheet(scheme: EmailColorScheme): string {
@@ -441,6 +489,8 @@ function blockToText(block: EmailBlock): string {
       return block.rows.map((row) => `${row.label}: ${row.value}`).join("\n");
     case "quote":
       return block.text.replace(/\r\n?/g, "\n").trim();
+    case "statusBanner":
+      return `${block.label.toUpperCase()}: ${block.value}`;
     case "divider":
       return "----";
   }

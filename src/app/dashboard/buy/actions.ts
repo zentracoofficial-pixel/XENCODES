@@ -9,6 +9,7 @@ import { creditWallet } from "@/lib/wallet";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
+import { notifyNumberPurchaseSale } from "@/lib/sales-notification";
 
 /**
  * Buying a number, and waiting for its code.
@@ -254,6 +255,15 @@ export async function purchaseNumberAction(
       });
 
       return created;
+    });
+
+    // Only reached once per genuinely new Activation: the two paths that
+    // hand back an *existing* order instead (the idempotencyKey lookup at
+    // the top of this function, and the P2002 race handled below) both
+    // return before this point, so a retried request or a double-click
+    // never reaches this a second time for the same purchase.
+    await notifyNumberPurchaseSale(activation.id).catch((error) => {
+      console.error(`[buy] sales notification failed for activation ${activation.id}:`, error);
     });
 
     return { activationId: activation.id };

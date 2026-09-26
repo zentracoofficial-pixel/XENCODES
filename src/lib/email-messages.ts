@@ -8,6 +8,7 @@ import type { EmailMessage } from "@/lib/email-template";
 
 const SUPPORT_INBOX_NOTE = `You received this email because this address is the ${SITE_NAME} support inbox.`;
 const ADMIN_ALERT_NOTE = `You received this alert because this address is the ${SITE_NAME} admin contact.`;
+const SALES_NOTIFICATION_NOTE = `You received this because this address is the configured ${SITE_NAME} sales notification recipient.`;
 
 export function verificationEmail(verifyUrl: string): EmailMessage {
   return {
@@ -231,6 +232,125 @@ export function providerLowBalanceEmail(input: {
       },
       { type: "text", text: `**Recommended action:** top up the ${input.label} account balance as soon as possible.` },
       { type: "button", text: "View in admin dashboard", url: `${SITE_URL}/admin` },
+    ],
+  };
+}
+
+function customerLine(name: string | null, email: string): string {
+  return name ? `${name} (${email})` : email;
+}
+
+export interface WalletFundingSaleInput {
+  transactionId: string;
+  userId: string;
+  customerEmail: string;
+  customerName: string | null;
+  amount: string;
+  currency: string;
+  korapayReference: string | null;
+  providerTransactionId: string | null;
+  completedAt: Date;
+}
+
+/** An internal sale alert, not a customer-facing receipt: only ever sent
+ *  after src/lib/funding.ts's completeTopUp() has already, atomically,
+ *  credited the wallet — never on a pending, failed or cancelled top up. */
+export function walletFundingSaleEmail(input: WalletFundingSaleInput): EmailMessage {
+  return {
+    subject: "Xencodes: New Successful Wallet Funding",
+    title: "New successful wallet funding",
+    previewText: `${input.amount} from ${input.customerEmail}`,
+    footerNote: SALES_NOTIFICATION_NOTE,
+    blocks: [
+      { type: "statusBanner", label: "Successful sale", value: input.amount, tone: "success" },
+      {
+        type: "details",
+        rows: [
+          { label: "Amount", value: input.amount },
+          { label: "Customer", value: customerLine(input.customerName, input.customerEmail) },
+          { label: "Transaction", value: input.transactionId },
+          { label: "Type", value: "Wallet funding" },
+          { label: "Status", value: "Successful" },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "details",
+        rows: [
+          { label: "Amount funded", value: input.amount },
+          { label: "Currency", value: input.currency },
+          { label: "KoraPay reference", value: input.korapayReference ?? "—" },
+          ...(input.providerTransactionId && input.providerTransactionId !== input.korapayReference
+            ? [{ label: "KoraPay transaction ID", value: input.providerTransactionId }]
+            : []),
+          { label: "Xencodes transaction ID", value: input.transactionId },
+          { label: "Customer email", value: input.customerEmail },
+          { label: "Customer name", value: input.customerName ?? "—" },
+          { label: "User ID", value: input.userId },
+          { label: "Payment status", value: "Successful" },
+          { label: "Timestamp", value: `${input.completedAt.toISOString().replace("T", " ").slice(0, 19)} UTC` },
+        ],
+      },
+      { type: "button", text: "View transaction", url: `${SITE_URL}/admin/wallet/${input.transactionId}` },
+    ],
+  };
+}
+
+export interface NumberPurchaseSaleInput {
+  orderId: string;
+  userId: string;
+  customerEmail: string;
+  serviceName: string;
+  countryName: string;
+  price: string;
+  currency: string;
+  provider: string;
+  providerOrderId: string | null;
+  orderStatusLabel: string;
+  createdAt: Date;
+}
+
+/** An internal sale alert, not a customer-facing receipt: only ever sent
+ *  after purchaseNumberAction() in src/app/dashboard/buy/actions.ts has
+ *  already, atomically, created the order and charged the wallet — the
+ *  same transaction that decides the purchase succeeded at all. */
+export function numberPurchaseSaleEmail(input: NumberPurchaseSaleInput): EmailMessage {
+  const service = `${input.serviceName} · ${input.countryName}`;
+  return {
+    subject: "Xencodes: New Successful Number Purchase",
+    title: "New successful number purchase",
+    previewText: `${input.price} · ${service}`,
+    footerNote: SALES_NOTIFICATION_NOTE,
+    blocks: [
+      { type: "statusBanner", label: "Successful sale", value: input.price, tone: "success" },
+      {
+        type: "details",
+        rows: [
+          { label: "Amount", value: input.price },
+          { label: "Customer", value: input.customerEmail },
+          { label: "Transaction", value: input.orderId },
+          { label: "Type", value: "Number purchase" },
+          { label: "Status", value: "Successful" },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "details",
+        rows: [
+          { label: "Service", value: input.serviceName },
+          { label: "Country", value: input.countryName },
+          { label: "Customer price", value: input.price },
+          { label: "Currency", value: input.currency },
+          { label: "Provider", value: input.provider },
+          ...(input.providerOrderId ? [{ label: "Provider order ID", value: input.providerOrderId }] : []),
+          { label: "Customer email", value: input.customerEmail },
+          { label: "User ID", value: input.userId },
+          { label: "Order ID", value: input.orderId },
+          { label: "Order status", value: input.orderStatusLabel },
+          { label: "Timestamp", value: `${input.createdAt.toISOString().replace("T", " ").slice(0, 19)} UTC` },
+        ],
+      },
+      { type: "button", text: "View order", url: `${SITE_URL}/admin/orders/${input.orderId}` },
     ],
   };
 }
