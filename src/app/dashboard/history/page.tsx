@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
@@ -6,6 +7,15 @@ import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "../activation-logo";
 import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
+import { CopyCodeButton } from "./copy-code-button";
+
+/** Reuses the exact service+country the order was for; the buy page always
+ *  re-quotes live and re-checks availability the moment it loads (see
+ *  BuyPanel's own initialCountrySlug comment), so this can never carry
+ *  forward a stale price or an assumption that the pair is still in stock. */
+function buyAgainHref(serviceSlug: string, countrySlug: string): string {
+  return `/dashboard/buy?service=${encodeURIComponent(serviceSlug)}&country=${encodeURIComponent(countrySlug)}`;
+}
 
 export const metadata: Metadata = { title: "History" };
 
@@ -63,6 +73,7 @@ export default async function HistoryPage() {
                 <th className="px-4 py-3 text-right font-medium">Price</th>
                 <th className="px-4 py-3 font-medium">Date</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
@@ -88,7 +99,12 @@ export default async function HistoryPage() {
                     {formatPhoneNumber(activation.phoneNumber)}
                   </td>
                   <td className="px-4 py-3 font-mono tabular-nums">
-                    {activation.code ?? (
+                    {activation.code ? (
+                      <span className="flex items-center gap-1.5">
+                        {activation.code}
+                        <CopyCodeButton code={activation.code} />
+                      </span>
+                    ) : (
                       <span className="text-muted-foreground">none</span>
                     )}
                   </td>
@@ -102,6 +118,14 @@ export default async function HistoryPage() {
                     <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
                       {ACTIVATION_STATUS_LABEL[activation.status]}
                     </Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={buyAgainHref(activation.serviceSlug, activation.countrySlug)}
+                      className="whitespace-nowrap text-xs font-medium text-forest hover:underline"
+                    >
+                      Buy again
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -136,14 +160,23 @@ export default async function HistoryPage() {
                   </span>
                   <span className="flex shrink-0 items-center gap-3">
                     {activation.code ? (
-                      <span className="font-mono text-sm tabular-nums">
+                      <span className="flex items-center gap-1 font-mono text-sm tabular-nums">
                         {activation.code}
+                        <CopyCodeButton code={activation.code} />
                       </span>
                     ) : null}
                     <span className="text-sm tabular-nums text-muted-foreground">
                       {formatMoney(activation.priceKobo, activation.currency)}
                     </span>
                   </span>
+                </div>
+                <div className="mt-2 pl-11">
+                  <Link
+                    href={buyAgainHref(activation.serviceSlug, activation.countrySlug)}
+                    className="text-xs font-medium text-forest hover:underline"
+                  >
+                    Buy again
+                  </Link>
                 </div>
               </li>
             ))}

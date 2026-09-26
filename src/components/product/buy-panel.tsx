@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Loader2, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatMoney } from "@/lib/currency";
@@ -12,6 +13,8 @@ import {
   purchaseNumberAction,
   type PurchaseError,
 } from "@/app/dashboard/buy/actions";
+import { toggleFavoriteServiceAction } from "@/app/dashboard/favorites-actions";
+import { expandCountryQuery } from "@/lib/search-aliases";
 
 /**
  * The buy interface: search the live catalog, pick a country that service
@@ -79,6 +82,8 @@ interface QuoteResult {
 export function BuyPanel({
   initialServices,
   initialServiceSlug,
+  initialCountrySlug,
+  initialFavoriteSlugs = [],
   signedIn,
   walletBalanceKobo,
   currency,
@@ -88,6 +93,17 @@ export function BuyPanel({
 }: {
   initialServices: ServiceOption[];
   initialServiceSlug?: string;
+  /** Which services this signed-in customer has already favorited, so the
+   *  star reflects real stored state (see FavoriteService) rather than
+   *  guessing from local UI state alone. */
+  initialFavoriteSlugs?: string[];
+  /** Pre-selects a country once its list loads for initialServiceSlug — used
+   *  by "Buy again" (see dashboard/history) to jump straight to the same
+   *  service+country a past order used. Never pre-fills a price: the normal
+   *  live quote fetch below still runs for this pair exactly as it would for
+   *  a manual selection, so "buy again" can never charge or claim available
+   *  a price/stock level that no longer holds. */
+  initialCountrySlug?: string;
   signedIn: boolean;
   walletBalanceKobo: number;
   /** The currency every price on this page is quoted and charged in: the
@@ -135,6 +151,52 @@ export function BuyPanel({
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<PurchaseError | null>(null);
+  const [favoriteSlugs, setFavoriteSlugs] = useState<Set<string>>(
+    () => new Set(initialFavoriteSlugs),
+  );
+
+  function toggleFavorite(slug: string, name: string) {
+    // Optimistic: this is a starred/unstarred preference, not money moving,
+    // so there is nothing to lose by reflecting the click immediately and
+    // reverting quietly if the write turns out to have failed.
+    const wasFavorited = favoriteSlugs.has(slug);
+    setFavoriteSlugs((prev) => {
+      const next = new Set(prev);
+      if (wasFavorited) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+    void toggleFavoriteServiceAction(slug, name).then((result) => {
+      if (!result) {
+        setFavoriteSlugs((prev) => {
+          const reverted = new Set(prev);
+          if (wasFavorited) reverted.add(slug);
+          else reverted.delete(slug);
+          return reverted;
+        });
+      }
+    });
+  }
+
+  // One stable key per service+country selection, not one per click: a
+  // retried request or a double-click for the *same* selection must reuse
+  // it (that's what lets the server recognize a duplicate), but choosing a
+  // different pair — or buying again after a completed purchase — is a
+  // genuinely new attempt and needs a fresh one. See purchaseNumberAction's
+  // own comment for what this actually protects against.
+  const idempotencyRef = useRef<{ pair: string; key: string } | null>(null);
+  function idempotencyKeyFor(pair: string): string {
+    if (idempotencyRef.current?.pair !== pair) {
+      idempotencyRef.current = {
+        pair,
+        key:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${pair}:${Date.now()}:${Math.random()}`,
+      };
+    }
+    return idempotencyRef.current.key;
+  }
 
   const countries =
     service && countryData?.serviceSlug === service.slug ? countryData.list : [];
@@ -143,12 +205,16 @@ export function BuyPanel({
   );
 
   const trimmedCountryQuery = countryQuery.trim().toLowerCase();
+  // A common abbreviation ("us", "uk", "uae"...) is searched for alongside
+  // the literal text typed — see src/lib/search-aliases.ts.
+  const countryQueryTerms = expandCountryQuery(trimmedCountryQuery);
   const visibleCountries = trimmedCountryQuery
-    ? countries.filter(
-        (item) =>
-          item.name.toLowerCase().includes(trimmedCountryQuery) ||
-          item.dialCode.toLowerCase().includes(trimmedCountryQuery),
-      )
+    ? countries.filter((item) => {
+        const name = item.name.toLowerCase();
+        return countryQueryTerms.some(
+          (term) => name.includes(term) || item.dialCode.toLowerCase().includes(term),
+        );
+      })
     : countries;
 
   const quoteFresh =
@@ -250,6 +316,25 @@ export function BuyPanel({
       });
   }, [service, currency]);
 
+  // Consumed at most once per service: a "buy again" deep link pre-selects
+  // the country the moment its list arrives for the matching service, but
+  // must never fight a customer who has since picked a different one
+  // themselves. Adjusted directly during render (React's own documented
+  // pattern for "run something once when a dependency changes") rather than
+  // in an effect, since it only ever reacts to countryData/service that are
+  // already being rendered from — there is nothing external to subscribe to.
+  const [countryAutoSelectDoneFor, setCountryAutoSelectDoneFor] = useState<string | null>(null);
+  if (
+    initialCountrySlug &&
+    service &&
+    countryData?.serviceSlug === service.slug &&
+    countryAutoSelectDoneFor !== service.slug
+  ) {
+    setCountryAutoSelectDoneFor(service.slug);
+    const match = countryData.list.find((item) => item.slug === initialCountrySlug);
+    if (match) setCountry(match);
+  }
+
   // The price is fetched live for the exact pair, not read off the country
   // list, so the figure being confirmed is the current one.
   useEffect(() => {
@@ -297,11 +382,13 @@ export function BuyPanel({
 
     setError(null);
     setErrorCode(null);
+    const idempotencyKey = idempotencyKeyFor(`${service.slug}:${country.slug}`);
     startTransition(async () => {
       const result = await purchaseNumberAction(
         service.slug,
         country.slug,
         priceKobo,
+        idempotencyKey,
       );
 
       if (result.error) {
@@ -321,6 +408,10 @@ export function BuyPanel({
       }
 
       if (result.activationId) {
+        // A completed purchase, however it was reached, closes this
+        // attempt — the next click on "buy" (a different number, or the
+        // same pair again) is a new one and earns a fresh key.
+        idempotencyRef.current = null;
         router.push(`${basePath}?activation=${result.activationId}`);
         router.refresh();
       }
@@ -486,6 +577,22 @@ export function BuyPanel({
             }
           }}
         />
+
+        {service && signedIn ? (
+          <button
+            type="button"
+            onClick={() => toggleFavorite(service.slug, service.name)}
+            className="-mt-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-forest"
+          >
+            <Star
+              className={cn(
+                "h-3.5 w-3.5",
+                favoriteSlugs.has(service.slug) && "fill-mint text-mint",
+              )}
+            />
+            {favoriteSlugs.has(service.slug) ? "Favorited" : "Add to favorites"}
+          </button>
+        ) : null}
 
         <Combobox
           // Remounts on service change, so its own internal typed-text

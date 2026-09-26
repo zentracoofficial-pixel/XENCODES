@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatPhoneNumber } from "@/lib/currency";
+import { StatusStepper } from "@/components/product/status-stepper";
 
 /**
  * What a customer looks at while their code is on the way, and the moment
@@ -30,7 +31,14 @@ export interface ActivationPanelProps {
   code: string | null;
   /** Seconds left in the session. */
   secondsRemaining: number;
+  /** ISO timestamps, shown for clarity on exactly when each stage happened. */
+  createdAt?: string;
+  receivedAt?: string | null;
   footer?: React.ReactNode;
+}
+
+function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDuration(totalSeconds: number) {
@@ -90,6 +98,8 @@ export function ActivationPanel({
   status,
   code,
   secondsRemaining,
+  createdAt,
+  receivedAt,
   footer,
 }: ActivationPanelProps) {
   const received = status === "RECEIVED" && code;
@@ -98,6 +108,8 @@ export function ActivationPanel({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-panel)]">
+      <StatusStepper status={status} />
+      <div className="h-px bg-border" />
       {/* Who and where. */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3.5 sm:px-5">
         <ServiceLogo
@@ -108,7 +120,10 @@ export function ActivationPanel({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{serviceName}</p>
-          <p className="truncate text-xs text-muted-foreground">{countryName}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {countryName}
+            {createdAt ? ` · Ordered ${formatClock(createdAt)}` : ""}
+          </p>
         </div>
         {status === "WAITING" ? (
           <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
@@ -142,7 +157,12 @@ export function ActivationPanel({
               SMS received
             </p>
           </div>
-          <p className="mt-3 text-xs text-white/60">Your verification code</p>
+          <div className="mt-3 flex items-baseline justify-between gap-3">
+            <p className="text-xs text-white/60">Your verification code</p>
+            {receivedAt ? (
+              <p className="text-xs text-white/60">Received at {formatClock(receivedAt)}</p>
+            ) : null}
+          </div>
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-3">
             <p className="font-mono text-[2.5rem] font-semibold leading-none tracking-[0.12em] text-white tabular-nums">
               {code}

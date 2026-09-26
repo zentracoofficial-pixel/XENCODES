@@ -1,12 +1,14 @@
 "use server";
 
 import { auth } from "@/auth";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { quotePair } from "@/lib/inventory";
 import { resolveProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
+import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
 
 /**
  * Buying a number, and waiting for its code.
@@ -45,9 +47,33 @@ export async function purchaseNumberAction(
   serviceSlug: string,
   countrySlug: string,
   expectedPriceKobo?: number,
+  /**
+   * A client-generated key, stable across retries of the same buy-panel
+   * selection (see buy-panel.tsx). Guards against a duplicate form
+   * submission, a retried network request, or a double-click that gets past
+   * the button's own disabled-while-pending state creating two separate
+   * orders (and charging the wallet twice) for what the customer experienced
+   * as one purchase. Optional and purely additive: omitting it only means
+   * this one extra safety net is skipped, never that the purchase is
+   * refused.
+   */
+  idempotencyKey?: string,
 ): Promise<PurchaseResult> {
   const session = await auth();
   if (!session?.user?.id) return { error: "login_required" };
+
+  // Checked before anything else, including the live quote: if this exact
+  // attempt already produced an order, hand back that same order rather
+  // than pricing and potentially buying a second number.
+  if (idempotencyKey) {
+    const already = await prisma.activation.findUnique({
+      where: { idempotencyKey },
+      select: { id: true, userId: true },
+    });
+    if (already && already.userId === session.user.id) {
+      return { activationId: already.id };
+    }
+  }
 
   // Which account can pay, and in which currency, is established before any
   // supplier lookup: everything downstream (the quote, the charge, the
@@ -132,11 +158,18 @@ export async function purchaseNumberAction(
       quote.providerCostKobo,
     );
   } catch (error) {
+    const reason =
+      error instanceof ProviderError ? error.code : error instanceof Error ? error.message : "unknown";
+    // Observability only (see src/lib/provider-failure-stats.ts's own
+    // comment) — never consulted here or anywhere else in this flow to
+    // decide what to show or sell.
+    await recordPurchaseFailure(provider, serviceSlug, countrySlug, reason);
     if (error instanceof ProviderError && error.code === "out_of_stock") {
       return { error: "unavailable" };
     }
     return { error: "provider_unavailable" };
   }
+  await recordPurchaseSuccess(provider, serviceSlug, countrySlug);
 
   const expiresAt = new Date(Date.now() + assigned.sessionSeconds * 1000);
 
@@ -202,6 +235,7 @@ export async function purchaseNumberAction(
           targetMarginPercent: quote.targetMarginPercent,
           pricingRule: quote.rule,
           expiresAt,
+          idempotencyKey: idempotencyKey ?? null,
         },
       });
 
@@ -224,6 +258,24 @@ export async function purchaseNumberAction(
 
     return { activationId: activation.id };
   } catch (error) {
+    // A genuinely concurrent duplicate of this exact attempt (same
+    // idempotencyKey) lost the race to create its Activation row — the
+    // other request's order already exists and already has the customer's
+    // money attached to it correctly, so this is not a failure to report,
+    // it is the same purchase finishing from a second angle. Hand back that
+    // order rather than cancelling the number a concurrent request is
+    // about to show the customer.
+    if (
+      idempotencyKey &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const winner = await prisma.activation.findUnique({ where: { idempotencyKey } });
+      if (winner && winner.userId === session.user.id) {
+        return { activationId: winner.id };
+      }
+    }
+
     // The number was already reserved, so hand it back rather than leaving
     // it held for a purchase that did not complete.
     try {
@@ -254,6 +306,8 @@ export interface ActivationState {
   status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
   code: string | null;
   expiresAt: string;
+  createdAt: string;
+  receivedAt: string | null;
 }
 
 interface ActivationRow {
@@ -267,6 +321,8 @@ interface ActivationRow {
   status: string;
   code: string | null;
   expiresAt: Date;
+  createdAt: Date;
+  receivedAt: Date | null;
 }
 
 function toState(activation: ActivationRow): ActivationState {
@@ -281,6 +337,8 @@ function toState(activation: ActivationRow): ActivationState {
     status: activation.status as ActivationState["status"],
     code: activation.code,
     expiresAt: activation.expiresAt.toISOString(),
+    createdAt: activation.createdAt.toISOString(),
+    receivedAt: activation.receivedAt?.toISOString() ?? null,
   };
 }
 
