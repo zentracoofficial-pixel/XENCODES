@@ -137,12 +137,18 @@ export async function notifyWalletFundingSale(walletTransactionId: string): Prom
 }
 
 /**
- * Called once, by purchaseNumberAction() in
- * src/app/dashboard/buy/actions.ts, immediately after the transaction that
- * creates the Activation and debits the wallet for it commits. That
- * transaction is the sale: there is no separate "purchase became
- * successful" event later (RECEIVED is about the SMS code arriving, not
- * about payment), so this fires at creation, not on RECEIVED.
+ * Called once, by getActivationStateAction() in
+ * src/app/dashboard/buy/actions.ts, right after an activation actually
+ * settles into RECEIVED (the customer's verification code arrived).
+ *
+ * Deliberately not called at purchase time. Reserving a number and
+ * debiting the wallet is not yet a completed sale: the order can still end
+ * in EXPIRED, CANCELLED or REFUNDED, each of which reverses the debit via
+ * its own REFUND WalletTransaction (see getActivationStateAction() and
+ * cancelActivationAction()). Only RECEIVED is money Xencodes actually
+ * keeps, so it is the only state that should ever alert admin as a sale —
+ * the same RECEIVED-only rule src/app/admin/page.tsx's "Number sales"
+ * figure uses.
  */
 export async function notifyNumberPurchaseSale(activationId: string): Promise<void> {
   const row = await prisma.activation.findUnique({

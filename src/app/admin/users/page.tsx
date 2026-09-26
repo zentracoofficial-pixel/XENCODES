@@ -90,18 +90,18 @@ export default async function AdminUsersPage({
     });
     total = idRows.length;
 
-    const spend = await prisma.walletTransaction.groupBy({
+    // RECEIVED-only, same as admin/page.tsx's "Number sales": an order that
+    // ended EXPIRED, CANCELLED or REFUNDED returned the customer's money,
+    // so it was never really spend that stuck.
+    const spend = await prisma.activation.groupBy({
       by: ["userId"],
       where: {
-        type: "PURCHASE",
-        status: "SUCCESSFUL",
+        status: "RECEIVED",
         userId: { in: idRows.map((row) => row.id) },
       },
-      _sum: { amountKobo: true },
+      _sum: { priceKobo: true },
     });
-    spentByUser = new Map(
-      spend.map((row) => [row.userId, Math.abs(row._sum.amountKobo ?? 0)]),
-    );
+    spentByUser = new Map(spend.map((row) => [row.userId, row._sum.priceKobo ?? 0]));
 
     const rankedIds = idRows
       .map((row) => row.id)
@@ -132,19 +132,17 @@ export default async function AdminUsersPage({
     ]);
 
     // Spend is only ever computed for the rows actually shown on this
-    // page, one grouped query rather than a lookup per row.
-    const spend = await prisma.walletTransaction.groupBy({
+    // page, one grouped query rather than a lookup per row. RECEIVED-only,
+    // same reasoning as the ranked branch above.
+    const spend = await prisma.activation.groupBy({
       by: ["userId"],
       where: {
-        type: "PURCHASE",
-        status: "SUCCESSFUL",
+        status: "RECEIVED",
         userId: { in: rows.map((user) => user.id) },
       },
-      _sum: { amountKobo: true },
+      _sum: { priceKobo: true },
     });
-    spentByUser = new Map(
-      spend.map((row) => [row.userId, Math.abs(row._sum.amountKobo ?? 0)]),
-    );
+    spentByUser = new Map(spend.map((row) => [row.userId, row._sum.priceKobo ?? 0]));
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
