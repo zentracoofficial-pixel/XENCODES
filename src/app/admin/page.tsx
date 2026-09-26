@@ -13,7 +13,7 @@ import { getSystemHealth } from "@/lib/system-health";
 import { checkProviderBalance, getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
 import { Metric, MetricGrid } from "./metric";
 import { SystemHealthCard } from "./system-health-card";
-import { LowProviderBalanceBanner } from "./low-provider-balance-banner";
+import { ProviderBalanceCard } from "./provider-balance-card";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
@@ -286,13 +286,12 @@ export default async function AdminDashboardPage() {
         </Card>
       )}
 
-      {providerBalanceStatus?.isLow ? (
-        <LowProviderBalanceBanner
-          label={primaryProvider?.label ?? "Number provider"}
-          balanceUsdCents={providerBalanceStatus.currentBalanceUsdCents}
-          detectedAt={providerBalanceStatus.lowSince?.toISOString() ?? null}
-        />
-      ) : null}
+      <ProviderBalanceCard
+        label={primaryProvider?.label ?? "Number provider"}
+        connected={Boolean(primaryProvider)}
+        supportsBalance={typeof primaryProvider?.provider.getProviderBalanceUsdCents === "function"}
+        status={providerBalanceStatus}
+      />
 
       <section>
         <h2 className="mb-2.5 text-sm font-semibold">Operations</h2>

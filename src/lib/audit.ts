@@ -17,6 +17,11 @@ export interface AuditActor {
   email: string;
 }
 
+/** Actor for events recorded by a background job rather than a logged-in
+ *  admin (e.g. provider balance monitoring) — every other caller of
+ *  recordAudit() passes the admin who actually performed the action. */
+export const SYSTEM_ACTOR: AuditActor = { id: "system", email: "system@xencodes.internal" };
+
 export async function recordAudit(entry: {
   actor: AuditActor;
   action: string;

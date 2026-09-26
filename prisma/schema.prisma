@@ -561,6 +561,11 @@ model ProviderBalanceStatus {
   /// known-good reading is left standing rather than guessed at as zero.
   lastCheckError         String?
   currentBalanceUsdCents Int?
+  /// When a check last actually reached the provider and parsed a balance —
+  /// distinct from lastCheckedAt above, which also moves on a failed check.
+  /// If the provider has been failing for a while, this is the one field
+  /// that still says how stale currentBalanceUsdCents is.
+  lastSuccessfulCheckAt  DateTime?
   /// Whether the last successful reading was at or below the configured
   /// threshold. The one field the admin warning and the alert logic both
   /// key off.
@@ -591,6 +596,11 @@ model ProviderBalanceAlert {
   providerId      String
   balanceUsdCents Int
   sentAt          DateTime @default(now())
+  /// Whether sendEmailSafe actually reported success. The row is inserted
+  /// before the send is attempted (see evaluateBalance in
+  /// provider-balance-monitor.ts) so a slot is reserved either way; this
+  /// flag is what keeps a failed send from being displayed as delivered.
+  delivered       Boolean  @default(false)
 
   @@index([providerId, sentAt])
   @@map("provider_balance_alerts")
