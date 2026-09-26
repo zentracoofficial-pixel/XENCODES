@@ -7,40 +7,22 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { registerAction, type RegisterState } from "./actions";
-import type { CurrencyCode } from "@/lib/currency-config";
 
 const initialState: RegisterState = {};
 
-export function RegisterForm({
-  suggestedCurrency,
-  usdFundingAvailable,
-}: {
-  /** NGN or USD, guessed from the request's own detected location. A
-   *  starting selection, never an assignment: geo-IP is wrong often enough
-   *  that the visitor can still pick the other option themselves. */
-  suggestedCurrency: CurrencyCode;
-  /** Whether a USD-capable payment provider is actually connected right
-   *  now. False today; shown honestly below rather than left unsaid, so
-   *  nobody registers expecting to fund a USD wallet that cannot yet be
-   *  funded. */
-  usdFundingAvailable: boolean;
-}) {
+/**
+ * The "Where are you?" NGN/USD picker is intentionally hidden here, not
+ * removed: there is no USD-capable payment provider connected yet, so
+ * offering the choice only invites someone to pick a USD wallet they can't
+ * fund. Every visitor now gets registerAction's own silent geo-IP fallback
+ * (currencyForCountry(requestCountry()) in src/app/(auth)/register/actions.ts)
+ * with no explicit override. The USD currency architecture itself —
+ * currency-config.ts, the wallet, pricing — is untouched; bring the picker
+ * back once a USD provider exists by restoring this fieldset and passing it
+ * suggestedCurrency/usdFundingAvailable again (see git history).
+ */
+export function RegisterForm() {
   const [state, formAction, pending] = useActionState(registerAction, initialState);
-
-  const options: { value: CurrencyCode; title: string; subtitle: string }[] = [
-    {
-      value: "NGN",
-      title: "Nigeria",
-      subtitle: "Wallet and pricing in NGN, funded via card, transfer or USSD.",
-    },
-    {
-      value: "USD",
-      title: "Outside Nigeria",
-      subtitle: usdFundingAvailable
-        ? "Wallet and pricing in USD."
-        : "Wallet and pricing in USD. Funding isn't connected yet, so you can browse and see prices, but not add funds yet.",
-    },
-  ];
 
   return (
     <Card className="p-7 sm:p-8">
@@ -77,34 +59,6 @@ export function RegisterForm({
             placeholder="••••••••"
           />
         </div>
-
-        <fieldset>
-          <legend className="text-sm font-medium">Where are you?</legend>
-          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
-            {options.map((option) => (
-              <label
-                key={option.value}
-                className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface p-3 text-sm transition-colors has-[:checked]:border-mint has-[:checked]:bg-mint-soft"
-              >
-                <input
-                  type="radio"
-                  name="currency"
-                  value={option.value}
-                  defaultChecked={option.value === suggestedCurrency}
-                  className="mt-0.5 h-4 w-4"
-                />
-                <span>
-                  <span className="block font-medium">{option.title}</span>
-                  <span className="block text-xs text-muted-foreground">{option.subtitle}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            This sets your wallet and pricing currency. It cannot be changed
-            later.
-          </p>
-        </fieldset>
 
         {state.error ? (
           <p className="text-sm text-danger">{state.error}</p>
