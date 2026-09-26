@@ -21,13 +21,13 @@ enum UserStatus {
 }
 
 model User {
-  id                 String    @id @default(cuid())
-  name               String?
-  email              String    @unique
-  passwordHash       String
-  emailVerified      DateTime?
-  role               UserRole   @default(USER)
-  status             UserStatus @default(ACTIVE)
+  id                        String     @id @default(cuid())
+  name                      String?
+  email                     String     @unique
+  passwordHash              String
+  emailVerified             DateTime?
+  role                      UserRole   @default(USER)
+  status                    UserStatus @default(ACTIVE)
   /// "NGN" or "USD", never any other value: a CHECK constraint enforces
   /// this at the database level (see the two_currency_model migration),
   /// since Prisma has no first-class enum-backed CHECK for an existing
@@ -39,50 +39,138 @@ model User {
   /// time. Enforced by omission rather than a guard: nothing outside
   /// registerAction() in src/app/(auth)/register/actions.ts ever writes
   /// this column, so there is no code path that could change it later.
-  currency           String     @default("NGN")
-  walletBalanceKobo Int       @default(0)
-  twoFactorSecret    String?
-  twoFactorEnabled   Boolean   @default(false)
+  currency                  String     @default("NGN")
+  walletBalanceKobo         Int        @default(0)
+  twoFactorSecret           String?
+  twoFactorEnabled          Boolean    @default(false)
   /// Consecutive wrong password or TOTP guesses since the last successful
   /// one of either. Shared between both steps deliberately: a login is one
   /// attempt to get into one account regardless of which factor is being
   /// guessed, so there is one budget, not two independent ones to exhaust
   /// separately. Reset to 0 on any successful password or TOTP check.
-  failedLoginAttempts Int      @default(0)
+  failedLoginAttempts       Int        @default(0)
   /// Set once failedLoginAttempts crosses the threshold in
   /// src/lib/login-lockout.ts; both the password and TOTP checks refuse to
   /// even attempt a comparison while this is in the future, which is what
   /// actually stops unlimited guessing rather than just counting it.
-  lockedUntil        DateTime?
+  lockedUntil               DateTime?
   /// Set the moment a sign-in succeeds. Used for "last active" in the admin
   /// user profile and for email targeting ("hasn't logged in recently");
   /// null means never recorded, either because the account has never signed
   /// in since this field was added, or has never signed in at all.
-  lastLoginAt        DateTime?
+  lastLoginAt               DateTime?
   /// Set instead of removing the row. Financial and order history
   /// (Activation, WalletTransaction) reference this user and must survive
   /// account deletion intact, so "permanently delete" anonymises this row
   /// rather than removing it. Null means the account is live.
-  deletedAt          DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  deletedAt                 DateTime?
+  /// The wallet balance, in kobo/cents, the dashboard's low-balance warning
+  /// was last dismissed at. Null means never dismissed (or dismissed state
+  /// has since been cleared). The warning re-appears once the balance drops
+  /// further below this (another purchase) or first climbs back to/above
+  /// the configured threshold and later dips under it again (a top-up
+  /// followed by more spending) — see shouldShowLowBalanceWarning() in
+  /// src/lib/low-balance.ts. Deliberately not a boolean: a plain
+  /// "dismissed" flag would stay stuck forever after one dismissal.
+  lowBalanceDismissedAtKobo Int?
+  /// Bumped to invalidate every other JWT session at once (password change,
+  /// "log out of all other sessions"). Sessions are JWT-only — there is no
+  /// server-side session table to delete rows from — so this is the one
+  /// piece of server state a token can be checked against. Stamped into the
+  /// JWT at sign-in (see src/auth.config.ts); getActiveUser()/requireAdmin()
+  /// already re-read this user fresh from the database on every call (the
+  /// same place status/deletedAt are re-checked), so comparing the token's
+  /// stamped version against the current column here costs nothing extra.
+  sessionVersion            Int        @default(0)
+  createdAt                 DateTime   @default(now())
+  updatedAt                 DateTime   @updatedAt
 
-  emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens    EmailVerificationToken[]
+  passwordResetTokens        PasswordResetToken[]
   manualVerificationRequests ManualVerificationRequest[]
-  activations             Activation[]
-  walletTransactions      WalletTransaction[]
-  supportTickets          SupportTicket[]
-  notifications           Notification[]
+  activations                Activation[]
+  walletTransactions         WalletTransaction[]
+  supportTickets             SupportTicket[]
+  notifications              Notification[]
+  favoriteServices           FavoriteService[]
 
   @@map("users")
 }
 
-model EmailVerificationToken {
+/// A service a customer has starred for quick access when buying a number.
+/// Per-user, per-service — never a favorite pair with a country, since a
+/// service is what a customer actually returns for; the country picker
+/// still runs live availability/price each time (see Activation's own
+/// pricing-snapshot comment: nothing about "was available" is ever cached
+/// into a purchase decision).
+model FavoriteService {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceSlug String
+  /// Captured at favorite-time purely for display (so the favorites list
+  /// never needs a live catalog join to render a name); the buy flow always
+  /// re-resolves the service fresh by slug, never trusts this for pricing.
+  serviceName String
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, serviceSlug])
+  @@index([userId])
+  @@map("favorite_services")
+}
+
+/// Tracks provider purchase failures per (provider, service, country), so
+/// the admin can see a combination that keeps rejecting real purchase
+/// attempts rather than only ever finding out from a customer complaint.
+/// Never read by the buy flow itself — availability is always decided live
+/// against the provider (see Activation's pricing-snapshot comment); this
+/// is observability only, and never suppresses or fabricates availability.
+model ProviderFailureStat {
+  id                String    @id @default(cuid())
+  providerId        String
+  serviceSlug       String
+  countrySlug       String
+  /// Resets to 0 on the next successful purchase of this exact combination.
+  /// This, not totalFails, is what actually gets a combination flagged.
+  consecutiveFails  Int       @default(0)
+  totalFails        Int       @default(0)
+  lastFailureAt     DateTime?
+  lastFailureReason String?
+  lastSuccessAt     DateTime?
+  /// Set once consecutiveFails crosses the review threshold (see
+  /// src/lib/provider-failure-stats.ts); cleared the moment a purchase of
+  /// this combination succeeds again. Null means not currently flagged.
+  flaggedAt         DateTime?
+
+  @@unique([providerId, serviceSlug, countrySlug])
+  @@index([flaggedAt])
+  @@map("provider_failure_stats")
+}
+
+/// One row per failed login attempt, by IP address rather than by account,
+/// so repeated attempts spread across many different email addresses from
+/// the same source (credential stuffing, enumeration) are still visible —
+/// the per-account lockout in src/lib/login-lockout.ts only ever sees one
+/// account at a time and cannot catch that pattern. Deliberately a flat
+/// append-only log rather than a counter column: a counter would need its
+/// own reset-window logic, whereas a plain "how many rows in the last N
+/// minutes" query is both the check and the audit trail. Old rows are
+/// pruned opportunistically (see recordLoginFailure in
+/// src/lib/login-rate-limit.ts) so this never grows unbounded.
+model LoginFailure {
   id        String   @id @default(cuid())
-  token     String   @unique
+  ip        String
+  createdAt DateTime @default(now())
+
+  @@index([ip, createdAt])
+  @@map("login_failures")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   /// Set the moment this exact token successfully verifies an account.
   /// Mirrors PasswordResetToken.usedAt. Kept as a row (not deleted) once
@@ -94,7 +182,7 @@ model EmailVerificationToken {
   /// existed. Checked by verifyEmailToken() in src/lib/verification.ts,
   /// which is the only place this is ever set.
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("email_verification_tokens")
@@ -115,10 +203,10 @@ enum ManualVerificationRequestStatus {
 /// mixing the two shapes into one table would make neither easy to reason
 /// about.
 model ManualVerificationRequest {
-  id         String                           @id @default(cuid())
+  id         String                          @id @default(cuid())
   userId     String
-  user       User                             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status     ManualVerificationRequestStatus  @default(PENDING)
+  user       User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status     ManualVerificationRequestStatus @default(PENDING)
   /// What the customer said, when the form collects a reason. Optional:
   /// the request is valid without one, since "my inbox isn't working" is
   /// not always a thing someone can articulate further.
@@ -128,7 +216,7 @@ model ManualVerificationRequest {
   /// even if that admin account is later changed or removed.
   reviewedBy String?
   reviewedAt DateTime?
-  createdAt  DateTime                         @default(now())
+  createdAt  DateTime                        @default(now())
 
   @@index([userId])
   @@index([status])
@@ -136,13 +224,13 @@ model ManualVerificationRequest {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("password_reset_tokens")
@@ -165,61 +253,70 @@ enum ActivationStatus {
 /// answer "what did this cost, what did it earn" for should never have been
 /// placed, so every figure that answers it is written at purchase time.
 model Activation {
-  id          String           @id @default(cuid())
-  userId      String
+  id                  String           @id @default(cuid())
+  userId              String
   /// Restrict, not cascade: an order is financial history and must outlive
   /// the account it was placed under. A user is never SQL-deleted (see
   /// User.deletedAt); this is a safety rail against that ever changing by
   /// accident, since a cascade here would silently erase profit history.
-  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  serviceSlug String
-  serviceName String
-  countrySlug String
-  countryName String
-  phoneNumber String
+  user                User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  serviceSlug         String
+  serviceName         String
+  countrySlug         String
+  countryName         String
+  phoneNumber         String
   /// Which supplier filled this order. Named generically and stored per
   /// order so historical orders stay readable after a supplier change,
   /// without the old one's name leaking into new business logic.
-  provider    String
+  provider            String
   /// The supplier's own id for this order, used to poll for the SMS.
-  providerOrderId String?
+  providerOrderId     String?
   /// The supplier's own id for the service bought, captured at purchase
   /// time (e.g. GrizzlySMS's "wa" for WhatsApp). Reporting only: nothing
   /// reads this back to talk to the supplier, since providerOrderId alone
   /// is enough to poll status or cancel.
-  providerServiceId String?
+  providerServiceId   String?
   /// The supplier's own id for the country bought, captured the same way.
-  providerCountryId String?
+  providerCountryId   String?
   /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment):
   /// what priceKobo/providerCostKobo/grossProfitKobo are all denominated
   /// in, the buyer's own currency at the moment of purchase (User.currency),
   /// captured here rather than looked up from the user record so a
   /// historical order stays correctly labelled even if that were ever
   /// revisited.
-  currency    String           @default("NGN")
+  currency            String           @default("NGN")
   /// What the customer paid, in `currency` above.
-  priceKobo  Int
+  priceKobo           Int
   /// What the supplier billed Xencodes for this exact order, converted from
   /// its native USD into `currency` at the admin-configured rate that was
   /// live at purchase time, and captured here rather than recomputed
   /// because both a supplier's USD price and the USD/currency rate move: an
   /// order's margin has to be answerable later from what was true when it
   /// was placed.
-  providerCostKobo Int @default(0)
+  providerCostKobo    Int              @default(0)
   /// priceKobo minus providerCostKobo, stored for the same reason. Gross
   /// margin is derived from these two rather than stored, so it can never
   /// disagree with the money.
-  grossProfitKobo Int @default(0)
+  grossProfitKobo     Int              @default(0)
   /// The margin the pricing rule asked for, and which rule that was, so an
   /// order's price stays explainable after the rules change.
-  targetMarginPercent Int @default(0)
-  pricingRule String @default("legacy")
-  status      ActivationStatus @default(WAITING)
-  code        String?
-  expiresAt   DateTime
-  receivedAt  DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  targetMarginPercent Int              @default(0)
+  pricingRule         String           @default("legacy")
+  status              ActivationStatus @default(WAITING)
+  code                String?
+  expiresAt           DateTime
+  receivedAt          DateTime?
+  /// A client-generated key, unique per purchase *attempt* (not per
+  /// click — the buy panel keeps the same key across retries of the same
+  /// service+country selection). Nullable because it's a defense-in-depth
+  /// addition, not a required one: only purchaseNumberAction ever sets it,
+  /// and older orders placed before this existed have none. Its job is
+  /// narrow — stop a duplicate form submission, retried request, or
+  /// double-click from ever creating two Activation rows (and charging the
+  /// wallet twice) for what the customer experienced as one purchase.
+  idempotencyKey      String?          @unique
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -245,39 +342,39 @@ enum WalletTransactionStatus {
 }
 
 model WalletTransaction {
-  id          String                @id @default(cuid())
-  userId      String
+  id                    String                  @id @default(cuid())
+  userId                String
   /// Restrict, not cascade: see the matching note on Activation.user.
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
-  type        WalletTransactionType
-  amountKobo Int
-  description String
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type                  WalletTransactionType
+  amountKobo            Int
+  description           String
   /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment).
   /// Stored per row rather than assumed globally so NGN and USD movements
   /// are never blended into one sum by an aggregate query.
-  currency    String                @default("NGN")
+  currency              String                  @default("NGN")
   /// Defaults to SUCCESSFUL because every row that existed before funding
   /// was introduced was an already-settled purchase, refund or adjustment.
   /// Only a top-up ever starts life PENDING.
-  status      WalletTransactionStatus @default(SUCCESSFUL)
+  status                WalletTransactionStatus @default(SUCCESSFUL)
   /// The payment provider that owns this movement, for example "korapay".
   /// Null for internal movements like a purchase or an admin adjustment.
-  provider    String?
+  provider              String?
   /// Our reference, generated before the provider is called and passed to
   /// it, so a webhook arriving later can be matched back to this exact row.
   /// Unique because it is what makes crediting idempotent.
-  providerReference String?         @unique
+  providerReference     String?                 @unique
   /// The provider's own id for the payment, recorded once it is known.
   providerTransactionId String?
   /// When the money actually landed, as distinct from when it was asked for.
-  completedAt DateTime?
-  failureReason String?
+  completedAt           DateTime?
+  failureReason         String?
   /// The order this movement belongs to, for a purchase or its refund. Null
   /// for a top up or an admin adjustment, which are not about one order.
   /// Not a relation: an order can be deleted with its customer while the
   /// ledger row stays as history.
-  activationId String?
-  createdAt   DateTime              @default(now())
+  activationId          String?
+  createdAt             DateTime                @default(now())
 
   @@index([userId])
   @@index([status])
@@ -288,13 +385,13 @@ model WalletTransaction {
 /// Admin override for one service. An absent row, or a null margin, means
 /// the service follows the platform rules in src/lib/pricing.ts.
 model ServiceSetting {
-  slug              String   @id
-  enabled           Boolean  @default(true)
+  slug               String   @id
+  enabled            Boolean  @default(true)
   /// Explicit gross margin for this service, as a percent of the customer
   /// price. Null rather than zero for "no override": zero is a real and
   /// very different instruction, namely sell at cost.
   grossMarginPercent Int?
-  updatedAt         DateTime @updatedAt
+  updatedAt          DateTime @updatedAt
 
   @@map("service_settings")
 }
@@ -355,19 +452,19 @@ enum SupportMessageAuthor {
 /// a status, an optional link to the order it is about, and a thread of
 /// messages. Not a full helpdesk — see SupportMessage.
 model SupportTicket {
-  id                 String              @id @default(cuid())
-  userId             String
-  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
-  subject            String
-  status             SupportTicketStatus @default(OPEN)
+  id                  String              @id @default(cuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subject             String
+  status              SupportTicketStatus @default(OPEN)
   /// The order this ticket is about, if any. Not a relation, matching
   /// WalletTransaction.activationId: a ticket must stay readable even if the
   /// order it references is ever removed.
   relatedActivationId String?
-  messages           SupportMessage[]
-  notifications      Notification[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  messages            SupportMessage[]
+  notifications       Notification[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -376,15 +473,15 @@ model SupportTicket {
 }
 
 model SupportMessage {
-  id        String                @id @default(cuid())
-  ticketId  String
-  ticket    SupportTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author    SupportMessageAuthor
+  id         String               @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author     SupportMessageAuthor
   /// The admin who wrote this message, when the author is ADMIN. Plain
   /// value rather than a relation, for the same reason as AuditLog.actorId.
   adminEmail String?
-  body      String
-  createdAt DateTime              @default(now())
+  body       String
+  createdAt  DateTime             @default(now())
 
   @@index([ticketId])
   @@map("support_messages")
@@ -436,16 +533,16 @@ model ProviderSyncStatus {
   /// multiple providers existed this was always "singleton"; a migration
   /// renamed that one row's id to "grizzlysms" so its sync history survived
   /// the change.
-  id                 String    @id
-  lastSuccessAt      DateTime?
-  lastFailureAt      DateTime?
-  lastFailureError   String?
-  servicesSynced     Int?
-  countriesSynced    Int?
+  id               String    @id
+  lastSuccessAt    DateTime?
+  lastFailureAt    DateTime?
+  lastFailureError String?
+  servicesSynced   Int?
+  countriesSynced  Int?
   /// How many service/country pairs were priced and written to
   /// SyncedOffer on the last successful run.
-  offersSynced       Int?
-  updatedAt          DateTime  @updatedAt
+  offersSynced     Int?
+  updatedAt        DateTime  @updatedAt
 
   @@map("provider_sync_status")
 }
