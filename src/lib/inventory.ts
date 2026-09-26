@@ -16,6 +16,7 @@ import {
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 import { expandServiceQuery } from "@/lib/search-aliases";
+import { prioritizeCountryVariants } from "@/lib/country-variant";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -484,7 +485,7 @@ export async function getServiceCountries(
     offers = Array.from(cheapestByCountry.values());
   }
 
-  return offers
+  const priced = offers
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
@@ -500,8 +501,13 @@ export async function getServiceCountries(
           successRate: offer.successRate,
         },
       ];
-    })
-    .sort((a, b) => a.priceKobo - b.priceKobo);
+    });
+
+  // Cheapest-country-first, same as before, except a provider's own
+  // numbered variants of one country ("USA", "USA (2)") are kept together
+  // with the primary one leading — see prioritizeCountryVariants()'s own
+  // comment for why price alone must not decide that order.
+  return prioritizeCountryVariants(priced);
 }
 
 /**
