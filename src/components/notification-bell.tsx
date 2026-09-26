@@ -177,7 +177,7 @@ export function NotificationBell({
           />
           <div
             className={cn(
-              "fixed top-16 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface shadow-lg",
+              "fixed top-16 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface text-foreground shadow-lg",
               align === "left" ? "left-4" : "right-4",
             )}
           >
