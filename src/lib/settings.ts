@@ -52,6 +52,14 @@ export const SETTING_KEYS = {
    *  hold is recoverable from the legacy usd_to_ngn_rate/topup_fee_cap_kobo
    *  fallback below. */
   currencyConfig: "currency_config_v2",
+  /** Wallet balance, in NGN kobo, at or below which the dashboard shows a
+   *  low-balance warning. Deliberately its own simple numeric setting
+   *  rather than folded into currency_config_v2: it is a UX nudge, not a
+   *  funding/pricing bound, and each currency needs its own figure since
+   *  NGN and USD amounts are on wildly different scales. */
+  lowBalanceThresholdNgnKobo: "low_balance_threshold_ngn_kobo",
+  /** Same, in USD cents. */
+  lowBalanceThresholdUsdCents: "low_balance_threshold_usd_cents",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the
@@ -81,6 +89,12 @@ export const EXCLUSIVE_GROSS_MARGIN_PERCENT = 30;
  */
 export const DEFAULT_TOPUP_FEE_PERCENT = 1.5;
 export const DEFAULT_TOPUP_FEE_CAP_KOBO = 200_000; // NGN 2,000
+
+/** Sane starting points, editable in Settings: low enough that a customer
+ *  who could still afford one more number is not warned, high enough that
+ *  the warning arrives before the wallet actually hits zero. */
+export const DEFAULT_LOW_BALANCE_THRESHOLD_NGN_KOBO = 50_000; // NGN 500
+export const DEFAULT_LOW_BALANCE_THRESHOLD_USD_CENTS = 200; // $2.00
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 

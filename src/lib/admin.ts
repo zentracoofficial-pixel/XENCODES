@@ -36,6 +36,11 @@ export async function requireAdmin(): Promise<User> {
     // Don't reveal that /admin exists to non-admins.
     redirect("/dashboard");
   }
+  if ((session.user.sessionVersion ?? 0) !== user.sessionVersion) {
+    // See User.sessionVersion's own comment: this exact token was
+    // invalidated (password change / "log out everywhere") after issue.
+    redirect("/login?callbackUrl=/admin");
+  }
 
   return user;
 }

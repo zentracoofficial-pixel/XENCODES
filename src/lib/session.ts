@@ -23,6 +23,12 @@ export async function requireActiveUser(): Promise<User> {
   if (!user || user.deletedAt || user.status !== "ACTIVE") {
     redirect("/login");
   }
+  if ((session.user.sessionVersion ?? 0) !== user.sessionVersion) {
+    // This exact token was invalidated by a password change or "log out of
+    // all other devices" after it was issued (see User.sessionVersion's own
+    // comment). Treated the same as an unauthenticated request.
+    redirect("/login");
+  }
 
   return user;
 }
@@ -49,6 +55,7 @@ export async function getActiveUser(): Promise<User | null> {
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user || user.deletedAt || user.status !== "ACTIVE") return null;
+  if ((session.user.sessionVersion ?? 0) !== user.sessionVersion) return null;
 
   return user;
 }

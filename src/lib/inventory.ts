@@ -15,6 +15,7 @@ import {
 } from "@/lib/pricing";
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
+import { expandServiceQuery } from "@/lib/search-aliases";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -234,14 +235,17 @@ export async function searchServices(
   const services = catalog.filter((service) => !disabled.has(service.slug));
 
   const q = query.trim().toLowerCase();
+  // A common alias ("wa", "ig", "insta"...) is searched for alongside the
+  // literal text typed, never instead of it — see src/lib/search-aliases.ts.
+  const terms = expandServiceQuery(q);
   // Match on the slug as well as the display name: suppliers list several
   // services under compound names, and someone typing "google" should find
   // a row named "Google/Gmail".
   const matches = q
-    ? services.filter(
-        (service) =>
-          service.name.toLowerCase().includes(q) || service.slug.includes(q),
-      )
+    ? services.filter((service) => {
+        const name = service.name.toLowerCase();
+        return terms.some((term) => name.includes(term) || service.slug.includes(term));
+      })
     : services;
 
   const rankOf = (slug: string) => POPULAR_RANK.get(slug) ?? Infinity;

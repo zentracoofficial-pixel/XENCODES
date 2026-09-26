@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Coins,
+  History,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -21,14 +22,16 @@ import { NotificationBell, type NotificationItem } from "@/components/notificati
 import { logoutAction } from "@/app/dashboard/actions";
 
 /**
- * Nine screens, each of which does real work.
+ * Ten screens, each of which does real work.
  *
  * Refunds live inside Orders, because a refund is something that happened
  * to an order. Pricing lives inside Services, because a margin is a
  * property of a service. Payments and wallet movements are one ledger, so
  * they are one page. Email campaign history lives inside Email as a tab,
- * not a page of its own, for the same reason. A category is not a reason
- * for a page.
+ * not a page of its own, for the same reason. Provider failure monitoring
+ * lives inside Providers, for the same reason again. A category is not a
+ * reason for a page — Activity log earns its own because there is no
+ * existing page a cross-cutting log of every admin action belongs inside.
  */
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -40,6 +43,7 @@ const links = [
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/email", label: "Email", icon: Mail },
   { href: "/admin/support", label: "Support", icon: LifeBuoy },
+  { href: "/admin/audit", label: "Activity log", icon: History },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "./activation-logo";
-import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
+import { getRecentActivity } from "@/lib/recent-activity";
+import { getLowBalanceThreshold, shouldShowLowBalanceWarning } from "@/lib/low-balance";
+import { RecentActivityList } from "./recent-activity-list";
+import { LowBalanceWarning } from "./low-balance-warning";
+import { OnboardingChecklist } from "./onboarding-checklist";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -15,18 +18,24 @@ export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [user, current, recent] = await Promise.all([
+  const [user, current, activity, favorites, fundedCount, activationCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.activation.findFirst({
       where: { userId, status: "WAITING" },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.activation.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-    }),
+    getRecentActivity(userId),
+    prisma.favoriteService.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 6 }),
+    prisma.walletTransaction.count({ where: { userId, type: "TOPUP", status: "SUCCESSFUL" } }),
+    prisma.activation.count({ where: { userId } }),
   ]);
+
+  const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
+  const showLowBalanceWarning = shouldShowLowBalanceWarning(
+    user.walletBalanceKobo,
+    lowBalanceThreshold,
+    user.lowBalanceDismissedAtKobo,
+  );
 
   const firstName = user.name?.split(" ")[0];
 
@@ -46,6 +55,16 @@ export default async function DashboardPage() {
           Buy Number
         </Button>
       </div>
+
+      <OnboardingChecklist
+        emailVerified={Boolean(user.emailVerified)}
+        fundedWallet={fundedCount > 0}
+        boughtNumber={activationCount > 0}
+      />
+
+      {showLowBalanceWarning ? (
+        <LowBalanceWarning balanceKobo={user.walletBalanceKobo} currency={user.currency} />
+      ) : null}
 
       {/* Balance. */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-forest px-6 py-5">
@@ -68,6 +87,28 @@ export default async function DashboardPage() {
           Add funds
         </Button>
       </div>
+
+      {/* Favorites. Only shown once a customer has actually starred
+          something — an empty "no favorites yet" box here would be exactly
+          the clutter a compact dashboard is supposed to avoid. */}
+      {favorites.length > 0 ? (
+        <section>
+          <h2 className="text-sm font-semibold">Your favorites</h2>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {favorites.map((favorite) => (
+              <li key={favorite.id}>
+                <Link
+                  href={`/dashboard/buy?service=${encodeURIComponent(favorite.serviceSlug)}`}
+                  className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium transition-colors hover:border-mint hover:bg-mint-soft"
+                >
+                  <Star className="h-3.5 w-3.5 fill-mint text-mint" />
+                  {favorite.serviceName}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* Current activation. */}
       <section>
@@ -107,11 +148,13 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* Recent activations. */}
+      {/* Recent activity: purchases, completed SMS, wallet funding,
+          refunds and support activity, merged into one compact feed rather
+          than several competing lists. */}
       <section>
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Recent activations</h2>
-          {recent.length > 0 ? (
+          <h2 className="text-sm font-semibold">Recent activity</h2>
+          {activity.length > 0 ? (
             <Link
               href="/dashboard/history"
               className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
@@ -120,46 +163,9 @@ export default async function DashboardPage() {
             </Link>
           ) : null}
         </div>
-
-        {recent.length === 0 ? (
-          <p className="mt-3 rounded-xl border border-border bg-surface px-4 py-8 text-center text-sm text-muted-foreground">
-            Nothing here yet. Your activations will show up as you buy numbers.
-          </p>
-        ) : (
-          <ul className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
-            {recent.map((activation) => (
-              <li
-                key={activation.id}
-                className="flex items-center gap-3.5 px-4 py-3"
-              >
-                <ActivationLogo
-                  serviceSlug={activation.serviceSlug}
-                  serviceName={activation.serviceName}
-                  size="sm"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {activation.serviceName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {activation.countryName}
-                  </p>
-                </div>
-                {activation.code ? (
-                  <span className="hidden font-mono text-sm tabular-nums sm:inline">
-                    {activation.code}
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                  {formatMoney(activation.priceKobo, activation.currency)}
-                </span>
-                <Badge variant={ACTIVATION_STATUS_VARIANT[activation.status]}>
-                  {ACTIVATION_STATUS_LABEL[activation.status]}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="mt-3">
+          <RecentActivityList items={activity} />
+        </div>
       </section>
     </div>
   );

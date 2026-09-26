@@ -14,6 +14,8 @@ import {
   registerFailedAttempt,
   clearFailedAttempts,
 } from "@/lib/login-lockout";
+import { clientIp } from "@/lib/request-ip";
+import { isIpRateLimited, recordLoginFailure } from "@/lib/login-rate-limit";
 
 /**
  * A fixed, precomputed bcrypt hash (cost 12, matching real password hashes)
@@ -48,10 +50,19 @@ export async function loginAction(
 
   const { email, password } = parsed.data;
   const callbackUrl = safeRedirectPath(formData.get("callbackUrl"));
+  const ip = await clientIp();
+
+  // Checked before touching any specific account: this is the one guard
+  // that sees attempts spread across many different email addresses from
+  // the same source, which the per-account lockout below cannot.
+  if (await isIpRateLimited(ip)) {
+    return { error: "Too many attempts from this network. Try again in a few minutes." };
+  }
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+    await recordLoginFailure(ip);
     return { error: "Invalid email or password." };
   }
 
@@ -64,6 +75,7 @@ export async function loginAction(
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     await registerFailedAttempt(user.id);
+    await recordLoginFailure(ip);
     return { error: "Invalid email or password." };
   }
 

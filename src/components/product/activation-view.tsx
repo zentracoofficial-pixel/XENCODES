@@ -117,6 +117,8 @@ export function ActivationView({
           status={activation.status}
           code={activation.code}
           secondsRemaining={remaining}
+          createdAt={activation.createdAt}
+          receivedAt={activation.receivedAt}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">

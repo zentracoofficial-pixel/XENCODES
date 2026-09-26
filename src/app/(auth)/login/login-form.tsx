@@ -11,10 +11,20 @@ import { loginAction, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
 
+/** Why the customer was sent here rather than a plain "log in" — set by a
+ *  signOut() redirect from an action that just invalidated every session
+ *  (see logoutEverywhereAction and changePasswordAction), so this doesn't
+ *  read as an unexplained forced logout. */
+const REASON_COPY: Record<string, string> = {
+  password_changed: "Your password was changed. Please sign in again.",
+  logged_out_everywhere: "You've been logged out of every device. Please sign in again.",
+};
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  const reason = searchParams.get("reason");
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
   useEffect(() => {
@@ -29,6 +39,12 @@ export function LoginForm() {
       <p className="mt-1.5 text-sm text-muted-foreground">
         Welcome back. Enter your details to access your dashboard.
       </p>
+
+      {reason && REASON_COPY[reason] ? (
+        <p className="mt-4 rounded-lg bg-mint-soft px-3.5 py-2.5 text-sm text-forest">
+          {REASON_COPY[reason]}
+        </p>
+      ) : null}
 
       <form action={formAction} className="mt-6 space-y-4">
         <input type="hidden" name="callbackUrl" value={callbackUrl} />

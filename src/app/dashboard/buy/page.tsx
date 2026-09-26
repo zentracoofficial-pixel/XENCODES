@@ -27,9 +27,9 @@ const FALLBACK_COLOR = "#063B2D";
 export default async function DashboardBuyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ service?: string; activation?: string }>;
+  searchParams: Promise<{ service?: string; country?: string; activation?: string }>;
 }) {
-  const { service: serviceSlug, activation: activationId } = await searchParams;
+  const { service: serviceSlug, country: countrySlug, activation: activationId } = await searchParams;
   const session = await auth();
   if (!session?.user?.id) redirect("/login?callbackUrl=/dashboard/buy");
   const userId = session.user.id;
@@ -58,13 +58,15 @@ export default async function DashboardBuyPage({
             status: row.status,
             code: row.code,
             expiresAt: row.expiresAt.toISOString(),
+            createdAt: row.createdAt.toISOString(),
+            receivedAt: row.receivedAt?.toISOString() ?? null,
           }}
         />
       );
     }
   }
 
-  const [status, initialServices, user, defaultCurrency] = await Promise.all([
+  const [status, initialServices, user, defaultCurrency, favorites] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
     prisma.user.findUnique({
@@ -72,6 +74,7 @@ export default async function DashboardBuyPage({
       select: { walletBalanceKobo: true, currency: true },
     }),
     getDefaultCurrency(),
+    prisma.favoriteService.findMany({ where: { userId }, select: { serviceSlug: true } }),
   ]);
   // Falls back to the platform default only if the account somehow carries
   // a currency no longer enabled; never assumed to be Naira otherwise.
@@ -89,6 +92,8 @@ export default async function DashboardBuyPage({
     <BuyPanel
       initialServices={services}
       initialServiceSlug={serviceSlug}
+      initialCountrySlug={countrySlug}
+      initialFavoriteSlugs={favorites.map((f) => f.serviceSlug)}
       signedIn
       walletBalanceKobo={user?.walletBalanceKobo ?? 0}
       currency={currency}

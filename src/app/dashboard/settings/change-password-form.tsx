@@ -41,7 +41,11 @@ export function ChangePasswordForm() {
         </div>
 
         {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-        {state.success ? <p className="text-sm text-success">Password updated.</p> : null}
+
+        <p className="text-xs text-muted-foreground">
+          Changing your password signs you out everywhere, this device included — you&apos;ll need
+          to sign in again with the new one.
+        </p>
 
         <Button type="submit" disabled={pending}>
           {pending ? "Updating..." : "Update password"}
