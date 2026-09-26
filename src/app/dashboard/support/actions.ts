@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
+import { renderEmail } from "@/lib/email-template";
+import { activationIssueEmail, supportReplyEmail, supportRequestEmail } from "@/lib/email-messages";
 import { formatMoney } from "@/lib/currency";
 import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
 import { SUPPORT_EMAIL as SUPPORT_INBOX } from "@/lib/site";
@@ -53,31 +55,26 @@ export async function reportIssueAction(
 
   await notifyAdminsOfSupportMessage(ticket, user, details);
 
-  const summary = [
-    `Customer: ${user.email}`,
-    `Ticket: ${ticket.id}`,
-    `Activation: ${activation.id}`,
-    `Service: ${activation.serviceName}`,
-    `Country: ${activation.countryName}`,
-    `Number: ${activation.phoneNumber}`,
-    `Status: ${activation.status}`,
-    `Price: ${formatMoney(activation.priceKobo, activation.currency)}`,
-    `Bought: ${activation.createdAt.toISOString()}`,
-    "",
-    details,
-  ].join("\n");
-
   // Non-throwing: the ticket is already recorded and visible in the admin
   // panel, which is the system of record. This email is a nudge on top of
   // it, so failing to send one must not tell the customer their report did
   // not go through.
   await sendEmailSafe({
     to: SUPPORT_INBOX,
-    subject: `Activation issue: ${activation.serviceName} (${activation.id})`,
-    text: summary,
-    html: `<pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${summary
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")}</pre>`,
+    ...renderEmail(
+      activationIssueEmail({
+        customerEmail: user.email,
+        ticketId: ticket.id,
+        activationId: activation.id,
+        serviceName: activation.serviceName,
+        countryName: activation.countryName,
+        phoneNumber: activation.phoneNumber,
+        status: activation.status,
+        price: formatMoney(activation.priceKobo, activation.currency),
+        boughtAt: activation.createdAt,
+        details,
+      }),
+    ),
   });
 
   return { success: true };
@@ -116,11 +113,9 @@ export async function createGeneralTicketAction(
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,
-    subject: `Support request: ${subject} (${ticket.id})`,
-    text: `Customer: ${user.email}\nTicket: ${ticket.id}\n\n${details}`,
-    html: `<p><strong>Customer:</strong> ${user.email}<br><strong>Ticket:</strong> ${ticket.id}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${details
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")}</pre>`,
+    ...renderEmail(
+      supportRequestEmail({ customerEmail: user.email, ticketId: ticket.id, subject, details }),
+    ),
   });
 
   revalidatePath("/dashboard/support");
@@ -173,11 +168,14 @@ export async function replyToTicketAsUserAction(
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,
-    subject: `Re: ${ticket.subject} (${ticket.id})`,
-    text: `Customer: ${user.email}\n\n${body}`,
-    html: `<p><strong>Customer:</strong> ${user.email}</p><pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${body
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")}</pre>`,
+    ...renderEmail(
+      supportReplyEmail({
+        customerEmail: user.email,
+        ticketId: ticket.id,
+        subject: ticket.subject,
+        body,
+      }),
+    ),
   });
 
   revalidatePath(`/dashboard/support/${ticketId}`);

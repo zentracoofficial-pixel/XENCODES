@@ -7,15 +7,13 @@
  * public-facing absolute URL: it should import SITE_URL from here instead,
  * so there is exactly one place to change when the real domain goes live.
  *
- * To connect the real domain: set NEXT_PUBLIC_SITE_URL in this deployment's
- * environment variables (e.g. "https://xencodes.com", no trailing slash).
- * Nothing else needs to change. Until it is set, this falls back to the
- * current Vercel deployment URL below, which is a real, working address but
- * not the permanent one — search engines should not be encouraged to treat
- * it as canonical, which is why NEXT_PUBLIC_SITE_URL is checked first.
+ * NEXT_PUBLIC_SITE_URL overrides it per deployment (no trailing slash).
+ * The fallback is the live production domain, so anything read outside the
+ * app — above all an email's logo, links and footer — points at the real
+ * site even on a deployment where the variable was never set.
  */
 export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://xencodes.vercel.app"
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.xencodes.com"
 ).replace(/\/$/, "");
 
 export const SITE_NAME = "Xencodes";

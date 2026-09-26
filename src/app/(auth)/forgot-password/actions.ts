@@ -2,7 +2,9 @@
 
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { sendEmailSafe, passwordResetEmailContent } from "@/lib/email";
+import { sendEmailSafe } from "@/lib/email";
+import { renderEmail } from "@/lib/email-template";
+import { passwordResetEmail } from "@/lib/email-messages";
 import { SITE_URL } from "@/lib/site";
 import { forgotPasswordSchema } from "@/lib/validation/auth";
 
@@ -42,7 +44,7 @@ export async function forgotPasswordAction(
     // Non-throwing: this path deliberately answers identically whether or
     // not the address exists, so a delivery failure must not become the one
     // response difference that reveals a registered account.
-    await sendEmailSafe({ to: email, ...passwordResetEmailContent(resetUrl) });
+    await sendEmailSafe({ to: email, ...renderEmail(passwordResetEmail(resetUrl)) });
   }
 
   return { success: true };

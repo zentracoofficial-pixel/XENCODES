@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type { NumberProvider } from "@/lib/provider/types";
 import { sendEmailSafe } from "@/lib/email";
-import { buildCampaignEmailHtml, buildCampaignEmailText } from "@/lib/email-template";
-import { SITE_URL, SUPPORT_EMAIL } from "@/lib/site";
+import { renderEmail } from "@/lib/email-template";
+import { providerLowBalanceEmail } from "@/lib/email-messages";
+import { SUPPORT_EMAIL } from "@/lib/site";
 import { recordAudit, SYSTEM_ACTOR } from "@/lib/audit";
 
 /**
@@ -293,38 +294,17 @@ async function sendLowBalanceEmail(
   detectedAt: Date,
   isFirstAlert: boolean,
 ): Promise<boolean> {
-  const amount = formatUsdExact(balanceUsdCents);
-  const thresholdAmount = formatUsdExact(getLowBalanceThresholdUsdCents());
-  const message = `${label} balance is low. Current provider credit: ${amount}. Please top up the provider account.`;
-  const detectedLabel = `${detectedAt.toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  })} UTC`;
-
-  const input = {
-    title: isFirstAlert ? `${label} balance is low` : `${label} balance is still low`,
-    body: [
-      message,
-      `Threshold: ${thresholdAmount}`,
-      `Detected: ${detectedLabel}`,
-      isFirstAlert
-        ? "This is the supplier account balance Xencodes pays to buy numbers from — a separate thing from any customer's own wallet, which is unaffected."
-        : "This is a reminder that the balance is still at or below the threshold, not a new, unrelated alert. Number purchases will start failing once the provider account runs out of credit.",
-      "Recommended action: top up the GrizzlySMS account balance as soon as possible.",
-    ].join("\n\n"),
-    ctaText: "View in admin dashboard",
-    ctaUrl: `${SITE_URL}/admin`,
-    previewText: message,
-  };
-
   return sendEmailSafe({
     to: SUPPORT_EMAIL,
-    subject: isFirstAlert
-      ? `Xencodes Alert: ${label} balance is low`
-      : `Xencodes Reminder: ${label} balance is still low`,
-    text: buildCampaignEmailText(input),
-    html: buildCampaignEmailHtml(input),
+    ...renderEmail(
+      providerLowBalanceEmail({
+        label,
+        balance: formatUsdExact(balanceUsdCents),
+        threshold: formatUsdExact(getLowBalanceThresholdUsdCents()),
+        detectedAt,
+        isFirstAlert,
+      }),
+    ),
   });
 }
 

@@ -45,7 +45,10 @@ export default async function AdminEmailPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Email</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Send a branded email to a targeted group of customers.
+          Send a branded email to a targeted group of customers.{" "}
+          <Link href="/admin/email/preview" className="font-medium text-forest hover:underline">
+            Preview all email templates
+          </Link>
         </p>
       </div>
 
