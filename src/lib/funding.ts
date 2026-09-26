@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
 import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
-import { notifyWalletFundingSale } from "@/lib/sales-notification";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -135,18 +134,13 @@ export async function completeTopUp(
     return { credited: true, walletTransactionId: row.id };
   });
 
-  // Outside the transaction deliberately: sending an email is a network
-  // call, and a database transaction should never stay open across one.
-  // Only reached on the one call, across every retry and every concurrent
-  // caller, whose UPDATE above actually flipped this row — see
-  // notifyWalletFundingSale()'s own comment on why that already makes this
-  // safe to call unconditionally here, with no idempotency check needed at
-  // this call site.
-  if (result.credited && result.walletTransactionId) {
-    await notifyWalletFundingSale(result.walletTransactionId).catch((error) => {
-      console.error(`[funding] sales notification failed for ${providerReference}:`, error);
-    });
-  }
+  // Deliberately does NOT call notifyWalletFundingSale() here. KoraPay
+  // already sends its own funding notification for a successful charge, so
+  // a second, Xencodes-internal sales email for the same event would just
+  // be a duplicate that spends Resend quota for nothing. Number purchases
+  // are a separate event with no equivalent third-party notification —
+  // see notifyNumberPurchaseSale() in purchaseNumberAction(), which is
+  // unaffected by this and keeps sending.
 
   return { credited: result.credited, reason: result.reason };
 }
