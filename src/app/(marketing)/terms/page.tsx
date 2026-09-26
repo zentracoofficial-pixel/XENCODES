@@ -43,11 +43,11 @@ export default function TermsPage() {
           </LegalSection>
           <LegalSection title="4. Acceptable use">
             <p>
-              Xencodes is for legitimate verification and testing only. Use
-              of the service for fraud, impersonation, unauthorized account
-              access, or circumventing a platform&apos;s bans or security
-              controls is strictly prohibited. See our Acceptable Use
-              Policy for details.
+              Xencodes is for receiving legitimate SMS verification codes
+              only. Use of the service for fraud, impersonation,
+              unauthorized account access, or circumventing a platform&apos;s
+              bans or security controls is strictly prohibited. See our
+              Acceptable Use Policy for details.
             </p>
           </LegalSection>
           <LegalSection title="5. Wallet, pricing, and payment">
