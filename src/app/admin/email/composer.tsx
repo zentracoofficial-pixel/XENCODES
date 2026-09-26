@@ -1,10 +1,11 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { Monitor, Smartphone, Send, Loader2 } from "lucide-react";
+import { Monitor, Smartphone, Send, Loader2, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { buildCampaignEmailHtml } from "@/lib/email-template";
+import { renderEmailHtml } from "@/lib/email-template";
+import { campaignEmail } from "@/lib/email-messages";
 import {
   getRecipientCountAction,
   searchUsersAction,
@@ -28,6 +29,16 @@ const SEGMENTS = [
 
 type SegmentKind = (typeof SEGMENTS)[number]["value"];
 
+// Shown in the preview only while the composer is empty, so the preview
+// demonstrates the real design instead of placeholder words.
+const EXAMPLE = {
+  subject: "Your Xencodes account is ready",
+  title: "Your Xencodes account is ready",
+  body: "Welcome to Xencodes. Your account has been created successfully.\n\nYou can now:\n- Fund your wallet\n- Buy a virtual number for **SMS verification**\n- Receive your code in seconds",
+  ctaText: "Open Xencodes",
+  ctaUrl: "https://www.xencodes.com/dashboard",
+};
+
 const testInitial: SendTestState = {};
 const sendInitial: SendCampaignState = {};
 
@@ -47,6 +58,7 @@ export function EmailComposer() {
   const [ctaUrl, setCtaUrl] = useState("");
 
   const [preview, setPreview] = useState<"desktop" | "mobile">("desktop");
+  const [scheme, setScheme] = useState<"light" | "dark">("light");
   const [reviewing, setReviewing] = useState(false);
 
   const [count, setCount] = useState<{ count: number; label: string } | null>(null);
@@ -88,13 +100,22 @@ export function EmailComposer() {
     return () => clearTimeout(timer);
   }, [userQuery]);
 
-  const html = buildCampaignEmailHtml({
-    title: title || "Your email title",
-    body: body || "The body of your email appears here as you type it.",
-    ctaText: ctaText || undefined,
-    ctaUrl: ctaUrl || undefined,
-    previewText: previewText || undefined,
-  });
+  const isEmpty = !title && !body && !ctaText && !ctaUrl;
+  const html = renderEmailHtml(
+    campaignEmail(
+      isEmpty
+        ? EXAMPLE
+        : {
+            subject,
+            title: title || "Email title",
+            body,
+            ctaText: ctaText || undefined,
+            ctaUrl: ctaUrl || undefined,
+            previewText: previewText || undefined,
+          },
+    ),
+    { colorScheme: scheme },
+  );
 
   const readyToReview = Boolean(subject && title && body) && (count?.count ?? 0) > 0;
 
@@ -238,10 +259,21 @@ export function EmailComposer() {
               placeholder="Write in plain paragraphs. Leave a blank line between paragraphs."
               className="mt-1 h-auto w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
             />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              No HTML needed. Blank line = new paragraph. Also supported:{" "}
+              <code>**bold**</code>, <code>[link text](https://…)</code>, lines starting with{" "}
+              <code>-</code> for bullets or <code>1.</code> for numbered lists, and{" "}
+              <code># Heading</code>. Anything else is sent exactly as typed.
+            </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Button text (optional)" name="ctaText" value={ctaText} onChange={setCtaText} />
-            <Field label="Button URL (optional)" name="ctaUrl" value={ctaUrl} onChange={setCtaUrl} />
+            <Field
+              label="Button URL (optional, https://…)"
+              name="ctaUrl"
+              value={ctaUrl}
+              onChange={setCtaUrl}
+            />
           </div>
         </Card>
 
@@ -314,45 +346,67 @@ export function EmailComposer() {
       </form>
 
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPreview("desktop")}
-            className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
-              preview === "desktop"
-                ? "border-forest bg-mint-soft text-forest"
-                : "border-border text-muted-foreground"
-            }`}
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleButton active={preview === "desktop"} onClick={() => setPreview("desktop")}>
             <Monitor className="h-3.5 w-3.5" />
             Desktop
-          </button>
-          <button
-            type="button"
-            onClick={() => setPreview("mobile")}
-            className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
-              preview === "mobile"
-                ? "border-forest bg-mint-soft text-forest"
-                : "border-border text-muted-foreground"
-            }`}
-          >
+          </ToggleButton>
+          <ToggleButton active={preview === "mobile"} onClick={() => setPreview("mobile")}>
             <Smartphone className="h-3.5 w-3.5" />
             Mobile
-          </button>
+          </ToggleButton>
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          <ToggleButton active={scheme === "light"} onClick={() => setScheme("light")}>
+            <Sun className="h-3.5 w-3.5" />
+            Light
+          </ToggleButton>
+          <ToggleButton active={scheme === "dark"} onClick={() => setScheme("dark")}>
+            <Moon className="h-3.5 w-3.5" />
+            Dark
+          </ToggleButton>
         </div>
+        {isEmpty ? (
+          <p className="text-xs text-muted-foreground">
+            Showing example content until you start writing.
+          </p>
+        ) : null}
         <div className="rounded-xl border border-border bg-background p-3">
           <iframe
             title="Email preview"
             srcDoc={html}
-            className="mx-auto block rounded-lg border border-border bg-white"
+            className="mx-auto block rounded-lg border border-border"
             style={{
               width: preview === "desktop" ? "100%" : "375px",
-              height: "560px",
+              maxWidth: "100%",
+              height: "640px",
             }}
           />
         </div>
       </div>
     </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
+        active ? "border-forest bg-mint-soft text-forest" : "border-border text-muted-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -9,7 +9,8 @@ import {
   describeAudience,
   type AudienceSegment,
 } from "@/lib/email-targeting";
-import { buildCampaignEmailHtml, buildCampaignEmailText } from "@/lib/email-template";
+import { renderEmail } from "@/lib/email-template";
+import { campaignEmail, type CampaignContent } from "@/lib/email-messages";
 
 /**
  * A send this large would risk running past a serverless function's time
@@ -20,14 +21,7 @@ import { buildCampaignEmailHtml, buildCampaignEmailText } from "@/lib/email-temp
  */
 const MAX_CAMPAIGN_RECIPIENTS = 500;
 
-export interface ComposedEmail {
-  title: string;
-  body: string;
-  ctaText: string;
-  ctaUrl: string;
-  subject: string;
-  previewText: string;
-}
+export type ComposedEmail = Required<CampaignContent>;
 
 function parseSegment(formData: FormData): AudienceSegment {
   const kind = String(formData.get("segmentKind") ?? "all") as AudienceSegment["kind"];
@@ -55,6 +49,30 @@ function parseSegment(formData: FormData): AudienceSegment {
     default:
       return { kind: "all" };
   }
+}
+
+/** Checked before a test or a real send, so a button that would be dropped
+ *  (half filled in, or not an https link) is an error the admin sees rather
+ *  than something that silently vanishes from every recipient's copy. */
+function composedError(composed: ComposedEmail): string | null {
+  if (!composed.subject || !composed.title || !composed.body) {
+    return "Fill in subject, title and body.";
+  }
+  if (Boolean(composed.ctaText) !== Boolean(composed.ctaUrl)) {
+    return "Fill in both the button text and the button URL, or leave both empty.";
+  }
+  if (composed.ctaUrl) {
+    let url: URL | null = null;
+    try {
+      url = new URL(composed.ctaUrl);
+    } catch {
+      url = null;
+    }
+    if (!url || url.protocol !== "https:") {
+      return "The button URL must be a full https:// link.";
+    }
+  }
+  return null;
 }
 
 function composedFromForm(formData: FormData): ComposedEmail {
@@ -136,20 +154,15 @@ export async function sendTestEmailAction(
 ): Promise<SendTestState> {
   const admin = await requireAdmin();
   const composed = composedFromForm(formData);
-  if (!composed.subject || !composed.title || !composed.body) {
-    return { error: "Fill in subject, title and body before sending a test." };
-  }
+  const testError = composedError(composed);
+  if (testError) return { error: testError };
 
   // A test exists to prove delivery works before a real audience is
   // involved, so its reported outcome has to be the provider's, not this
   // function's optimism about it.
   try {
-    await sendEmail({
-      to: admin.email,
-      subject: `[Test] ${composed.subject}`,
-      html: buildCampaignEmailHtml(composed),
-      text: buildCampaignEmailText(composed),
-    });
+    const { html, text } = renderEmail(campaignEmail(composed));
+    await sendEmail({ to: admin.email, subject: `[Test] ${composed.subject}`, html, text });
   } catch (error) {
     return {
       error:
@@ -175,9 +188,8 @@ export async function sendCampaignAction(
 ): Promise<SendCampaignState> {
   const admin = await requireAdmin();
   const composed = composedFromForm(formData);
-  if (!composed.subject || !composed.title || !composed.body) {
-    return { error: "Fill in subject, title and body before sending." };
-  }
+  const sendError = composedError(composed);
+  if (sendError) return { error: sendError };
 
   // Checked before anything is recorded: a deployment with no mail
   // credentials can only produce a campaign row that failed on every
@@ -215,8 +227,7 @@ export async function sendCampaignAction(
     },
   });
 
-  const html = buildCampaignEmailHtml(composed);
-  const text = buildCampaignEmailText(composed);
+  const { html, text } = renderEmail(campaignEmail(composed));
 
   let sentCount = 0;
   let failedCount = 0;

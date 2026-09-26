@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { verificationEmailContent, EmailDeliveryError, sendEmail } from "@/lib/email";
+import { EmailDeliveryError, sendEmail } from "@/lib/email";
+import { renderEmail } from "@/lib/email-template";
+import { verificationEmail } from "@/lib/email-messages";
 import { SITE_URL } from "@/lib/site";
 import type { User } from "@/generated/prisma/client";
 
@@ -60,7 +62,7 @@ export async function sendVerificationEmail(
   const verifyUrl = verificationUrl(token);
 
   try {
-    await sendEmail({ to: user.email, ...verificationEmailContent(verifyUrl) });
+    await sendEmail({ to: user.email, ...renderEmail(verificationEmail(verifyUrl)) });
     return { ok: true };
   } catch (error) {
     if (error instanceof EmailDeliveryError) {

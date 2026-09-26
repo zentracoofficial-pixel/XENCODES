@@ -4,34 +4,43 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 /**
- * Renders the Xencodes mark to a PNG for use in email.
+ * Renders the Xencodes mark to public/xencodes-logo.png, the logo emails
+ * (and the Organization structured data) reference by absolute URL.
  *
- * The mark itself lives as an inline SVG React component
- * (src/components/layout/wordmark.tsx). Email clients cannot use that: most
- * of them do not render SVG at all, and the component's mint stroke is a CSS
- * custom property, which no mail client resolves. So the same geometry is
- * rasterised here, once, into a file the email can reference by absolute URL.
+ * The mark itself is an inline SVG React component
+ * (src/components/layout/wordmark.tsx) whose second stroke is a CSS custom
+ * property. Most mail clients render neither SVG nor custom properties, so
+ * the same geometry is rasterised here instead.
  *
- * This is the same mark, not a redrawn approximation: the two strokes below
- * are the exact path endpoints and stroke width from XenMark's 24x24
- * viewBox, scaled up, painted in the same order (forest first, mint over it)
- * and in the project's real brand colours from globals.css.
+ * Drawn as the site's "light" variant (white + mint strokes, what
+ * <Wordmark tone="light" /> renders on forest backgrounds) on a rounded
+ * forest tile with transparent corners. The previous version was the
+ * forest + mint mark on an opaque white square, which showed as a white box
+ * in every dark-mode inbox and whose forest stroke disappeared against a
+ * dark background. A tile with its own opaque colour reads the same on a
+ * light page, a dark page, and under a client's forced colour inversion
+ * (which leaves images alone).
  *
  * Run with: npx tsx scripts/generate-email-logo.mts
  */
+
+type RGB = [number, number, number];
 
 // From src/app/globals.css.
 const FOREST: RGB = [0x06, 0x3b, 0x2d];
 const MINT: RGB = [0x0b, 0xd9, 0x9a];
 const WHITE: RGB = [0xff, 0xff, 0xff];
 
-// XenMark's viewBox is 24 units; 10x gives a 240px source rendered around
-// 40px in the email, which stays crisp on high-density displays.
-const SCALE = 10;
-const SIZE = 24 * SCALE;
-const STROKE_WIDTH = 3.2 * SCALE;
+// Shown at 36px in email; 4x keeps it crisp on high-density screens while
+// staying a few KB.
+const SIZE = 144;
+const CORNER_RADIUS = SIZE * 0.24;
+// The mark occupies the middle of the tile, matching the site's 22px mark
+// inside a ~36px touch target.
+const MARK_SCALE = (SIZE * 0.62) / 24;
+const MARK_OFFSET = (SIZE - 24 * MARK_SCALE) / 2;
+const STROKE_WIDTH = 3.2 * MARK_SCALE;
 
-type RGB = [number, number, number];
 interface Segment {
   x1: number;
   y1: number;
@@ -40,37 +49,41 @@ interface Segment {
   color: RGB;
 }
 
-/** The two crossing strokes, in XenMark's own paint order. */
+/** XenMark's two strokes, in its own paint order, mapped onto the tile. */
 const SEGMENTS: Segment[] = [
-  { x1: 5.5, y1: 5.5, x2: 18.5, y2: 18.5, color: FOREST },
+  { x1: 5.5, y1: 5.5, x2: 18.5, y2: 18.5, color: WHITE },
   { x1: 18.5, y1: 5.5, x2: 5.5, y2: 18.5, color: MINT },
 ].map((s) => ({
-  x1: s.x1 * SCALE,
-  y1: s.y1 * SCALE,
-  x2: s.x2 * SCALE,
-  y2: s.y2 * SCALE,
+  x1: MARK_OFFSET + s.x1 * MARK_SCALE,
+  y1: MARK_OFFSET + s.y1 * MARK_SCALE,
+  x2: MARK_OFFSET + s.x2 * MARK_SCALE,
+  y2: MARK_OFFSET + s.y2 * MARK_SCALE,
   color: s.color,
 }));
 
-/** Distance from a point to a line segment. With a round cap, this is
- *  exactly the shape the stroke covers, so no cap is drawn separately. */
+/** Distance from a point to a segment. With a round cap, this is exactly
+ *  the shape the stroke covers, so no cap is drawn separately. */
 function distanceToSegment(px: number, py: number, s: Segment): number {
   const dx = s.x2 - s.x1;
   const dy = s.y2 - s.y1;
   const lengthSquared = dx * dx + dy * dy;
-  const t = Math.max(
-    0,
-    Math.min(1, ((px - s.x1) * dx + (py - s.y1) * dy) / lengthSquared),
-  );
-  const cx = s.x1 + t * dx;
-  const cy = s.y1 + t * dy;
-  return Math.hypot(px - cx, py - cy);
+  const t = Math.max(0, Math.min(1, ((px - s.x1) * dx + (py - s.y1) * dy) / lengthSquared));
+  return Math.hypot(px - (s.x1 + t * dx), py - (s.y1 + t * dy));
+}
+
+/** 0..1 coverage of the rounded-square tile at this pixel centre. */
+function tileCoverage(px: number, py: number): number {
+  const r = CORNER_RADIUS;
+  const cx = Math.max(r, Math.min(SIZE - r, px));
+  const cy = Math.max(r, Math.min(SIZE - r, py));
+  const distance = Math.hypot(px - cx, py - cy);
+  return Math.max(0, Math.min(1, r - distance + 0.5));
 }
 
 function renderPixels(): Buffer {
   const half = STROKE_WIDTH / 2;
-  // RGB rows, each preceded by a filter byte (0 = none).
-  const raw = Buffer.alloc(SIZE * (SIZE * 3 + 1));
+  // RGBA rows, each preceded by a filter byte (0 = none).
+  const raw = Buffer.alloc(SIZE * (SIZE * 4 + 1));
   let offset = 0;
 
   for (let y = 0; y < SIZE; y += 1) {
@@ -78,16 +91,12 @@ function renderPixels(): Buffer {
     offset += 1;
 
     for (let x = 0; x < SIZE; x += 1) {
-      // Opaque white: the email card behind the logo is white, and a flat
-      // background avoids the black fill some clients paint behind
-      // transparency.
-      let pixel: RGB = [...WHITE];
+      const px = x + 0.5;
+      const py = y + 0.5;
+      let pixel: RGB = [...FOREST];
 
       for (const segment of SEGMENTS) {
-        const distance = distanceToSegment(x + 0.5, y + 0.5, segment);
-        // One pixel of feathering at the edge, which is what keeps the
-        // diagonals from looking like staircases.
-        const coverage = Math.max(0, Math.min(1, half - distance + 0.5));
+        const coverage = Math.max(0, Math.min(1, half - distanceToSegment(px, py, segment) + 0.5));
         if (coverage <= 0) continue;
         pixel = [
           Math.round(pixel[0] * (1 - coverage) + segment.color[0] * coverage),
@@ -99,7 +108,8 @@ function renderPixels(): Buffer {
       raw[offset] = pixel[0];
       raw[offset + 1] = pixel[1];
       raw[offset + 2] = pixel[2];
-      offset += 3;
+      raw[offset + 3] = Math.round(tileCoverage(px, py) * 255);
+      offset += 4;
     }
   }
 
@@ -136,7 +146,7 @@ function encodePng(raw: Buffer): Buffer {
   header.writeUInt32BE(SIZE, 0);
   header.writeUInt32BE(SIZE, 4);
   header[8] = 8; // bit depth
-  header[9] = 2; // colour type 2 = truecolour RGB
+  header[9] = 6; // colour type 6 = truecolour with alpha
   header[10] = 0; // deflate
   header[11] = 0; // adaptive filtering
   header[12] = 0; // no interlace
@@ -149,11 +159,6 @@ function encodePng(raw: Buffer): Buffer {
   ]);
 }
 
-const outputPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "public",
-  "xencodes-logo.png",
-);
+const outputPath = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "xencodes-logo.png");
 writeFileSync(outputPath, encodePng(renderPixels()));
 console.log(`Wrote ${outputPath} (${SIZE}x${SIZE})`);

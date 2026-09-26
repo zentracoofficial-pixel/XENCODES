@@ -1,216 +1,466 @@
-import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
+import { SITE_NAME, SITE_TAGLINE, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
+import {
+  blocksToText,
+  escapeHtml,
+  inlineToHtml,
+  inlineToText,
+  parseBlocks,
+  safeLinkUrl,
+  type InlineStyles,
+} from "@/lib/email-format";
 
 /**
- * The one HTML shell every admin campaign email renders through, so a
- * customer's inbox and the Xencodes site read as the same product.
+ * The one design every Xencodes email renders through: a message is data
+ * (a title and an ordered list of blocks), and this file is the only place
+ * that turns it into markup. A new email picks blocks; it never writes HTML.
  *
- * Table-based layout with inline styles, deliberately: email clients (most
- * of all Outlook, which renders through Word) do not reliably support
- * modern CSS, and a template that looks right in the preview but breaks in
- * Gmail or Outlook is worse than a plain one that renders everywhere. No
- * web fonts, no gradients, no animation, no background images — the same
- * restraint the rest of the product's design keeps.
- *
- * The logo is referenced by absolute URL rather than inlined, because the
- * site's own mark is an SVG React component using a CSS custom property,
- * and mail clients render neither. scripts/generate-email-logo.mts
- * rasterises that same mark to public/xencodes-logo.png for this. Images
- * are blocked by default in several clients, so nothing that matters is
- * carried by the image alone: the wordmark beside it is live text.
+ * Built for mail clients, not browsers:
+ * - Table layout with inline styles for everything structural, so a client
+ *   that strips <style> (Gmail on non-Google accounts, some Android apps)
+ *   still gets the full design, just without dark mode and phone tweaks.
+ * - A fluid 600px column (width:100% + max-width) wrapped in an Outlook-only
+ *   fixed table, since Outlook for Windows ignores max-width.
+ * - System font stack, forced to Arial in Outlook, which otherwise falls
+ *   back to Times New Roman on an unknown first font.
+ * - Dark mode through prefers-color-scheme (Apple Mail, iOS, Outlook for
+ *   Mac, Outlook mobile) and Outlook.com's [data-ogsc]/[data-ogsb] hooks.
+ *   Gmail's apps ignore both and invert colours themselves, so the light
+ *   palette avoids anything that inverts badly: no pure black or white text
+ *   over images, no text that relies on a background image, and a logo on
+ *   its own opaque tile (clients never invert images).
+ * - Nothing important is carried by the image alone: the brand name next to
+ *   the logo is live text.
  */
 
-export interface CampaignEmailInput {
+// ---------------------------------------------------------------------------
+// Message model
+// ---------------------------------------------------------------------------
+
+export type EmailBlock =
+  /** Body copy. Blank line = new paragraph; supports the small safe subset
+   *  documented in email-format.ts (bold, links, lists, subheadings). */
+  | { type: "text"; text: string }
+  /** The primary action. Dropped (HTML and text alike) if the URL is not
+   *  an absolute http(s) URL. */
+  | { type: "button"; text: string; url: string }
+  /** "If the button doesn't work" with the raw URL, for a button that must
+   *  work even when a client breaks it. */
+  | { type: "fallbackLink"; url: string }
+  /** A quiet panel for secondary information (expiry, why you got this). */
+  | { type: "note"; text: string }
+  /** Label/value rows, e.g. a ticket's metadata. Values are literal text. */
+  | { type: "details"; rows: { label: string; value: string }[] }
+  /** Someone else's words, verbatim: escaped, line breaks kept, and no
+   *  formatting interpreted, since it is not ours to format. */
+  | { type: "quote"; text: string }
+  | { type: "divider" };
+
+export interface EmailMessage {
+  subject: string;
   title: string;
-  /** Plain paragraphs: a blank line starts a new one. Not a rich text
-   *  editor's output, so no markup is interpreted inside it. */
-  body: string;
-  ctaText?: string;
-  ctaUrl?: string;
-  /** The line most inboxes show next to the subject. Rendered as a hidden
-   *  preheader; without one, clients fall back to scraping the first words
-   *  of the body, which reads as an accident. */
+  /** The line most inboxes show beside the subject. Without one, clients
+   *  scrape the first words of the body, which reads as an accident. */
   previewText?: string;
+  blocks: EmailBlock[];
+  /** Why the recipient got this. Defaults to the customer-account line. */
+  footerNote?: string;
 }
 
-// From src/app/globals.css, so the inbox matches the site exactly.
-const FOREST = "#063b2d";
-const FOREST_DARK = "#04291f";
-const MINT_SOFT = "#eaf8f3";
-const INK = "#111827";
-const BODY_INK = "#374151";
-const MUTED = "#6b7280";
-const BORDER = "#e5e7eb";
-const CANVAS = "#f4f5f4";
+export interface RenderedEmail {
+  subject: string;
+  html: string;
+  text: string;
+}
 
-const FONT_STACK =
-  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+export type EmailColorScheme = "auto" | "light" | "dark";
 
-const LOGO_URL = SITE_LOGO_URL;
+// ---------------------------------------------------------------------------
+// Design tokens (from src/app/globals.css, adapted for email)
+// ---------------------------------------------------------------------------
 
-/** For text nodes. Does not cover attribute values: see escapeAttribute. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+const LIGHT = {
+  canvas: "#eef3f1",
+  card: "#ffffff",
+  border: "#dce9e4",
+  title: "#10231e",
+  text: "#2f3e3a",
+  muted: "#5b6d67",
+  link: "#0b6b4c",
+  brand: "#063b2d",
+  button: "#063b2d",
+  buttonText: "#ffffff",
+  panel: "#f4f8f6",
+  accent: "#0bd99a",
+} as const;
+
+const DARK = {
+  canvas: "#0b1210",
+  card: "#131c19",
+  border: "#26332e",
+  title: "#eef4f1",
+  text: "#c6d2cd",
+  muted: "#8fa29b",
+  link: "#3ee0ab",
+  brand: "#eef4f1",
+  button: "#0bd99a",
+  buttonText: "#04291f",
+  panel: "#18231f",
+  accent: "#0bd99a",
+} as const;
+
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+const DEFAULT_FOOTER_NOTE = `You received this email because you have a ${SITE_NAME} account.`;
+
+const SITE_HOME = `${SITE_URL}/`;
+const SITE_HOST = SITE_URL.replace(/^https?:\/\//, "");
+
+const INLINE: InlineStyles = {
+  link: `color:${LIGHT.link};text-decoration:underline;`,
+  linkClass: "xc-link",
+  bold: `font-weight:700;color:${LIGHT.title};`,
+};
+
+// ---------------------------------------------------------------------------
+// Components. Each returns an HTML fragment; none knows what email it is in.
+// ---------------------------------------------------------------------------
+
+function logo(): string {
+  // Fixed width/height so a blocked image still holds its space, and the
+  // tile's own forest background with white alt text, so a client showing
+  // alt text instead of the image still draws a deliberate brand tile.
+  return `<img src="${escapeHtml(SITE_LOGO_URL)}" width="36" height="36" alt="${SITE_NAME} logo" style="display:block;width:36px;height:36px;border:0;outline:none;text-decoration:none;border-radius:9px;background-color:${LIGHT.brand};font-family:${FONT};font-size:9px;line-height:12px;font-weight:700;color:#ffffff;text-align:center;">`;
+}
+
+function header(): string {
+  return `<tr>
+  <td class="xc-header" style="padding:0 4px 20px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td valign="middle" style="padding:0 10px 0 0;">${logo()}</td>
+        <td valign="middle" class="xc-brand" style="font-family:${FONT};font-size:19px;line-height:24px;font-weight:700;letter-spacing:-0.3px;color:${LIGHT.brand};">${SITE_NAME}</td>
+      </tr>
+    </table>
+  </td>
+</tr>`;
+}
+
+function title(text: string): string {
+  return `<h1 class="xc-title" style="margin:0 0 16px;font-family:${FONT};font-size:22px;line-height:30px;font-weight:700;letter-spacing:-0.2px;color:${LIGHT.title};">${escapeHtml(
+    text,
+  )}</h1>`;
+}
+
+const TEXT_STYLE = `font-family:${FONT};font-size:16px;line-height:26px;color:${LIGHT.text};word-break:break-word;overflow-wrap:break-word;`;
+
+function bodyText(text: string): string {
+  return parseBlocks(text)
+    .map((block) => {
+      if (block.kind === "heading") {
+        return `<h2 class="xc-title" style="margin:24px 0 8px;font-family:${FONT};font-size:17px;line-height:24px;font-weight:700;color:${LIGHT.title};">${inlineToHtml(
+          block.text,
+          INLINE,
+        )}</h2>`;
+      }
+      if (block.kind === "list") {
+        const tag = block.ordered ? "ol" : "ul";
+        const items = block.items
+          .map(
+            (item) =>
+              `<li class="xc-text" style="margin:0 0 6px;${TEXT_STYLE}">${inlineToHtml(item, INLINE)}</li>`,
+          )
+          .join("");
+        return `<${tag} style="margin:0 0 16px;padding:0 0 0 24px;">${items}</${tag}>`;
+      }
+      return `<p class="xc-text" style="margin:0 0 16px;${TEXT_STYLE}">${block.lines
+        .map((line) => inlineToHtml(line, INLINE))
+        .join("<br>")}</p>`;
+    })
+    .join("\n");
 }
 
 /**
- * For anything landing inside a quoted attribute. escapeHtml alone leaves
- * quotes intact, so a value containing one could close the attribute early
- * and inject further markup into the message.
+ * The "bulletproof" button: a VML roundrect for Outlook on Windows (which
+ * ignores padding and border-radius on links), and a padded, rounded link
+ * for everything else. The whole shape is the tap target, not just the
+ * words, and it goes full width on phones.
  */
-function escapeAttribute(value: string): string {
-  return escapeHtml(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function button(text: string, url: string): string {
+  const href = escapeHtml(url);
+  const label = escapeHtml(text);
+  const vmlWidth = Math.max(200, Math.min(520, Math.round(text.length * 9.5 + 64)));
+  return `<table role="presentation" class="xc-btn-table" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;">
+  <tr>
+    <td align="center" class="xc-btn" bgcolor="${LIGHT.button}" style="border-radius:10px;background-color:${LIGHT.button};">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:${vmlWidth}px;" arcsize="21%" stroke="f" fillcolor="${LIGHT.button}">
+        <w:anchorlock/>
+        <center style="color:${LIGHT.buttonText};font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">${label}</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-->
+      <a href="${href}" target="_blank" class="xc-btn-a" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:700;color:${LIGHT.buttonText};text-decoration:none;border-radius:10px;background-color:${LIGHT.button};">${label}</a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+</table>`;
 }
 
-/**
- * Only absolute http(s) links become a button. A `javascript:` or `data:`
- * URL in a mail client is at best dropped and at worst an attack on the
- * reader, and neither is something to pass through because an admin typed
- * it into a form.
- */
-function safeLinkUrl(value: string | undefined): string | null {
-  if (!value) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(value.trim());
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-  return parsed.toString();
+function fallbackLink(url: string): string {
+  const href = escapeHtml(url);
+  return `<p class="xc-muted" style="margin:20px 0 4px;font-family:${FONT};font-size:14px;line-height:22px;color:${LIGHT.muted};">If the button doesn't work, copy and paste this link into your browser:</p>
+<p style="margin:0 0 16px;font-family:${FONT};font-size:13px;line-height:20px;word-break:break-all;overflow-wrap:anywhere;"><a href="${href}" class="xc-link" style="color:${LIGHT.link};text-decoration:underline;word-break:break-all;">${href}</a></p>`;
 }
 
-function paragraphsToHtml(body: string): string {
-  return body
-    .split(/\n\s*\n/)
-    .map((block) => block.trim())
-    .filter(Boolean)
+function panel(inner: string, extraStyle = "", extraClass = ""): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="xc-panel${extraClass ? ` ${extraClass}` : ""}" style="width:100%;margin:24px 0 8px;background-color:${LIGHT.panel};border:1px solid ${LIGHT.border};border-radius:10px;border-collapse:separate;${extraStyle}">
+  <tr>
+    <td style="padding:14px 18px;">${inner}</td>
+  </tr>
+</table>`;
+}
+
+function note(text: string): string {
+  return panel(
+    `<p class="xc-muted" style="margin:0;font-family:${FONT};font-size:14px;line-height:22px;color:${LIGHT.muted};">${inlineToHtml(
+      text,
+      INLINE,
+    )}</p>`,
+  );
+}
+
+function details(rows: { label: string; value: string }[]): string {
+  const body = rows
     .map(
-      (block) =>
-        `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:${BODY_INK};">${escapeHtml(
-          block,
-        ).replace(/\n/g, "<br>")}</p>`,
+      (row) => `<tr>
+      <td valign="top" class="xc-muted" style="padding:4px 12px 4px 0;width:34%;font-family:${FONT};font-size:14px;line-height:22px;color:${LIGHT.muted};">${escapeHtml(
+        row.label,
+      )}</td>
+      <td valign="top" class="xc-text" style="padding:4px 0;font-family:${FONT};font-size:14px;line-height:22px;color:${LIGHT.text};word-break:break-word;overflow-wrap:anywhere;">${escapeHtml(
+        row.value,
+      )}</td>
+    </tr>`,
     )
     .join("");
+  return panel(
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${body}</table>`,
+  );
 }
 
-export function buildCampaignEmailHtml(input: CampaignEmailInput): string {
-  const ctaUrl = safeLinkUrl(input.ctaUrl);
-  const host = SITE_URL.replace(/^https?:\/\//, "");
+function quote(text: string): string {
+  const lines = escapeHtml(text.replace(/\r\n?/g, "\n").trim()).replace(/\n/g, "<br>");
+  return panel(
+    `<p class="xc-text" style="margin:0;${TEXT_STYLE}font-size:15px;line-height:24px;">${lines}</p>`,
+    `border-left:3px solid ${LIGHT.accent};`,
+    "xc-quote",
+  );
+}
 
-  const cta =
-    ctaUrl && input.ctaText
-      ? `
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 6px;">
-                  <tr>
-                    <td align="center" bgcolor="${FOREST}" style="border-radius:10px;">
-                      <a href="${escapeAttribute(ctaUrl)}" style="display:inline-block;padding:13px 28px;font-family:${FONT_STACK};font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:10px;">${escapeHtml(
-                        input.ctaText,
-                      )}</a>
-                    </td>
-                  </tr>
-                </table>`
-      : "";
+function divider(): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:28px 0;">
+  <tr><td class="xc-divider" style="border-top:1px solid ${LIGHT.border};font-size:1px;line-height:1px;height:1px;">&nbsp;</td></tr>
+</table>`;
+}
 
-  // Sits before any visible content and is hidden in the rendered message.
-  // The trailing entities stop a client padding the snippet with the first
-  // words of the body after the preheader ends.
-  const preheader = input.previewText
-    ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${CANVAS};opacity:0;">${escapeHtml(
-        input.previewText,
-      )}${"&#8199;&#65279;&#847; ".repeat(30)}</div>`
+function footer(noteText: string): string {
+  return `<tr>
+  <td class="xc-footer" align="center" style="padding:28px 16px 0;text-align:center;font-family:${FONT};">
+    <p class="xc-brand" style="margin:0 0 2px;font-family:${FONT};font-size:14px;line-height:20px;font-weight:700;color:${LIGHT.brand};">${SITE_NAME}</p>
+    <p class="xc-muted" style="margin:0 0 10px;font-family:${FONT};font-size:13px;line-height:20px;color:${LIGHT.muted};">${escapeHtml(
+      SITE_TAGLINE,
+    )}</p>
+    <p style="margin:0 0 14px;font-family:${FONT};font-size:13px;line-height:20px;"><a href="${escapeHtml(
+      SITE_HOME,
+    )}" target="_blank" class="xc-link" style="color:${LIGHT.link};font-weight:600;text-decoration:underline;">${escapeHtml(
+      SITE_HOST,
+    )}</a></p>
+    <p class="xc-muted" style="margin:0;font-family:${FONT};font-size:12px;line-height:18px;color:${LIGHT.muted};">${escapeHtml(
+      noteText,
+    )}</p>
+  </td>
+</tr>`;
+}
+
+function renderBlock(block: EmailBlock): string {
+  switch (block.type) {
+    case "text":
+      return bodyText(block.text);
+    case "button": {
+      const url = safeLinkUrl(block.url);
+      return url && block.text.trim() ? button(block.text.trim(), url) : "";
+    }
+    case "fallbackLink": {
+      const url = safeLinkUrl(block.url);
+      return url ? fallbackLink(url) : "";
+    }
+    case "note":
+      return note(block.text);
+    case "details":
+      return block.rows.length ? details(block.rows) : "";
+    case "quote":
+      return block.text.trim() ? quote(block.text) : "";
+    case "divider":
+      return divider();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stylesheet: progressive enhancement only. Everything above is complete
+// without it.
+// ---------------------------------------------------------------------------
+
+function darkRules(prefix = ""): string {
+  const p = prefix ? `${prefix} ` : "";
+  return `
+${p}.xc-canvas { background-color:${DARK.canvas} !important; }
+${p}.xc-card { background-color:${DARK.card} !important; border-color:${DARK.border} !important; }
+${p}.xc-title { color:${DARK.title} !important; }
+${p}.xc-text { color:${DARK.text} !important; }
+${p}.xc-text strong { color:${DARK.title} !important; }
+${p}.xc-muted { color:${DARK.muted} !important; }
+${p}.xc-link { color:${DARK.link} !important; }
+${p}.xc-brand { color:${DARK.brand} !important; }
+${p}.xc-btn { background-color:${DARK.button} !important; }
+${p}.xc-btn-a { background-color:${DARK.button} !important; color:${DARK.buttonText} !important; }
+${p}.xc-panel { background-color:${DARK.panel} !important; border-color:${DARK.border} !important; }
+${p}.xc-quote { border-left-color:${DARK.accent} !important; }
+${p}.xc-divider { border-top-color:${DARK.border} !important; }
+${p}.xc-preheader { color:${DARK.canvas} !important; }`;
+}
+
+function stylesheet(scheme: EmailColorScheme): string {
+  const dark =
+    scheme === "dark"
+      ? darkRules()
+      : scheme === "auto"
+        ? `
+@media (prefers-color-scheme: dark) {${darkRules()}
+}
+/* Outlook.com / Outlook web dark mode */${darkRules("[data-ogsc]")}${darkRules("[data-ogsb]")}`
+        : "";
+
+  return `<style>
+:root { color-scheme:${scheme === "auto" ? "light dark" : scheme}; supported-color-schemes:${scheme === "auto" ? "light dark" : scheme}; }
+body { margin:0 !important; padding:0 !important; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+table, td { border-collapse:collapse; mso-table-lspace:0pt; mso-table-rspace:0pt; }
+img { border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic; }
+a[x-apple-data-detectors] { color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }
+@media only screen and (max-width:620px) {
+  .xc-outer { padding:24px 12px !important; }
+  .xc-card-pad { padding:28px 22px !important; }
+  .xc-title { font-size:21px !important; line-height:28px !important; }
+  .xc-btn-table { width:100% !important; }
+  .xc-btn-a { display:block !important; text-align:center !important; }
+}${dark}
+</style>`;
+}
+
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+
+export function renderEmailHtml(
+  message: EmailMessage,
+  options: { colorScheme?: EmailColorScheme } = {},
+): string {
+  const scheme = options.colorScheme ?? "auto";
+  const metaScheme = scheme === "auto" ? "light dark" : scheme;
+  const content = message.blocks.map(renderBlock).filter(Boolean).join("\n");
+
+  // Hidden in the rendered message. The trailing zero-width entities stop a
+  // client padding the inbox snippet with the first words of the body.
+  const preheader = message.previewText
+    ? `<div class="xc-preheader" style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${LIGHT.canvas};opacity:0;">${escapeHtml(
+        message.previewText,
+      )}${"&#8199;&#65279;&#847; ".repeat(40)}</div>`
     : "";
 
   return `<!doctype html>
-<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="x-apple-disable-message-reformatting">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
-    <title>${escapeHtml(input.title)}</title>
-    <!--[if mso]>
-    <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-    <![endif]-->
-    <style>
-      /* Phone widths only. Everything structural is inline above, so a
-         client that ignores this block still renders the message correctly. */
-      @media only screen and (max-width:600px) {
-        .xc-shell { width:100% !important; border-radius:0 !important; }
-        .xc-pad { padding-left:24px !important; padding-right:24px !important; }
-        .xc-title { font-size:21px !important; }
-      }
-    </style>
-  </head>
-  <body style="margin:0;padding:0;width:100%;background:${CANVAS};-webkit-font-smoothing:antialiased;">
-    ${preheader}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${CANVAS};">
-      <tr>
-        <td align="center" style="padding:32px 16px;">
-
-          <table role="presentation" class="xc-shell" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:560px;background:#ffffff;border:1px solid ${BORDER};border-radius:16px;overflow:hidden;">
-
-            <!-- Header -->
-            <tr>
-              <td class="xc-pad" style="padding:24px 32px;border-bottom:1px solid ${BORDER};">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td style="padding-right:10px;line-height:0;" valign="middle">
-                      <img src="${LOGO_URL}" width="34" height="34" alt="" style="display:block;width:34px;height:34px;border:0;outline:none;text-decoration:none;">
-                    </td>
-                    <td valign="middle" style="font-family:${FONT_STACK};font-size:18px;font-weight:700;letter-spacing:-0.02em;color:${FOREST};">${SITE_NAME}</td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <!-- Body -->
-            <tr>
-              <td class="xc-pad" style="padding:32px 32px 28px;font-family:${FONT_STACK};">
-                <h1 class="xc-title" style="margin:0 0 18px;font-size:23px;line-height:1.3;font-weight:600;letter-spacing:-0.02em;color:${INK};">${escapeHtml(
-                  input.title,
-                )}</h1>
-                ${paragraphsToHtml(input.body)}
-                ${cta}
-              </td>
-            </tr>
-
-            <!-- Footer -->
-            <tr>
-              <td class="xc-pad" style="padding:22px 32px 26px;background:${MINT_SOFT};border-top:1px solid ${BORDER};font-family:${FONT_STACK};">
-                <p style="margin:0 0 6px;font-size:13px;line-height:1.6;color:${FOREST_DARK};">
-                  <a href="${SITE_URL}" style="color:${FOREST_DARK};text-decoration:none;font-weight:600;">${escapeHtml(
-                    host,
-                  )}</a>
-                </p>
-                <p style="margin:0;font-size:12px;line-height:1.6;color:${MUTED};">
-                  You received this email because you have a ${SITE_NAME} account.
-                </p>
-              </td>
-            </tr>
-
-          </table>
-
-          <p style="margin:16px 0 0;font-family:${FONT_STACK};font-size:11px;line-height:1.5;color:${MUTED};">
-            &copy; ${new Date().getFullYear()} ${SITE_NAME}
-          </p>
-
-        </td>
-      </tr>
-    </table>
-  </body>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
+<meta name="color-scheme" content="${metaScheme}">
+<meta name="supported-color-schemes" content="${metaScheme}">
+<title>${escapeHtml(message.title)}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>table, td, div, h1, h2, p, a, li, span { font-family: Arial, Helvetica, sans-serif !important; }</style>
+<![endif]-->
+${stylesheet(scheme)}
+</head>
+<body class="xc-canvas" style="margin:0;padding:0;width:100%;background-color:${LIGHT.canvas};">
+<div role="article" aria-roledescription="email" aria-label="${escapeHtml(message.title)}" lang="en" dir="ltr" class="xc-canvas" style="background-color:${LIGHT.canvas};">
+${preheader}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="xc-canvas" bgcolor="${LIGHT.canvas}" style="width:100%;background-color:${LIGHT.canvas};">
+  <tr>
+    <td align="center" class="xc-outer" style="padding:40px 16px;">
+      <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
+        ${header()}
+        <tr>
+          <td>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="xc-card" bgcolor="${LIGHT.card}" style="width:100%;background-color:${LIGHT.card};border:1px solid ${LIGHT.border};border-radius:12px;border-collapse:separate;">
+              <tr>
+                <td class="xc-card-pad" style="padding:36px 40px 32px;">
+                  ${title(message.title)}
+                  ${content}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        ${footer(message.footerNote ?? DEFAULT_FOOTER_NOTE)}
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td>
+  </tr>
+</table>
+</div>
+</body>
 </html>`;
 }
 
-export function buildCampaignEmailText(input: CampaignEmailInput): string {
-  const lines = [input.title, "", input.body];
-  const ctaUrl = safeLinkUrl(input.ctaUrl);
-  if (ctaUrl && input.ctaText) {
-    lines.push("", `${input.ctaText}: ${ctaUrl}`);
+function blockToText(block: EmailBlock): string {
+  switch (block.type) {
+    case "text":
+      return blocksToText(parseBlocks(block.text));
+    case "button": {
+      const url = safeLinkUrl(block.url);
+      return url && block.text.trim() ? `${block.text.trim()}: ${url}` : "";
+    }
+    case "fallbackLink":
+      // The button line already carries the URL in plain text.
+      return "";
+    case "note":
+      return inlineToText(block.text);
+    case "details":
+      return block.rows.map((row) => `${row.label}: ${row.value}`).join("\n");
+    case "quote":
+      return block.text.replace(/\r\n?/g, "\n").trim();
+    case "divider":
+      return "----";
   }
-  lines.push("", `— ${SITE_NAME}`, SITE_URL);
-  return lines.join("\n");
+}
+
+export function renderEmailText(message: EmailMessage): string {
+  const parts = [message.title, ...message.blocks.map(blockToText)].filter((part) => part.trim());
+  parts.push(
+    "----",
+    `${SITE_NAME} · ${SITE_TAGLINE}`,
+    SITE_HOME,
+    message.footerNote ?? DEFAULT_FOOTER_NOTE,
+  );
+  return parts.join("\n\n");
+}
+
+export function renderEmail(message: EmailMessage): RenderedEmail {
+  return {
+    subject: message.subject,
+    html: renderEmailHtml(message),
+    text: renderEmailText(message),
+  };
 }

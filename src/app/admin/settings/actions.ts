@@ -6,6 +6,8 @@ import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, EmailDeliveryError, emailFromAddress } from "@/lib/email";
+import { renderEmail } from "@/lib/email-template";
+import { emailSettingsTestEmail } from "@/lib/email-messages";
 
 function refresh() {
   revalidatePath("/admin/settings");
@@ -129,9 +131,7 @@ export async function sendTestEmailAction(
   try {
     await sendEmail({
       to,
-      subject: "Xencodes test email",
-      text: `This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as "${emailFromAddress()}". If you received this, outbound email is working correctly.`,
-      html: `<p>This is a test email sent from the Xencodes admin panel at ${new Date().toISOString()}, currently sending as <strong>${emailFromAddress()}</strong>.</p><p>If you received this, outbound email is working correctly.</p>`,
+      ...renderEmail(emailSettingsTestEmail({ fromAddress: emailFromAddress(), sentAt: new Date() })),
     });
     return { status: "sent", message: `Resend accepted it for ${to}, sent as "${emailFromAddress()}". If it doesn't land in that inbox within a minute, check spam/junk — Resend accepting it is not the same as the destination mailbox filing it under Inbox.` };
   } catch (error) {
