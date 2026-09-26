@@ -88,13 +88,18 @@ async function reserveAndSend(
 }
 
 /**
- * Called once, by completeTopUp() in src/lib/funding.ts, immediately after
- * the transaction that flips a TOPUP row PENDING -> SUCCESSFUL and credits
- * the wallet. Never called for a PURCHASE, REFUND or ADJUSTMENT row: those
- * are not a new payment, and a PURCHASE in particular is the wallet-side
- * half of a number purchase, whose own sale notification comes from
- * notifyNumberPurchaseSale() instead — crediting both would double-count
- * one sale as two.
+ * Not currently called from anywhere — kept, not removed, as the
+ * infrastructure for it. completeTopUp() in src/lib/funding.ts used to call
+ * this immediately after crediting a wallet, but KoraPay already sends its
+ * own notification for a successful charge, so this second, Xencodes-
+ * internal email was a duplicate that only spent Resend quota. See the
+ * comment at the end of completeTopUp() for where that call used to be.
+ *
+ * If this is ever wired back in: never call it for a PURCHASE, REFUND or
+ * ADJUSTMENT row. Those are not a new payment, and a PURCHASE in particular
+ * is the wallet-side half of a number purchase, whose own sale notification
+ * comes from notifyNumberPurchaseSale() instead — crediting both would
+ * double-count one sale as two.
  */
 export async function notifyWalletFundingSale(walletTransactionId: string): Promise<void> {
   const row = await prisma.walletTransaction.findUnique({
