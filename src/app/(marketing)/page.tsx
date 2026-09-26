@@ -19,7 +19,6 @@ import {
 import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
-import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/currency";
 import { getDefaultCurrency } from "@/lib/currency-config";
 
@@ -46,16 +45,13 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, numbersDelivered, highlights, defaultCurrency] =
-    await Promise.all([
-      getInventoryStatus(),
-      searchServices("").catch(() => []),
-      countServices().catch(() => 0),
-      // A real, live count, never invented: this is exactly what it says.
-      prisma.activation.count({ where: { status: "RECEIVED" } }),
-      getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
-      getDefaultCurrency(),
-    ]);
+  const [status, services, serviceCount, highlights, defaultCurrency] = await Promise.all([
+    getInventoryStatus(),
+    searchServices("").catch(() => []),
+    countServices().catch(() => 0),
+    getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
+    getDefaultCurrency(),
+  ]);
 
   return (
     <>
@@ -138,14 +134,6 @@ export default async function HomePage() {
                     <dt className="text-xs text-muted-foreground">Locations</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
                       {highlights.countryCount.toLocaleString("en-US")}
-                    </dd>
-                  </div>
-                ) : null}
-                {numbersDelivered > 0 ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Codes delivered</dt>
-                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {numbersDelivered.toLocaleString("en-US")}
                     </dd>
                   </div>
                 ) : null}
