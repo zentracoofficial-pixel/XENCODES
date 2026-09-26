@@ -7,11 +7,13 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatMultiCurrencySum } from "@/lib/currency";
 import { getDefaultCurrency } from "@/lib/currency-config";
-import { getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
+import { getNumberProvider, getEnabledProviders, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
 import { realisedMargin } from "@/lib/pricing";
 import { getSystemHealth } from "@/lib/system-health";
+import { checkProviderBalance, getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
 import { Metric, MetricGrid } from "./metric";
 import { SystemHealthCard } from "./system-health-card";
+import { LowProviderBalanceBanner } from "./low-provider-balance-banner";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
@@ -169,9 +171,20 @@ export default async function AdminDashboardPage() {
   // Always US cents (suppliers in this space bill and hold balance in USD
   // regardless of which currencies customers pay in), so this is always
   // shown in USD, never converted into any customer-facing currency.
-  const providerBalanceUsdCents = resolved.connected
-    ? (await resolved.provider.getProviderBalanceUsdCents?.().catch(() => null)) ?? null
+  //
+  // Routed through checkProviderBalance() rather than calling the adapter
+  // directly: this is the exact same single request to the provider (no
+  // new API call added), but it also updates ProviderBalanceStatus and
+  // fires the low-credit admin alert as a side effect — the admin
+  // dashboard loading is one of the two places (the other is the daily
+  // sync cron) balance monitoring rides along on, rather than polling on
+  // its own schedule.
+  const enabledProviders = await getEnabledProviders();
+  const primaryProvider = enabledProviders[0];
+  const providerBalanceUsdCents = primaryProvider
+    ? (await checkProviderBalance(primaryProvider.id, primaryProvider.label, primaryProvider.provider)).balanceUsdCents
     : null;
+  const providerBalanceStatus = primaryProvider ? await getProviderBalanceStatus(primaryProvider.id) : null;
 
   const health = await getSystemHealth();
 
@@ -272,6 +285,14 @@ export default async function AdminDashboardPage() {
           </Link>
         </Card>
       )}
+
+      {providerBalanceStatus?.isLow ? (
+        <LowProviderBalanceBanner
+          label={primaryProvider?.label ?? "Number provider"}
+          balanceUsdCents={providerBalanceStatus.currentBalanceUsdCents}
+          detectedAt={providerBalanceStatus.lowSince?.toISOString() ?? null}
+        />
+      ) : null}
 
       <section>
         <h2 className="mb-2.5 text-sm font-semibold">Operations</h2>

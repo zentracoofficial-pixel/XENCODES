@@ -77,8 +77,8 @@ export function RegisterForm() {
         </Link>
       </p>
       <p className="mt-4 text-center text-xs text-muted-foreground">
-        By creating an account you agree to use Xencodes for legitimate
-        verification and testing only.
+        By creating an account you agree to use Xencodes only for receiving
+        legitimate SMS verification codes.
       </p>
     </Card>
   );
