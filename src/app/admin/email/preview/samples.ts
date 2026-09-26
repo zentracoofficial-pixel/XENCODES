@@ -3,11 +3,13 @@ import {
   activationIssueEmail,
   campaignEmail,
   emailSettingsTestEmail,
+  numberPurchaseSaleEmail,
   passwordResetEmail,
   providerLowBalanceEmail,
   supportReplyEmail,
   supportRequestEmail,
   verificationEmail,
+  walletFundingSaleEmail,
 } from "@/lib/email-messages";
 import { SITE_URL } from "@/lib/site";
 
@@ -103,6 +105,38 @@ export function emailSamples(): { id: string; label: string; message: EmailMessa
       id: "provider-reminder",
       label: "Admin alert: provider balance reminder",
       message: providerLowBalanceEmail({ label: "GrizzlySMS", balance: "$1.84", threshold: "$2.00", detectedAt: new Date("2026-09-26T08:30:00Z"), isFirstAlert: false }),
+    },
+    {
+      id: "sale-wallet-funding",
+      label: "Sales alert: wallet funding",
+      message: walletFundingSaleEmail({
+        transactionId: "cmuhzab3k0005",
+        userId: "cmuhz0000000",
+        customerEmail: "customer@example.com",
+        customerName: "Ada Lovelace",
+        amount: "₦5,000.00",
+        currency: "NGN",
+        korapayReference: "xen_lz3k9f2h_a1b2c3d4e5f6a7b8",
+        providerTransactionId: "xen_lz3k9f2h_a1b2c3d4e5f6a7b8",
+        completedAt: new Date("2026-09-26T08:30:00Z"),
+      }),
+    },
+    {
+      id: "sale-number-purchase",
+      label: "Sales alert: number purchase",
+      message: numberPurchaseSaleEmail({
+        orderId: "cmuhzab3k0006",
+        userId: "cmuhz0000000",
+        customerEmail: "customer@example.com",
+        serviceName: "WhatsApp",
+        countryName: "United Kingdom",
+        price: "₦1,250.00",
+        currency: "NGN",
+        provider: "grizzlysms",
+        providerOrderId: "GZ-99231044",
+        orderStatusLabel: "Pending",
+        createdAt: new Date("2026-09-26T08:30:00Z"),
+      }),
     },
     {
       id: "settings-test",

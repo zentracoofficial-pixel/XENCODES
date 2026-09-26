@@ -696,3 +696,58 @@ model EmailCampaign {
   @@index([createdAt])
   @@map("email_campaigns")
 }
+
+enum SalesNotificationType {
+  /// A WalletTransaction (TOPUP, SUCCESSFUL) — money actually received from
+  /// a customer. Never a PURCHASE row: that is an internal wallet debit,
+  /// not a new payment, and would double-count the sale the matching
+  /// NUMBER_PURCHASE notification already reports.
+  WALLET_TOPUP
+  /// An Activation — a completed number purchase, charged against the
+  /// customer's wallet at the moment it was placed.
+  NUMBER_PURCHASE
+}
+
+enum SalesNotificationStatus {
+  SENT
+  FAILED
+}
+
+/// One row per sales-notification attempt for one real transaction, and the
+/// mechanism that guarantees "at most one email per successful sale."
+///
+/// transactionId is WalletTransaction.id or Activation.id depending on
+/// `type` — not a foreign key, the same way AuditLog.targetId is not: this
+/// row must stay legible even if the transaction it describes is later
+/// reasoned about independently, and a polymorphic id has no single table
+/// to point a relation at anyway.
+///
+/// The @@unique below is the idempotency guard. It is defense in depth
+/// rather than the primary one: the primary guard is upstream, in the
+/// transaction that finalizes the sale itself (completeTopUp()'s atomic
+/// PENDING->SUCCESSFUL flip; purchaseNumberAction()'s single Activation
+/// creation, protected by its own idempotencyKey). Either finalizer calls
+/// into this exactly once per real sale by construction, so this
+/// constraint is what stops a second call — a retried webhook this
+/// process somehow saw twice, a future code path, a bug — from ever
+/// producing a second email, not what makes the first call safe.
+model SalesNotification {
+  id                String                   @id @default(cuid())
+  type              SalesNotificationType
+  transactionId     String
+  recipient         String
+  status            SalesNotificationStatus
+  /// Set only when status is FAILED — the reason sendEmailSafe() gave up,
+  /// kept so a failure is investigable rather than just a silent gap in
+  /// this table next to a real, unaffected sale.
+  failureReason     String?
+  /// Resend's own id for the send, when it succeeded. Not required for
+  /// idempotency (the row's existence already is), only for support: "did
+  /// Resend actually accept this" is answerable without Resend's own
+  /// dashboard.
+  providerMessageId String?
+  sentAt            DateTime                 @default(now())
+
+  @@unique([type, transactionId])
+  @@map("sales_notifications")
+}

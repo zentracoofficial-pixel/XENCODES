@@ -55,7 +55,9 @@ interface SendEmailInput {
  * has to be checked; awaiting the call and moving on is exactly how a
  * failed send gets counted as a successful one.
  */
-export async function sendEmail({ to, subject, html, text }: SendEmailInput): Promise<void> {
+export async function sendEmail(
+  { to, subject, html, text }: SendEmailInput,
+): Promise<{ id: string | null }> {
   if (!resend) {
     throw new EmailDeliveryError(
       "RESEND_API_KEY is not set as an environment variable on this deployment.",
@@ -79,6 +81,8 @@ export async function sendEmail({ to, subject, html, text }: SendEmailInput): Pr
       "rejected",
     );
   }
+
+  return { id: result.data?.id ?? null };
 }
 
 /**
