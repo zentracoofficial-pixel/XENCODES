@@ -31,14 +31,22 @@ model User {
   /// "NGN" or "USD", never any other value: a CHECK constraint enforces
   /// this at the database level (see the two_currency_model migration),
   /// since Prisma has no first-class enum-backed CHECK for an existing
-  /// String column here. NGN for Nigeria, USD for every other supported
-  /// country — never a currency per country. Chosen at registration (see
-  /// currencyForCountry() in src/lib/currency-config.ts) and never silently
-  /// reinterpreted: changing a currency after money has moved would make
-  /// every past amount mean something different than what it said at the
-  /// time. Enforced by omission rather than a guard: nothing outside
-  /// registerAction() in src/app/(auth)/register/actions.ts ever writes
-  /// this column, so there is no code path that could change it later.
+  /// String column here. NGN only in practice: currencyForCountry() in
+  /// src/lib/currency-config.ts, which registerAction() calls to set this,
+  /// is hardcoded to NGN regardless of the country it is given — see its
+  /// own doc comment for why (a VPN-spoofable IP location used to decide
+  /// this, and briefly assigned USD to a customer who could never actually
+  /// fund or be charged in it, since no USD payment provider exists). Any
+  /// row still reading "USD" from before that fix was corrected back to
+  /// NGN by the ngn_only_currency migration; the CHECK constraint still
+  /// allows USD only so the column needs no schema change the day a real
+  /// second currency is deliberately turned back on. Never silently
+  /// reinterpreted afterward: changing a currency after money has moved
+  /// would make every past amount mean something different than what it
+  /// said at the time. Enforced by omission rather than a guard: nothing
+  /// outside registerAction() in src/app/(auth)/register/actions.ts ever
+  /// writes this column, so there is no code path that could change it
+  /// later.
   currency                  String     @default("NGN")
   walletBalanceKobo         Int        @default(0)
   twoFactorSecret           String?

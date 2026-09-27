@@ -10,24 +10,33 @@ import { majorToMinor } from "@/lib/currency";
 import { isKorapayConfigured } from "@/lib/korapay";
 
 /**
- * Xencodes sells in exactly two currencies, never a currency per country.
+ * Xencodes sells in exactly one active currency right now: NGN. Every
+ * customer, everywhere, regardless of IP, VPN, detected country, browser
+ * or device locale, or anything else about the request — until this is
+ * explicitly changed. Not a currency-per-country system: a customer never
+ * sees Ghanaian Cedi, British Pounds, or any other local currency as a
+ * Xencodes wallet currency, and today not even USD.
  *
- * NGN for Nigeria, USD for everywhere else. Not an arbitrary admin-managed
- * list: a customer never sees Ghanaian Cedi, British Pounds, or any other
- * local currency as a separate Xencodes wallet currency, no matter which
- * country they register from. See currencyForCountry() below for the one
- * rule that decides which of the two an account gets.
+ * The USD entry below still exists in this file's data shape — a second
+ * currency this module already knows how to describe (its own rate,
+ * top-up bounds, fee cap, live funding status) — but nothing customer-
+ * facing may ever resolve to it: see getCurrencyConfig() and
+ * currencyForCountry() further down for where that is enforced. This is
+ * deliberate future-readiness, not a live second currency: turning USD
+ * back on for customers is a deliberate product decision made in this
+ * file (and only this file), not something any request, header, or stored
+ * value can trigger on its own.
  *
  * Funding is not the same question as pricing. GrizzlySMS's cost is always
  * convertible into either currency (see convertUsdCentsToCurrencyMinor()),
- * so both currencies can always be priced in. Whether Xencodes can actually
- * *accept a payment* in a currency is a separate, narrower fact:
- * `fundingAvailable` is computed live from whether a real payment provider
- * is actually connected for that currency, never stored as an admin toggle
- * that could drift from reality. Today that is KoraPay for NGN only. USD
- * funding is `false` until a real USD-capable provider is wired in here;
- * nothing in this file, or anywhere downstream of it, is allowed to
- * pretend otherwise.
+ * so both currencies can always be priced in, in the abstract. Whether
+ * Xencodes can actually *accept a payment* in a currency is a separate,
+ * narrower fact: `fundingAvailable` is computed live from whether a real
+ * payment provider is actually connected for that currency, never stored
+ * as an admin toggle that could drift from reality. Today that is KoraPay
+ * for NGN only. USD funding is `false` until a real USD-capable provider
+ * is wired in here; nothing in this file, or anywhere downstream of it, is
+ * allowed to pretend otherwise.
  */
 
 export type CurrencyCode = "NGN" | "USD";
@@ -206,23 +215,52 @@ export async function getDefaultCurrency(): Promise<CurrencyConfigEntry> {
   return ngn;
 }
 
+/**
+ * Resolves a currency code for a customer-facing use: a stored
+ * User.currency, or a code a request itself supplied (a query param, a
+ * form field). NGN-only business rule enforced right here, not left to
+ * each caller: any code other than NGN returns null, including USD, a
+ * pre-existing account that was mis-assigned USD before the geo-detection
+ * fix above, or anything a client tries to pass in a request.
+ *
+ * Every call site already does `(await getCurrencyConfig(x)) ??
+ * getDefaultCurrency()`, so null here means exactly the fallback these call
+ * sites already had to write for an unrecognized code — NGN, the platform
+ * default — with no changes needed anywhere else. This is also what makes
+ * the backend safe against a client simply sending `currency=USD`: nothing
+ * downstream of this function ever sees anything but NGN or a null it
+ * already knew how to handle.
+ */
 export async function getCurrencyConfig(code: string): Promise<CurrencyConfigEntry | null> {
   const upper = code.toUpperCase();
-  if (upper !== "NGN" && upper !== "USD") return null;
+  if (upper !== "NGN") return null;
   const config = await readCurrencyConfig();
   return config.find((c) => c.code === upper) ?? null;
 }
 
 /**
- * The one rule that decides which of the two currencies a new account
- * gets: Nigeria is NGN, everywhere else is USD. `countryCode` is a
- * two-letter ISO code from the request's own edge-detected location (see
- * requestCountry() below); null/unknown never asserts "definitely outside
- * Nigeria", so it resolves to NGN, the platform's original default, rather
- * than guessing.
+ * Business rule, explicit and standing until told otherwise: every
+ * customer gets NGN, full stop. Xencodes has no USD-capable payment
+ * provider (see `fundingAvailable: false` on the USD entry above), so a
+ * USD-labeled account or price was never anything a customer could
+ * actually pay into or with — only a mismatch waiting to confuse someone.
+ *
+ * This used to branch on `countryCode` (Nigeria -> NGN, everywhere else ->
+ * USD), fed from the request's edge-detected IP location. That was the
+ * exact bug: any USA/UK/etc. VPN exit IP made Vercel's edge report a
+ * non-NG country, which this function turned into USD for a customer who
+ * never asked for it and had no way to pay it. `countryCode` is still
+ * accepted so every call site (registration, getVisitorCurrency() below)
+ * keeps working unchanged, but it is intentionally never read: location,
+ * however detected, must never again decide currency. Re-enabling
+ * geo-based currency selection later is a deliberate product decision, not
+ * a one-line revert of this function.
  */
-export function currencyForCountry(countryCode: string | null | undefined): CurrencyCode {
-  return countryCode && countryCode.toUpperCase() !== "NG" ? "USD" : "NGN";
+export function currencyForCountry(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site compatibility; see doc comment above.
+  countryCode: string | null | undefined,
+): CurrencyCode {
+  return "NGN";
 }
 
 /** The two-letter country code Vercel's edge network detected for this
