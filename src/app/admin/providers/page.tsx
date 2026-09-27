@@ -8,9 +8,11 @@ import {
 } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
+import { getQualityReport } from "@/lib/deliverability";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
+import { QualityReportCard } from "./quality-report-card";
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -39,10 +41,11 @@ export const maxDuration = 60;
 export default async function AdminProvidersPage() {
   await requireAdmin();
 
-  const [config, statuses, flagged] = await Promise.all([
+  const [config, statuses, flagged, quality] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
+    getQualityReport(),
   ]);
   const configById = new Map(config.map((entry) => [entry.id, entry]));
 
@@ -122,6 +125,26 @@ export default async function AdminProvidersPage() {
           totalFails: row.totalFails,
           lastFailureReason: row.lastFailureReason,
           lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
+        }))}
+      />
+
+      <QualityReportCard
+        windowDays={quality.windowDays}
+        minSampleSize={quality.minSampleSize}
+        overall={quality.overall}
+        services={quality.services.map((row) => ({
+          slug: row.serviceSlug,
+          label: row.serviceName,
+          successRatePercent: row.successRatePercent,
+          tier: row.tier,
+          sampleSize: row.sampleSize,
+        }))}
+        countries={quality.countries.map((row) => ({
+          slug: row.countrySlug,
+          label: row.countryName,
+          successRatePercent: row.successRatePercent,
+          tier: row.tier,
+          sampleSize: row.sampleSize,
         }))}
       />
     </div>

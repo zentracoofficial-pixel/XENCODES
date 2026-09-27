@@ -11,6 +11,7 @@ import { getLowBalanceThreshold, shouldShowLowBalanceWarning } from "@/lib/low-b
 import { RecentActivityList } from "./recent-activity-list";
 import { LowBalanceWarning } from "./low-balance-warning";
 import { OnboardingChecklist } from "./onboarding-checklist";
+import { DashboardStat } from "./dashboard-stat";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -18,17 +19,36 @@ export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [user, current, activity, favorites, fundedCount, activationCount] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId } }),
-    prisma.activation.findFirst({
-      where: { userId, status: "WAITING" },
-      orderBy: { createdAt: "desc" },
-    }),
-    getRecentActivity(userId),
-    prisma.favoriteService.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 6 }),
-    prisma.walletTransaction.count({ where: { userId, type: "TOPUP", status: "SUCCESSFUL" } }),
-    prisma.activation.count({ where: { userId } }),
-  ]);
+  const [user, current, activity, favorites, fundedCount, activationCount, deliveredAgg, smsReceivedCount] =
+    await Promise.all([
+      prisma.user.findUniqueOrThrow({ where: { id: userId } }),
+      prisma.activation.findFirst({
+        where: { userId, status: "WAITING" },
+        orderBy: { createdAt: "desc" },
+      }),
+      getRecentActivity(userId),
+      prisma.favoriteService.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 6 }),
+      prisma.walletTransaction.count({ where: { userId, type: "TOPUP", status: "SUCCESSFUL" } }),
+      prisma.activation.count({ where: { userId } }),
+      // RECEIVED-only, the same definition of "spent" the admin panel
+      // already uses (see admin/users/[id]/page.tsx): an order that ended
+      // EXPIRED, CANCELLED or REFUNDED was paid for and then paid back, so
+      // it never really cost the customer anything. Also gives the
+      // successful-purchase count in the same query, since both figures
+      // come from the same row set.
+      prisma.activation.aggregate({
+        where: { userId, status: "RECEIVED" },
+        _sum: { priceKobo: true },
+        _count: true,
+      }),
+      // Distinct from the count above only in what it's counting (a code
+      // arriving, via receivedAt, vs. an order settling into RECEIVED) even
+      // though the two always coincide today — RECEIVED means exactly "a
+      // code arrived" (see ActivationStatus's own schema comment) — so this
+      // reads as its own honest measurement rather than a relabelled
+      // duplicate of the count above.
+      prisma.activation.count({ where: { userId, receivedAt: { not: null } } }),
+    ]);
 
   const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
   const showLowBalanceWarning = shouldShowLowBalanceWarning(
@@ -66,24 +86,45 @@ export default async function DashboardPage() {
         <LowBalanceWarning balanceKobo={user.walletBalanceKobo} currency={user.currency} />
       ) : null}
 
-      {/* Balance. */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-forest px-6 py-5">
+      {/* What buying numbers has actually done for this customer, the
+          primary figures on this page — trust comes from seeing money paid
+          matched by numbers that actually worked, not from a balance
+          figure alone. Wallet balance still exists (below) but is
+          deliberately no longer the headline. */}
+      <section>
+        <h2 className="text-sm font-semibold">Your activity</h2>
+        {/* Stacked full-width on a narrow phone, three across from sm: up —
+            a fixed 3-column grid at every width squeezed "Successful
+            purchases" and the currency amount enough to clip them on
+            common phone widths, confirmed live before this was changed
+            (same class of bug as the history page fix below). */}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <DashboardStat
+            label="Total spent"
+            value={formatMoney(deliveredAgg._sum.priceKobo ?? 0, user.currency)}
+          />
+          <DashboardStat label="Successful purchases" value={deliveredAgg._count} />
+          <DashboardStat label="SMS received" value={smsReceivedCount} />
+        </div>
+      </section>
+
+      {/* Balance: present, but a compact bar rather than the page's hero
+          element. */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-5 py-3.5">
         <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-white/50">
-            Wallet balance
-          </p>
-          <p className="mt-1.5 text-3xl font-semibold tabular-nums text-white">
+          <p className="text-xs text-muted-foreground">Wallet balance</p>
+          <p className="mt-0.5 text-lg font-semibold tabular-nums">
             {formatMoney(user.walletBalanceKobo, user.currency)}
           </p>
           {/* An empty wallet is stated plainly here rather than left for
               the customer to discover at the moment they try to buy. */}
           {user.walletBalanceKobo <= 0 ? (
-            <p className="mt-1 text-xs text-white/60">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Add funds to purchase a number.
             </p>
           ) : null}
         </div>
-        <Button href="/dashboard/wallet" variant="onDark" size="sm">
+        <Button href="/dashboard/wallet" variant="outline" size="sm">
           Add funds
         </Button>
       </div>
