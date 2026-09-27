@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
-import { voidUnverifiedTopup } from "@/lib/funding";
+import { prisma } from "@/lib/prisma";
+import { voidUnverifiedTopup, verifyAndSettleTopUp } from "@/lib/funding";
 import { recordAudit } from "@/lib/audit";
 
 export interface VoidTopupResult {
@@ -44,4 +45,50 @@ export async function voidUnverifiedTopupAction(
   revalidatePath(`/admin/wallet/${transactionId}`);
   revalidatePath(`/admin/users/${result.userId}`);
   return { success: true };
+}
+
+export interface RecheckTopupResult {
+  error?: string;
+  outcome?: "credited" | "failed" | "still_pending";
+}
+
+/**
+ * A stuck PENDING top up an admin needs to nudge, without waiting on
+ * Korapay's own webhook retries or the customer happening to reload their
+ * wallet page. Calls exactly the same verifyAndSettleTopUp() the webhook
+ * and the customer's own return-from-checkout use — never credits from
+ * anything this admin (or the browser) supplies, only from what Korapay's
+ * API confirms for this reference right now. Safe to click any number of
+ * times: a transaction that already left PENDING is a no-op here, same as
+ * every other caller of verifyAndSettleTopUp().
+ */
+export async function recheckPendingTopupAction(
+  transactionId: string,
+): Promise<RecheckTopupResult> {
+  const admin = await requireAdmin();
+
+  const tx = await prisma.walletTransaction.findUnique({ where: { id: transactionId } });
+  if (!tx) return { error: "That transaction no longer exists." };
+  if (tx.type !== "TOPUP" || tx.status !== "PENDING" || !tx.providerReference) {
+    return { error: "This is not a pending top up with a payment provider reference." };
+  }
+
+  const result = await verifyAndSettleTopUp(tx.providerReference);
+
+  await recordAudit({
+    actor: admin,
+    action: "wallet.recheck_pending_topup",
+    targetType: "wallet_transaction",
+    targetId: transactionId,
+    metadata: { providerReference: tx.providerReference, outcome: result.state },
+  });
+
+  revalidatePath("/admin/wallet");
+  revalidatePath(`/admin/wallet/${transactionId}`);
+  revalidatePath(`/admin/users/${tx.userId}`);
+
+  if (result.state === "unknown_reference") {
+    return { error: "Korapay does not recognize this reference." };
+  }
+  return { outcome: result.state };
 }
