@@ -17,6 +17,7 @@ import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 import { expandServiceQuery } from "@/lib/search-aliases";
 import { prioritizeCountryVariants } from "@/lib/country-variant";
+import { getCountryQualityForService, getPairQuality, type QualityTier } from "@/lib/deliverability";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -94,8 +95,15 @@ export interface InventoryCountry {
   /** What the customer would pay, in the minor unit of whichever currency
    *  was quoted for. Never a supplier cost. */
   priceKobo: number;
-  /** 0 to 100, only when the supplier actually reports it. */
+  /** 0 to 100: the supplier's own reported rate when it gives one (no
+   *  provider does today — see src/lib/provider/grizzlysms.ts), otherwise
+   *  Xencodes' own measured completion rate for this exact service/country
+   *  pair (see getCountryQualityForService() in src/lib/deliverability.ts).
+   *  Absent only when neither source has enough data to say anything. */
   successRate?: number;
+  /** classifyQuality()'s band for successRate above, so the UI and the
+   *  demotion logic below don't each redefine their own thresholds. */
+  qualityTier?: QualityTier;
 }
 
 export interface InventoryStatus {
@@ -402,10 +410,11 @@ export async function getServiceCountries(
   serviceSlug: string,
   currency: CurrencyConfigEntry,
 ): Promise<InventoryCountry[]> {
-  const [rules, serviceSetting, cacheFresh] = await Promise.all([
+  const [rules, serviceSetting, cacheFresh, historicalQuality] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
     anyProviderCacheFresh(),
+    getCountryQualityForService(serviceSlug),
   ]);
   if (serviceSetting?.enabled === false) return [];
 
@@ -490,6 +499,13 @@ export async function getServiceCountries(
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
       const quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
+      // The provider's own rate wins when it reports one (no provider does
+      // today, but the fallback order matters the day one does); otherwise
+      // Xencodes' own measured rate for this exact pair, when there is
+      // enough settled history to trust it.
+      const measured = historicalQuality.get(offer.country.slug);
+      const successRate = offer.successRate ?? measured?.successRatePercent;
+      const qualityTier = offer.successRate === undefined ? measured?.tier : undefined;
       return [
         {
           slug: offer.country.slug,
@@ -498,7 +514,8 @@ export async function getServiceCountries(
           dialCode: offer.country.dialCode,
           nationalDigits: offer.country.nationalDigits,
           priceKobo: quote.customerPriceKobo,
-          successRate: offer.successRate,
+          successRate,
+          qualityTier,
         },
       ];
     });
@@ -506,8 +523,16 @@ export async function getServiceCountries(
   // Cheapest-country-first, same as before, except a provider's own
   // numbered variants of one country ("USA", "USA (2)") are kept together
   // with the primary one leading — see prioritizeCountryVariants()'s own
-  // comment for why price alone must not decide that order.
-  return prioritizeCountryVariants(priced);
+  // comment for why price alone must not decide that order. Applied
+  // separately to the historically-reliable group and the historically-poor
+  // one, so a country with a real record of a customer buying a number and
+  // never receiving a code sinks below every option that either performs
+  // better or simply has no track record yet — never hidden outright, since
+  // a poor rate is still real inventory someone may still want, just not
+  // the first thing shown.
+  const reliable = priced.filter((row) => row.qualityTier !== "low");
+  const poor = priced.filter((row) => row.qualityTier === "low");
+  return [...prioritizeCountryVariants(reliable), ...prioritizeCountryVariants(poor)];
 }
 
 /**
@@ -605,6 +630,15 @@ export async function quotePair(
 
   const quote = quoteForCurrency(rules, winner.offer.costUsdCents, serviceSlug, currency);
 
+  // Same fallback order as getServiceCountries(): the provider's own rate
+  // when it reports one, otherwise Xencodes' own measured rate for this
+  // exact pair. This is the figure purchaseNumberAction() will use to warn
+  // the customer before a low-quality purchase actually goes through.
+  const measured =
+    winner.offer.successRate === undefined
+      ? await getPairQuality(serviceSlug, winner.offer.country.slug)
+      : null;
+
   return {
     ok: true,
     quote,
@@ -619,7 +653,8 @@ export async function quotePair(
       dialCode: winner.offer.country.dialCode,
       nationalDigits: winner.offer.country.nationalDigits,
       priceKobo: quote.customerPriceKobo,
-      successRate: winner.offer.successRate,
+      successRate: winner.offer.successRate ?? measured?.successRatePercent,
+      qualityTier: winner.offer.successRate === undefined ? measured?.tier : undefined,
     },
   };
 }

@@ -132,10 +132,16 @@ export default async function HistoryPage() {
             </tbody>
           </table>
 
+          {/* Cards, not a cramped single row per order: a phone number, a
+              code, and a price all sharing one line with justify-between
+              was exactly what made the number get truncated (sometimes
+              mid-digit) on common phone widths — see the git history for
+              the before/after. Every field below gets its own line, or its
+              own grid cell, wide enough that nothing needs an ellipsis. */}
           <ul className="divide-y divide-border sm:hidden">
             {activations.map((activation) => (
-              <li key={activation.id} className="px-4 py-3.5">
-                <div className="flex items-center gap-3">
+              <li key={activation.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start gap-3">
                   <ActivationLogo
                     serviceSlug={activation.serviceSlug}
                     serviceName={activation.serviceName}
@@ -145,7 +151,7 @@ export default async function HistoryPage() {
                     <p className="truncate text-sm font-medium">
                       {activation.serviceName}
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {activation.countryName} ·{" "}
                       {activation.createdAt.toLocaleString("en-NG", dateFormat)}
                     </p>
@@ -154,30 +160,37 @@ export default async function HistoryPage() {
                     {ACTIVATION_STATUS_LABEL[activation.status]}
                   </Badge>
                 </div>
-                <div className="mt-2 flex items-center justify-between gap-3 pl-11">
-                  <span className="truncate font-mono text-xs text-muted-foreground">
-                    {formatPhoneNumber(activation.phoneNumber)}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-3">
-                    {activation.code ? (
-                      <span className="flex items-center gap-1 font-mono text-sm tabular-nums">
+
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
+                  <div className="col-span-2">
+                    <dt className="text-xs text-muted-foreground">Number</dt>
+                    <dd className="mt-0.5 break-all font-mono text-xs">
+                      {formatPhoneNumber(activation.phoneNumber)}
+                    </dd>
+                  </div>
+                  {activation.code ? (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Code</dt>
+                      <dd className="mt-0.5 flex items-center gap-1 font-mono tabular-nums">
                         {activation.code}
                         <CopyCodeButton code={activation.code} />
-                      </span>
-                    ) : null}
-                    <span className="text-sm tabular-nums text-muted-foreground">
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Price</dt>
+                    <dd className="mt-0.5 tabular-nums">
                       {formatMoney(activation.priceKobo, activation.currency)}
-                    </span>
-                  </span>
-                </div>
-                <div className="mt-2 pl-11">
-                  <Link
-                    href={buyAgainHref(activation.serviceSlug, activation.countrySlug)}
-                    className="text-xs font-medium text-forest hover:underline"
-                  >
-                    Buy again
-                  </Link>
-                </div>
+                    </dd>
+                  </div>
+                </dl>
+
+                <Link
+                  href={buyAgainHref(activation.serviceSlug, activation.countrySlug)}
+                  className="inline-block text-xs font-medium text-forest hover:underline"
+                >
+                  Buy again
+                </Link>
               </li>
             ))}
           </ul>

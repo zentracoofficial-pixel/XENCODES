@@ -329,6 +329,12 @@ model Activation {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  /// Serves the deliverability queries in src/lib/deliverability.ts:
+  /// getCountryQualityForService() and getPairQuality() both filter on
+  /// serviceSlug (optionally narrowed further by countrySlug) and a recent
+  /// createdAt cutoff, on every buy-page load — a query this frequent
+  /// deserves its own index rather than relying on the broader ones above.
+  @@index([serviceSlug, countrySlug, createdAt])
   @@map("activations")
 }
 

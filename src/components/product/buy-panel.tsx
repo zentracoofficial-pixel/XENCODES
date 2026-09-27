@@ -47,6 +47,14 @@ const errorCopy: Record<PurchaseError, string> = {
   unknown: "Something went wrong. Nothing was charged, so please try again.",
 };
 
+/** Matches QUALITY_TIER_LABEL in src/lib/deliverability.ts, in the wording
+ *  a customer reads rather than an admin. */
+const QUALITY_TIER_TEXT: Record<"high" | "medium" | "low", string> = {
+  high: "High success",
+  medium: "Medium success",
+  low: "Low success",
+};
+
 interface ServiceOption {
   slug: string;
   name: string;
@@ -61,7 +69,14 @@ interface CountryOption {
   flag: string;
   dialCode: string;
   priceKobo: number;
+  /** 0-100: either the provider's own reported rate, or Xencodes' own
+   *  measured completion rate for this pair from real order history — see
+   *  InventoryCountry's own doc comment in src/lib/inventory.ts. */
   successRate?: number;
+  /** Only set when successRate came from Xencodes' own history (never for
+   *  a provider-reported rate, which this app has never actually seen);
+   *  drives the low-quality warning below. */
+  qualityTier?: "high" | "medium" | "low";
 }
 
 /**
@@ -652,10 +667,29 @@ export function BuyPanel({
                 </p>
               </div>
               {country.successRate !== undefined ? (
-                <p className="pb-1 text-xs text-muted-foreground">
+                <p
+                  className={cn(
+                    "pb-1 text-xs",
+                    country.qualityTier === "low"
+                      ? "font-medium text-danger"
+                      : "text-muted-foreground",
+                  )}
+                >
                   {country.successRate}% of recent activations received a code
+                  {country.qualityTier ? ` · ${QUALITY_TIER_TEXT[country.qualityTier]}` : ""}
                 </p>
               ) : null}
+            </div>
+          ) : null}
+
+          {country.qualityTier === "low" ? (
+            <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-danger-soft px-3.5 py-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+              <p className="text-sm text-danger">
+                This country has a low delivery rate recently — {country.successRate}% of
+                buyers received a code. You can still buy it, but consider another
+                country if one is available.
+              </p>
             </div>
           ) : null}
         </div>
