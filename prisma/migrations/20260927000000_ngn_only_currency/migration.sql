@@ -1,0 +1,18 @@
+-- Standing business rule until explicitly changed: Xencodes sells in NGN
+-- only. A customer's currency was previously auto-assigned at signup from
+-- their edge-detected IP location (see the now-removed branch in
+-- currencyForCountry(), src/lib/currency-config.ts): any non-Nigerian
+-- country, including one only apparent because of a VPN, got USD. Since
+-- Xencodes has never had a USD-capable funding provider (USD funding is
+-- hardcoded fundingAvailable: false), no such account could ever actually
+-- have funded a wallet in USD through the normal top-up flow — this is a
+-- mistaken label on an otherwise-normal NGN account, not a real currency
+-- holding, so correcting it changes no monetary amount.
+--
+-- This only touches "users" (a live, current-state preference that decides
+-- today's pricing and display), never "activations" or
+-- "wallet_transactions": those are completed order/transaction records,
+-- and their own stored currency is left exactly as it was, unmodified,
+-- per the standing rule that historical financial records are never
+-- rewritten.
+UPDATE "users" SET "currency" = 'NGN' WHERE "currency" <> 'NGN';

@@ -16,10 +16,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ countries: [] }, { status: 400 });
   }
 
-  // The requested currency must be one of the two Xencodes actually sells
-  // in (NGN or USD); a client sending anything else (a stale value, a
-  // tampered request) falls back to the platform default rather than
-  // pricing in a currency that does not exist here.
+  // NGN-only business rule: getCurrencyConfig() only ever resolves NGN now
+  // (see its own doc comment in currency-config.ts), so a client sending
+  // anything else here — including "USD" — falls back to the platform
+  // default instead of being trusted.
   const requestedCurrency = params.get("currency");
   const currency =
     (requestedCurrency ? await getCurrencyConfig(requestedCurrency) : null) ??
