@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyKorapayWebhookSignature } from "@/lib/korapay";
+import { verifyKorapayWebhookSignature, KorapayError } from "@/lib/korapay";
 import { verifyAndSettleTopUp } from "@/lib/funding";
 
 /**
@@ -26,7 +26,26 @@ export async function POST(request: Request) {
   }
 
   const signature = request.headers.get("x-korapay-signature");
-  if (!verifyKorapayWebhookSignature(body.data, signature)) {
+  let signatureValid: boolean;
+  try {
+    signatureValid = verifyKorapayWebhookSignature(body.data, signature);
+  } catch (error) {
+    // KORAPAY_ENCRYPTION_KEY missing or otherwise unreadable on this
+    // deployment: verifyKorapayWebhookSignature() throws rather than
+    // silently treating every signature as invalid, specifically so this
+    // never gets confused with an actual bad/forged signature (401) below.
+    // Left uncaught, this crashed the whole route with a raw 500 for every
+    // single webhook Korapay ever sent — meaning no top-up could ever be
+    // credited automatically, not just this one. 500 (not 200) so Korapay
+    // keeps retrying: once the missing configuration is fixed, the very
+    // next retry succeeds through this same, unmodified path.
+    console.error(
+      "[korapay-webhook] misconfigured: could not check the webhook signature.",
+      error instanceof KorapayError ? error.message : error,
+    );
+    return NextResponse.json({ error: "Webhook verification is misconfigured." }, { status: 500 });
+  }
+  if (!signatureValid) {
     console.error("[korapay-webhook] rejected: invalid or missing signature.");
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }

@@ -11,6 +11,7 @@ import { formatMoney } from "@/lib/currency";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
 import { isUnverifiedTopup } from "@/lib/funding";
 import { VoidTopupButton } from "../void-topup-button";
+import { RecheckTopupButton } from "../recheck-topup-button";
 
 export const metadata: Metadata = { title: "Admin: Transaction" };
 
@@ -83,11 +84,16 @@ export default async function AdminTransactionPage({
       </div>
 
       {tx.status === "PENDING" ? (
-        <p className="rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
-          This is a funding request, not a payment. No money has been received
-          and the customer&apos;s balance has not changed. It settles only when
-          a payment is verified with the payment provider.
-        </p>
+        <div className="space-y-3 rounded-lg bg-warning-soft px-3.5 py-3">
+          <p className="text-sm text-warning">
+            This is a funding request, not a payment. No money has been received
+            and the customer&apos;s balance has not changed. It settles only when
+            a payment is verified with the payment provider.
+          </p>
+          {tx.type === "TOPUP" && tx.providerReference ? (
+            <RecheckTopupButton transactionId={tx.id} />
+          ) : null}
+        </div>
       ) : null}
 
       {unverified ? (
