@@ -5,20 +5,12 @@ import { slugify } from "@/lib/provider/country-meta";
  * more than one country entry for what is really the same country,
  * distinguished only by a numbered suffix on the name it sends: "USA",
  * "USA (2)", "USA (3)". Each is a genuinely separate provider country id
- * with its own price and stock — not a data error — but showing them as
- * unrelated countries, ordered by nothing but price, is misleading: a
- * customer has no way to tell "USA (2)" apart from "USA" other than the
- * number, and a cheaper secondary variant could sort ahead of the primary
- * one Xencodes wants to prefer.
- *
- * Nothing here talks to the provider or changes what is for sale. It is a
- * pure display-ordering step: every row this is given comes out the other
- * side unchanged, under its own real name/slug/id, just reordered so
- * variants of the same country sit together with the primary one first.
- * There is no data from GrizzlySMS distinguishing *why* a secondary variant
- * exists (virtual vs. direct, reliability, or anything else), so none of
- * that is inferred or claimed here — only ordering, which the presence or
- * absence of a "(N)" suffix genuinely tells us.
+ * with its own price, stock and delivery record — not a data error — so
+ * this file only ever parses that naming pattern into a grouping key. It
+ * does not decide which variant is better: that is
+ * src/lib/country-recommendation.ts's job, using each variant's real
+ * delivery history and current stock, not the "(N)" suffix itself (which on
+ * its own says nothing about reliability — see that file's own comment).
  */
 
 const VARIANT_SUFFIX = /^(.*\S)\s*\((\d+)\)\s*$/;
@@ -45,49 +37,4 @@ export function parseCountryVariant(name: string): CountryVariant {
     // sorting ahead of or behind every real variant unpredictably.
     variant: Number.isFinite(variant) && variant > 0 ? variant : 1,
   };
-}
-
-/**
- * Reorders a priced country list so that, within each group of entries
- * that are variants of the same base country, the primary (un-suffixed)
- * entry always comes first — never a cheaper secondary variant, since
- * price alone must not decide priority here. Different base countries are
- * still ordered cheapest-first exactly as before, ranked by whichever of
- * their own variants is currently the most authoritative: the primary one,
- * if it is present in this list, or the cheapest available variant
- * otherwise (so a country is never pushed to the back of the list, or
- * effectively hidden, just because its primary happens to be out of stock
- * right now).
- *
- * Every input row is present exactly once in the output, under its own
- * unchanged name/slug/price: this only changes order, never contents.
- */
-export function prioritizeCountryVariants<T extends { name: string; priceKobo: number }>(
-  items: T[],
-): T[] {
-  const groups = new Map<string, T[]>();
-  const groupOrder: string[] = [];
-
-  for (const item of items) {
-    const { baseSlug } = parseCountryVariant(item.name);
-    let group = groups.get(baseSlug);
-    if (!group) {
-      group = [];
-      groups.set(baseSlug, group);
-      groupOrder.push(baseSlug);
-    }
-    group.push(item);
-  }
-
-  const ranked = groupOrder.map((baseSlug) => {
-    const group = groups.get(baseSlug)!;
-    group.sort((a, b) => parseCountryVariant(a.name).variant - parseCountryVariant(b.name).variant);
-
-    const primary = group.find((item) => parseCountryVariant(item.name).variant === 1);
-    const cheapest = group.reduce((min, item) => (item.priceKobo < min.priceKobo ? item : min));
-    return { rankPriceKobo: (primary ?? cheapest).priceKobo, group };
-  });
-
-  ranked.sort((a, b) => a.rankPriceKobo - b.rankPriceKobo);
-  return ranked.flatMap((entry) => entry.group);
 }
