@@ -37,6 +37,30 @@ export const QUALITY_LOOKBACK_DAYS = 90;
  *  fabricated-looking measurement this file exists to avoid. */
 export const MIN_SAMPLE_SIZE = 8;
 
+/**
+ * A second, shorter window used only to catch a pair whose performance has
+ * recently gotten worse than its 90-day figure suggests — a provider's
+ * inventory mix for a country can turn bad well inside a 90-day window, and
+ * a customer deciding right now cares about "is this good today", not "was
+ * this good on average over the last three months". Deliberately a smaller
+ * minimum sample too: 14 days sees roughly a sixth of the traffic 90 days
+ * does, so demanding the same 8 would mean this window almost never has a
+ * say at all.
+ *
+ * This is intentionally a simple, transparent statistical rule — two
+ * rolling windows and a threshold — not a model. See
+ * pickEffectiveStat() below for exactly how the two windows are combined.
+ */
+export const RECENT_LOOKBACK_DAYS = 14;
+export const MIN_RECENT_SAMPLE_SIZE = 4;
+
+/** How many percentage points worse the recent window has to be before it
+ *  overrides the 90-day figure. Small day-to-day swings in a handful of
+ *  recent orders are expected noise, not a real change in quality; this is
+ *  set well above that noise floor so only a genuine, material drop
+ *  overrides the larger, steadier sample. */
+const RECENT_DEGRADATION_THRESHOLD_POINTS = 15;
+
 export type QualityTier = "high" | "medium" | "low";
 
 /** The three bands the task's own examples use ("High Success", "Medium
@@ -68,8 +92,8 @@ export interface QualityStat {
 
 const SETTLED_STATUSES: ActivationStatus[] = ["RECEIVED", "EXPIRED", "CANCELLED", "REFUNDED"];
 
-function toStat(received: number, settled: number): QualityStat | null {
-  if (settled < MIN_SAMPLE_SIZE) return null;
+function toStat(received: number, settled: number, minSample: number): QualityStat | null {
+  if (settled < minSample) return null;
   const rate = (received / settled) * 100;
   return {
     successRatePercent: Math.round(rate),
@@ -79,26 +103,44 @@ function toStat(received: number, settled: number): QualityStat | null {
 }
 
 /**
- * One service's completion rate broken down by country, from real settled
- * orders in the lookback window. Used by getServiceCountries() in
- * src/lib/inventory.ts to populate the country picker's existing (until now
- * always-empty) successRate field, and to sort a historically poor country
- * toward the back of the list rather than hide it — see
- * prioritizeCountryVariants() in src/lib/country-variant.ts for where that
- * ordering actually happens.
+ * Combines the 90-day figure with the 14-day one into the single stat every
+ * caller actually uses, per RECENT_LOOKBACK_DAYS's own comment above.
  *
- * One grouped query, not one query per country: a service with dozens of
- * countries would otherwise mean dozens of round trips on every buy-page
- * load.
+ * The rule, in order:
+ *  1. Neither window qualifies (too few settled orders either way) — nothing
+ *     to report.
+ *  2. Only one window qualifies — use it. This is what lets a country that
+ *     is brand new (no 90-day history yet, but a handful of recent orders)
+ *     or one whose 90-day sample just fell below the threshold still get a
+ *     figure, and what lets a long-running country whose recent volume
+ *     happens to be thin keep using its steadier 90-day figure.
+ *  3. Both qualify and the recent window is at least
+ *     RECENT_DEGRADATION_THRESHOLD_POINTS worse — use the recent one: a
+ *     provider's inventory for this pair has gotten meaningfully worse
+ *     lately, and the larger, older sample would otherwise hide that behind
+ *     a still-decent-looking average.
+ *  4. Both qualify and recent is not meaningfully worse — use the 90-day
+ *     figure, the steadier of the two, rather than letting normal
+ *     day-to-day noise in a small recent sample move the displayed number
+ *     around.
  */
-export async function getCountryQualityForService(
-  serviceSlug: string,
-): Promise<Map<string, QualityStat>> {
-  const since = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+function pickEffectiveStat(
+  overall: QualityStat | null,
+  recent: QualityStat | null,
+): QualityStat | null {
+  if (!overall) return recent;
+  if (!recent) return overall;
+  const degraded = recent.successRatePercent <= overall.successRatePercent - RECENT_DEGRADATION_THRESHOLD_POINTS;
+  return degraded ? recent : overall;
+}
 
+async function tallyByCountry(
+  serviceSlug: string,
+  sinceDate: Date,
+): Promise<Map<string, { received: number; settled: number }>> {
   const rows = await prisma.activation.groupBy({
     by: ["countrySlug", "status"],
-    where: { serviceSlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: since } },
+    where: { serviceSlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: sinceDate } },
     _count: { _all: true },
   });
 
@@ -109,28 +151,56 @@ export async function getCountryQualityForService(
     if (row.status === "RECEIVED") entry.received += row._count._all;
     byCountry.set(row.countrySlug, entry);
   }
+  return byCountry;
+}
 
+/**
+ * One service's completion rate broken down by country, from real settled
+ * orders — the 90-day figure, unless the last 14 days show a meaningfully
+ * worse rate (see pickEffectiveStat() above). Used by getServiceCountries()
+ * in src/lib/inventory.ts to populate the country picker's deliverability
+ * figure, and by src/lib/country-recommendation.ts to decide which variant
+ * of a country to recommend.
+ *
+ * Two grouped queries (one per window), not one query per country: a
+ * service with dozens of countries would otherwise mean dozens of round
+ * trips on every buy-page load. Both hit the same
+ * (serviceSlug, countrySlug, createdAt) index.
+ */
+export async function getCountryQualityForService(
+  serviceSlug: string,
+): Promise<Map<string, QualityStat>> {
+  const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const [overallByCountry, recentByCountry] = await Promise.all([
+    tallyByCountry(serviceSlug, overallSince),
+    tallyByCountry(serviceSlug, recentSince),
+  ]);
+
+  const countrySlugs = new Set([...overallByCountry.keys(), ...recentByCountry.keys()]);
   const result = new Map<string, QualityStat>();
-  for (const [countrySlug, { received, settled }] of byCountry) {
-    const stat = toStat(received, settled);
-    if (stat) result.set(countrySlug, stat);
+  for (const countrySlug of countrySlugs) {
+    const overallTally = overallByCountry.get(countrySlug);
+    const recentTally = recentByCountry.get(countrySlug);
+    const overall = overallTally ? toStat(overallTally.received, overallTally.settled, MIN_SAMPLE_SIZE) : null;
+    const recent = recentTally
+      ? toStat(recentTally.received, recentTally.settled, MIN_RECENT_SAMPLE_SIZE)
+      : null;
+    const effective = pickEffectiveStat(overall, recent);
+    if (effective) result.set(countrySlug, effective);
   }
   return result;
 }
 
-/** The same completion rate for one exact service/country pair, computed
- *  the same way as getCountryQualityForService() but for a single pair —
- *  used at the moment of purchase to decide whether to warn the customer,
- *  where fetching every other country's rate would be wasted work. */
-export async function getPairQuality(
+async function tallyPair(
   serviceSlug: string,
   countrySlug: string,
-): Promise<QualityStat | null> {
-  const since = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-
+  sinceDate: Date,
+): Promise<{ received: number; settled: number }> {
   const rows = await prisma.activation.groupBy({
     by: ["status"],
-    where: { serviceSlug, countrySlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: since } },
+    where: { serviceSlug, countrySlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: sinceDate } },
     _count: { _all: true },
   });
 
@@ -140,7 +210,29 @@ export async function getPairQuality(
     settled += row._count._all;
     if (row.status === "RECEIVED") received += row._count._all;
   }
-  return toStat(received, settled);
+  return { received, settled };
+}
+
+/** The same completion rate for one exact service/country pair, computed
+ *  the same way as getCountryQualityForService() (90-day figure, unless the
+ *  last 14 days show a meaningfully worse rate) but for a single pair —
+ *  used at the moment of purchase to decide whether to warn the customer,
+ *  where fetching every other country's rate would be wasted work. */
+export async function getPairQuality(
+  serviceSlug: string,
+  countrySlug: string,
+): Promise<QualityStat | null> {
+  const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const [overallTally, recentTally] = await Promise.all([
+    tallyPair(serviceSlug, countrySlug, overallSince),
+    tallyPair(serviceSlug, countrySlug, recentSince),
+  ]);
+
+  const overall = toStat(overallTally.received, overallTally.settled, MIN_SAMPLE_SIZE);
+  const recent = toStat(recentTally.received, recentTally.settled, MIN_RECENT_SAMPLE_SIZE);
+  return pickEffectiveStat(overall, recent);
 }
 
 export interface ServiceQualityRow {
@@ -248,7 +340,7 @@ export async function getQualityReport(): Promise<QualityReport> {
 
   const services: ServiceQualityRow[] = [];
   for (const [serviceSlug, { received, settled, refunded, expired }] of byService) {
-    const stat = toStat(received, settled);
+    const stat = toStat(received, settled, MIN_SAMPLE_SIZE);
     if (!stat) continue;
     services.push({
       serviceSlug,
@@ -264,7 +356,7 @@ export async function getQualityReport(): Promise<QualityReport> {
 
   const countries: CountryQualityRow[] = [];
   for (const [countrySlug, { received, settled }] of byCountry) {
-    const stat = toStat(received, settled);
+    const stat = toStat(received, settled, MIN_SAMPLE_SIZE);
     if (!stat) continue;
     countries.push({
       countrySlug,

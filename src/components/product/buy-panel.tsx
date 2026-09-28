@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Loader2, Star, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Sparkles, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
@@ -47,14 +47,6 @@ const errorCopy: Record<PurchaseError, string> = {
   unknown: "Something went wrong. Nothing was charged, so please try again.",
 };
 
-/** Matches QUALITY_TIER_LABEL in src/lib/deliverability.ts, in the wording
- *  a customer reads rather than an admin. */
-const QUALITY_TIER_TEXT: Record<"high" | "medium" | "low", string> = {
-  high: "High success",
-  medium: "Medium success",
-  low: "Low success",
-};
-
 interface ServiceOption {
   slug: string;
   name: string;
@@ -69,6 +61,7 @@ interface CountryOption {
   flag: string;
   dialCode: string;
   priceKobo: number;
+  stock: "in_stock" | "low";
   /** 0-100: either the provider's own reported rate, or Xencodes' own
    *  measured completion rate for this pair from real order history — see
    *  InventoryCountry's own doc comment in src/lib/inventory.ts. */
@@ -77,6 +70,17 @@ interface CountryOption {
    *  a provider-reported rate, which this app has never actually seen);
    *  drives the low-quality warning below. */
   qualityTier?: "high" | "medium" | "low";
+  /** True for the one variant of a broad country (e.g. "USA" vs "USA (2)")
+   *  Xencodes' own real delivery history and current stock say is the
+   *  better pick — see src/lib/country-recommendation.ts. Guidance only:
+   *  picking a different, currently-available variant still buys exactly
+   *  that one. */
+  recommended?: boolean;
+  recommendationReason?: string;
+  /** What to actually tell the customer about this option's chances: a
+   *  real percentage when there is enough history to justify one, an
+   *  honest availability-based fallback otherwise — never fabricated. */
+  deliverabilityLabel: { text: string; hasPercent: boolean };
 }
 
 /**
@@ -453,15 +457,29 @@ export function BuyPanel({
   const countryOptions: ComboboxOption[] = visibleCountries.map((item) => ({
     value: item.slug,
     label: item.name,
-    hint: item.dialCode,
+    // Every option states its own real chances (or an honest "not enough
+    // data yet" fallback) right in the list, not only after it is picked —
+    // see CountryOption.deliverabilityLabel's own comment for where this
+    // text comes from.
+    hint: [item.recommended ? "Recommended" : null, item.dialCode, item.deliverabilityLabel.text]
+      .filter(Boolean)
+      .join(" · "),
     leading: (
       <span aria-hidden className="text-lg leading-none">
         {item.flag}
       </span>
     ),
     trailing: (
-      <span className="shrink-0 text-sm font-semibold tabular-nums">
-        {formatMoney(item.priceKobo, currency)}
+      <span className="flex shrink-0 flex-col items-end gap-0.5">
+        {item.recommended ? (
+          <span className="flex items-center gap-1 text-[11px] font-semibold text-forest">
+            <Sparkles className="h-3 w-3" />
+            Recommended
+          </span>
+        ) : null}
+        <span className="text-sm font-semibold tabular-nums">
+          {formatMoney(item.priceKobo, currency)}
+        </span>
       </span>
     ),
   }));
@@ -666,20 +684,27 @@ export function BuyPanel({
                   {formatMoney(priceKobo, currency)}
                 </p>
               </div>
-              {country.successRate !== undefined ? (
+              <div className="pb-1 text-right">
+                {country.recommended ? (
+                  <p className="flex items-center justify-end gap-1 text-xs font-semibold text-forest">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Recommended
+                  </p>
+                ) : null}
                 <p
                   className={cn(
-                    "pb-1 text-xs",
-                    country.qualityTier === "low"
-                      ? "font-medium text-danger"
-                      : "text-muted-foreground",
+                    "text-xs",
+                    country.qualityTier === "low" ? "font-medium text-danger" : "text-muted-foreground",
                   )}
                 >
-                  {country.successRate}% of recent activations received a code
-                  {country.qualityTier ? ` · ${QUALITY_TIER_TEXT[country.qualityTier]}` : ""}
+                  {country.deliverabilityLabel.text}
                 </p>
-              ) : null}
+              </div>
             </div>
+          ) : null}
+
+          {country.recommended && country.recommendationReason ? (
+            <p className="mt-2 text-xs text-muted-foreground">{country.recommendationReason}</p>
           ) : null}
 
           {country.qualityTier === "low" ? (

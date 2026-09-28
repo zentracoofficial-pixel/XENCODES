@@ -16,7 +16,12 @@ import {
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 import { expandServiceQuery } from "@/lib/search-aliases";
-import { prioritizeCountryVariants } from "@/lib/country-variant";
+import {
+  getCountryRecommendation,
+  labelFor,
+  type DeliverabilityLabel,
+  type AvailableStockLevel,
+} from "@/lib/country-recommendation";
 import { getCountryQualityForService, getPairQuality, type QualityTier } from "@/lib/deliverability";
 
 /**
@@ -95,6 +100,10 @@ export interface InventoryCountry {
   /** What the customer would pay, in the minor unit of whichever currency
    *  was quoted for. Never a supplier cost. */
   priceKobo: number;
+  /** Never "out_of_stock": a country with none is never returned at all
+   *  (see the filter below), so this only ever distinguishes healthy stock
+   *  from a low, still-purchasable count. */
+  stock: AvailableStockLevel;
   /** 0 to 100: the supplier's own reported rate when it gives one (no
    *  provider does today — see src/lib/provider/grizzlysms.ts), otherwise
    *  Xencodes' own measured completion rate for this exact service/country
@@ -104,6 +113,26 @@ export interface InventoryCountry {
   /** classifyQuality()'s band for successRate above, so the UI and the
    *  demotion logic below don't each redefine their own thresholds. */
   qualityTier?: QualityTier;
+  /** How many settled activations successRate above is based on, when it
+   *  is present — lets a caller distinguish "no data at all" from "some
+   *  data, just not enough yet" if it ever wants to say so explicitly. */
+  sampleSize?: number;
+  /** True for at most one variant among a group of the same broad country
+   *  (see src/lib/country-recommendation.ts) — the one with the better
+   *  verified delivery record among currently-available options, or the
+   *  default when none has enough history to compare. Never set when a
+   *  country has only one available variant: there is nothing to recommend
+   *  it over. */
+  recommended?: boolean;
+  /** Populated only when `recommended` is true: why this exact variant,
+   *  in plain language — never shown for a non-recommended row. */
+  recommendationReason?: string;
+  /** What to actually print about delivery chances, honest either way: a
+   *  real percentage when successRate/sampleSize justify one, otherwise a
+   *  label built only from current stock — see country-recommendation.ts's
+   *  own comment on why the two are never blended into one fabricated-
+   *  sounding claim. */
+  deliverabilityLabel: DeliverabilityLabel;
 }
 
 export interface InventoryStatus {
@@ -437,9 +466,14 @@ export async function getServiceCountries(
   };
 
   let offers: CostOffer[] | null = null;
+  // Display-only; used solely for the recommendation reason text below
+  // ("... among the available USA options for WhatsApp"). Never affects
+  // pricing, availability, or which provider a purchase resolves to.
+  let serviceName = humanizeSlug(serviceSlug);
   if (cacheFresh) {
     const cached = await prisma.syncedOffer.findMany({ where: { serviceSlug } });
     if (cached.length > 0) {
+      serviceName = cached[0].serviceName;
       // More than one provider can have a row for the same country; the
       // customer sees one row per country, priced from whichever provider
       // is cheapest for that country right now, the same rule quotePair()
@@ -494,7 +528,7 @@ export async function getServiceCountries(
     offers = Array.from(cheapestByCountry.values());
   }
 
-  const priced = offers
+  const priced: InventoryCountry[] = offers
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
@@ -514,25 +548,58 @@ export async function getServiceCountries(
           dialCode: offer.country.dialCode,
           nationalDigits: offer.country.nationalDigits,
           priceKobo: quote.customerPriceKobo,
+          stock: offer.stock as "in_stock" | "low",
           successRate,
           qualityTier,
+          sampleSize: offer.successRate === undefined ? measured?.sampleSize : undefined,
+          // Filled in below from getCountryRecommendation(); a placeholder
+          // here keeps this literal assignable to InventoryCountry.
+          deliverabilityLabel: { text: "", hasPercent: false },
         },
       ];
     });
 
-  // Cheapest-country-first, same as before, except a provider's own
-  // numbered variants of one country ("USA", "USA (2)") are kept together
-  // with the primary one leading — see prioritizeCountryVariants()'s own
-  // comment for why price alone must not decide that order. Applied
-  // separately to the historically-reliable group and the historically-poor
-  // one, so a country with a real record of a customer buying a number and
-  // never receiving a code sinks below every option that either performs
+  // Recommending which variant of a broad country ("USA" vs "USA (2)") to
+  // point a customer toward, purely from each one's real delivery record
+  // and current stock — never from price or the "(N)" suffix itself. See
+  // src/lib/country-recommendation.ts's own header for the full rule.
+  const { bySlug, order } = getCountryRecommendation(
+    { slug: serviceSlug, name: serviceName },
+    priced,
+  );
+  const annotated = priced.map((row) => {
+    const recommendation = bySlug.get(row.slug);
+    return {
+      ...row,
+      recommended: recommendation?.recommended ?? false,
+      recommendationReason: recommendation?.reason || undefined,
+      deliverabilityLabel: recommendation?.label ?? row.deliverabilityLabel,
+    };
+  });
+
+  // A country with a real record of a customer buying a number and never
+  // receiving a code still sinks below every option that either performs
   // better or simply has no track record yet — never hidden outright, since
   // a poor rate is still real inventory someone may still want, just not
-  // the first thing shown.
-  const reliable = priced.filter((row) => row.qualityTier !== "low");
-  const poor = priced.filter((row) => row.qualityTier === "low");
-  return [...prioritizeCountryVariants(reliable), ...prioritizeCountryVariants(poor)];
+  // the first thing shown. Both groups otherwise keep the order
+  // getCountryRecommendation() already worked out (variants of one country
+  // together, the better-verified one leading, groups cheapest-first).
+  const orderIndex = new Map(order.map((slug, index) => [slug, index]));
+  const bySortOrder = (a: InventoryCountry, b: InventoryCountry) =>
+    (orderIndex.get(a.slug) ?? 0) - (orderIndex.get(b.slug) ?? 0);
+  const reliable = annotated.filter((row) => row.qualityTier !== "low").sort(bySortOrder);
+  const poor = annotated.filter((row) => row.qualityTier === "low").sort(bySortOrder);
+  return [...reliable, ...poor];
+}
+
+/** "whatsapp-quality-test" -> "Whatsapp Quality Test". Cosmetic only — see
+ *  its one call site's own comment. */
+function humanizeSlug(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /**
@@ -653,8 +720,15 @@ export async function quotePair(
       dialCode: winner.offer.country.dialCode,
       nationalDigits: winner.offer.country.nationalDigits,
       priceKobo: quote.customerPriceKobo,
+      stock: winner.offer.stock as "in_stock" | "low",
       successRate: winner.offer.successRate ?? measured?.successRatePercent,
       qualityTier: winner.offer.successRate === undefined ? measured?.tier : undefined,
+      sampleSize: winner.offer.successRate === undefined ? measured?.sampleSize : undefined,
+      deliverabilityLabel: labelFor({
+        successRate: winner.offer.successRate ?? measured?.successRatePercent,
+        qualityTier: winner.offer.successRate === undefined ? measured?.tier : undefined,
+        stock: winner.offer.stock as "in_stock" | "low",
+      }),
     },
   };
 }
