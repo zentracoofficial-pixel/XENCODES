@@ -34,6 +34,9 @@ export interface ActivationPanelProps {
   /** ISO timestamps, shown for clarity on exactly when each stage happened. */
   createdAt?: string;
   receivedAt?: string | null;
+  /** What refunded closed states show as the exact amount returned — never
+   *  a generic "in full" when the real figure is right there to print. */
+  refundedAmountLabel?: string;
   footer?: React.ReactNode;
 }
 
@@ -100,6 +103,7 @@ export function ActivationPanel({
   secondsRemaining,
   createdAt,
   receivedAt,
+  refundedAmountLabel,
   footer,
 }: ActivationPanelProps) {
   const received = status === "RECEIVED" && code;
@@ -185,7 +189,9 @@ export function ActivationPanel({
                 : "Activation cancelled"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            You were refunded in full. Nothing was charged for this number.
+            {refundedAmountLabel
+              ? `Refunded ${refundedAmountLabel} to your wallet. Nothing was charged for this number.`
+              : "You were refunded in full. Nothing was charged for this number."}
           </p>
         </div>
       ) : (

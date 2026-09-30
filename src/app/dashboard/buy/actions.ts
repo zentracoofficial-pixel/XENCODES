@@ -9,8 +9,14 @@ import { creditWallet } from "@/lib/wallet";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
-import { notifyNumberPurchaseSale } from "@/lib/sales-notification";
-import { evaluateNoCodeRecovery, resolveRecoveryOnSuccess } from "@/lib/recovery";
+import { evaluateNoCodeRecovery } from "@/lib/recovery";
+import {
+  reconcileActivation,
+  toActivationState,
+  type ActivationState,
+} from "@/lib/activation-lifecycle";
+
+export type { ActivationState } from "@/lib/activation-lifecycle";
 
 /**
  * Buying a number, and waiting for its code.
@@ -302,60 +308,17 @@ export async function purchaseNumberAction(
   }
 }
 
-export interface ActivationState {
-  id: string;
-  serviceSlug: string;
-  serviceName: string;
-  countryName: string;
-  phoneNumber: string;
-  priceKobo: number;
-  /** ISO 4217; the currency priceKobo is denominated in. */
-  currency: string;
-  status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
-  code: string | null;
-  expiresAt: string;
-  createdAt: string;
-  receivedAt: string | null;
-}
-
-interface ActivationRow {
-  id: string;
-  serviceSlug: string;
-  serviceName: string;
-  countryName: string;
-  phoneNumber: string;
-  priceKobo: number;
-  currency: string;
-  status: string;
-  code: string | null;
-  expiresAt: Date;
-  createdAt: Date;
-  receivedAt: Date | null;
-}
-
-function toState(activation: ActivationRow): ActivationState {
-  return {
-    id: activation.id,
-    serviceSlug: activation.serviceSlug,
-    serviceName: activation.serviceName,
-    countryName: activation.countryName,
-    phoneNumber: activation.phoneNumber,
-    priceKobo: activation.priceKobo,
-    currency: activation.currency,
-    status: activation.status as ActivationState["status"],
-    code: activation.code,
-    expiresAt: activation.expiresAt.toISOString(),
-    createdAt: activation.createdAt.toISOString(),
-    receivedAt: activation.receivedAt?.toISOString() ?? null,
-  };
-}
-
 /**
  * Polled by the activation view. Asks the supplier whether the code has
  * landed, and settles the order when it has, or when time runs out.
  *
- * Scoped to the signed-in customer's own orders by the query itself, so
- * one customer cannot poll another's activation by guessing an id.
+ * Scoped to the signed-in customer's own orders by the query itself, so one
+ * customer cannot poll another's activation by guessing an id. The actual
+ * settlement (asking the provider, finalizing on RECEIVED, refunding on a
+ * no-code terminal state) lives in reconcileActivation() — see
+ * src/lib/activation-lifecycle.ts — the same function an admin's passive
+ * view, an admin's manual refund check, and the daily sweep all call, so a
+ * customer's own poll is never a different code path than any of those.
  */
 export async function getActivationStateAction(
   activationId: string,
@@ -363,118 +326,13 @@ export async function getActivationStateAction(
   const session = await auth();
   if (!session?.user?.id) return null;
 
-  const activation = await prisma.activation.findFirst({
+  const owned = await prisma.activation.findFirst({
     where: { id: activationId, userId: session.user.id },
+    select: { id: true },
   });
-  if (!activation) return null;
-  if (activation.status !== "WAITING") return toState(activation);
+  if (!owned) return null;
 
-  const now = new Date();
-  // Polls the exact provider that fulfilled this order, not whichever
-  // provider currently resolves first: a different activation bought
-  // through a different enabled provider must be checked against that one.
-  const resolved = await resolveProvider(activation.provider);
-
-  let sms;
-  if (resolved.connected && activation.providerOrderId) {
-    try {
-      sms = await resolved.provider.getOrderStatus(activation.providerOrderId);
-    } catch {
-      // A supplier hiccup should not settle the order. Keep waiting and let
-      // the next poll try again.
-      return toState(activation);
-    }
-  } else {
-    // No supplier to ask. The session still expires on schedule below, so
-    // an order left behind by a disconnected supplier is refunded rather
-    // than left waiting forever.
-    sms = { state: "waiting" } as const;
-  }
-
-  if (sms.state === "received") {
-    const received = await prisma.activation.update({
-      where: { id: activation.id },
-      data: { status: "RECEIVED", code: sms.code, receivedAt: now },
-    });
-
-    // The sale notification fires here, not at purchase: a reserved number
-    // that never delivers a code is a refund, not a sale. Safe to call on
-    // every poll that finds a freshly-received order (including a rare
-    // concurrent double-settle) — notifyNumberPurchaseSale() reserves its
-    // one notification per activation through a database unique
-    // constraint, so a second call for the same order is always a no-op.
-    await notifyNumberPurchaseSale(received.id).catch((error) => {
-      console.error(`[buy] sales notification failed for activation ${received.id}:`, error);
-    });
-
-    // A code arriving closes out any open "struggling to receive a code"
-    // episode for this customer — see resolveRecoveryOnSuccess()'s own
-    // comment. Never allowed to affect the activation itself: a failure
-    // here is logged, not surfaced to the customer waiting on their code.
-    await resolveRecoveryOnSuccess(received.userId).catch((error) => {
-      console.error(`[buy] recovery resolution failed for activation ${received.id}:`, error);
-    });
-
-    return toState(received);
-  }
-
-  // Three different ways an order ends without a code, recorded as three
-  // different things. The customer is refunded in full either way, but the
-  // history should say what actually happened rather than calling every
-  // one of them a timeout.
-  const settled =
-    sms.state === "refunded"
-      ? { status: "REFUNDED" as const, why: "the provider refunded it" }
-      : sms.state === "cancelled"
-        ? { status: "CANCELLED" as const, why: "it was cancelled" }
-        : sms.state === "expired" || now >= activation.expiresAt
-          ? { status: "EXPIRED" as const, why: "no code arrived in time" }
-          : null;
-
-  if (settled) {
-    const userId = session.user.id;
-    const closed = await prisma.$transaction(async (tx) => {
-      // Atomic: only the caller that actually flips this activation out of
-      // WAITING gets to credit its refund. Without this guard, two
-      // concurrent settlements for the same activation (this poll firing
-      // twice, or racing a manual cancel) could each read "still WAITING"
-      // before either commits and each credit the wallet, minting money
-      // out of a single order with no cap on how many times.
-      const flipped = await tx.activation.updateMany({
-        where: { id: activation.id, status: "WAITING" },
-        data: { status: settled.status },
-      });
-      if (flipped.count === 0) return null;
-
-      await creditWallet(
-        userId,
-        activation.priceKobo,
-        "REFUND",
-        `Refund for ${activation.serviceName}, ${settled.why}`,
-        activation.currency,
-        activation.id,
-        tx,
-      );
-
-      return tx.activation.findUniqueOrThrow({ where: { id: activation.id } });
-    });
-
-    // Only the caller that actually performed this settlement (not a
-    // concurrent one that lost the atomic guard above) evaluates recovery,
-    // so a customer polling their own waiting order does not re-run this
-    // check on every poll after it has already settled once.
-    if (closed) {
-      await evaluateNoCodeRecovery(userId).catch((error) => {
-        console.error(`[buy] recovery evaluation failed for user ${userId}:`, error);
-      });
-    }
-
-    // A concurrent call already settled it: return its real current state
-    // rather than crediting anything a second time.
-    return toState(closed ?? (await prisma.activation.findUniqueOrThrow({ where: { id: activation.id } })));
-  }
-
-  return toState(activation);
+  return reconcileActivation(activationId, "CUSTOMER_POLL");
 }
 
 export async function cancelActivationAction(
@@ -501,14 +359,19 @@ export async function cancelActivationAction(
   }
 
   const userId = session.user.id;
+  const now = new Date();
   const cancelled = await prisma.$transaction(async (tx) => {
-    // Same atomic guard as the settlement path above: only the request
-    // that actually moves this activation out of WAITING credits the
-    // refund, so a cancel racing a poll (or two cancel requests for the
-    // same activation) cannot both pass a stale read and both credit.
+    // Same atomic guard as reconcileActivation()'s own settlement: only the
+    // request that actually moves this activation out of WAITING credits the
+    // refund, so a cancel racing a poll (or two cancel requests for the same
+    // activation) cannot both pass a stale read and both credit.
     const flipped = await tx.activation.updateMany({
       where: { id: activation.id, status: "WAITING" },
-      data: { status: "CANCELLED" },
+      data: {
+        status: "CANCELLED",
+        refundReason: "CANCELLED_BY_CUSTOMER",
+        refundedAt: now,
+      },
     });
     if (flipped.count === 0) return null;
 
@@ -531,5 +394,5 @@ export async function cancelActivationAction(
     console.error(`[buy] recovery evaluation failed for user ${userId}:`, error);
   });
 
-  return toState(cancelled);
+  return toActivationState(cancelled);
 }
