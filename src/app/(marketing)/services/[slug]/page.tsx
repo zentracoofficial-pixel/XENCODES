@@ -131,7 +131,6 @@ export default async function ServiceDetailPage({
                     <p className="text-sm font-semibold tabular-nums">
                       {formatMoney(country.priceKobo, currency.code)}
                     </p>
-                    <p className="text-xs text-muted-foreground">{country.deliverabilityLabel.text}</p>
                   </div>
                 </li>
               ))}
@@ -148,10 +147,8 @@ export default async function ServiceDetailPage({
               how pricing works
             </Link>{" "}
             for what sets the exact figure. Xencodes never promises
-            guaranteed delivery or a specific delivery percentage; the
-            figure shown next to each country above (when there is one) is
-            based on real, recent Xencodes activations for that pair, not a
-            provider&apos;s marketing claim.
+            guaranteed delivery or a specific delivery percentage for any
+            country.
           </p>
         </section>
 
