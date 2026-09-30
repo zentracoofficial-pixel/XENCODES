@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { voidUnverifiedTopup, verifyAndSettleTopUp } from "@/lib/funding";
+import { voidUnverifiedTopup, reconcileTopUp } from "@/lib/funding";
 import { recordAudit } from "@/lib/audit";
 
 export interface VoidTopupResult {
@@ -55,12 +55,16 @@ export interface RecheckTopupResult {
 /**
  * A stuck PENDING top up an admin needs to nudge, without waiting on
  * Korapay's own webhook retries or the customer happening to reload their
- * wallet page. Calls exactly the same verifyAndSettleTopUp() the webhook
- * and the customer's own return-from-checkout use — never credits from
- * anything this admin (or the browser) supplies, only from what Korapay's
- * API confirms for this reference right now. Safe to click any number of
- * times: a transaction that already left PENDING is a no-op here, same as
- * every other caller of verifyAndSettleTopUp().
+ * wallet page. Calls exactly the same reconcileTopUp() the webhook and the
+ * customer's own return-from-checkout use, with the ADMIN_MANUAL trigger —
+ * never credits from anything this admin (or the browser) supplies, only
+ * from what Korapay's API confirms for this reference right now, and always
+ * actually calls KoraPay (an explicit admin click is never throttled by the
+ * backoff that protects against a page merely rendering). Safe to click any
+ * number of times: a transaction that already left PENDING is a no-op here,
+ * same as every other caller of reconcileTopUp(). Every attempt — credited,
+ * still pending, or a KoraPay error — is recorded on PaymentVerificationLog
+ * with this admin's id, visible on the transaction's own page.
  */
 export async function recheckPendingTopupAction(
   transactionId: string,
@@ -73,7 +77,7 @@ export async function recheckPendingTopupAction(
     return { error: "This is not a pending top up with a payment provider reference." };
   }
 
-  const result = await verifyAndSettleTopUp(tx.providerReference);
+  const result = await reconcileTopUp(tx.providerReference, "ADMIN_MANUAL", admin);
 
   await recordAudit({
     actor: admin,

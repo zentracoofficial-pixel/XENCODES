@@ -9,7 +9,8 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/currency";
 import { WALLET_STATUS_VARIANT } from "@/lib/wallet-status";
-import { isUnverifiedTopup } from "@/lib/funding";
+import { isUnverifiedTopup, reconcileTopUp } from "@/lib/funding";
+import type { PaymentVerificationResult, PaymentVerificationTrigger } from "@/generated/prisma/client";
 import { VoidTopupButton } from "../void-topup-button";
 import { RecheckTopupButton } from "../recheck-topup-button";
 
@@ -35,10 +36,25 @@ export default async function AdminTransactionPage({
   await requireAdmin();
   const { id } = await params;
 
+  const initial = await prisma.walletTransaction.findUnique({ where: { id } });
+  if (!initial) notFound();
+
+  // Opportunistic check, same as the customer's own wallet page: an admin
+  // opening a stuck PENDING top up is itself a reasonable moment to ask
+  // KoraPay again, backed off per transaction (USER_VIEW trigger) so
+  // repeatedly opening this page does not itself hammer KoraPay. The
+  // explicit "Recheck" button below always forces a check regardless.
+  if (initial.type === "TOPUP" && initial.status === "PENDING" && initial.providerReference) {
+    await reconcileTopUp(initial.providerReference, "USER_VIEW").catch((error) =>
+      console.error(`[admin-wallet] opportunistic reconcile failed for ${initial.providerReference}:`, error),
+    );
+  }
+
   const tx = await prisma.walletTransaction.findUnique({
     where: { id },
     include: {
       user: { select: { id: true, email: true, walletBalanceKobo: true, currency: true } },
+      verificationLogs: { orderBy: { createdAt: "desc" }, take: 10 },
     },
   });
   if (!tx) notFound();
@@ -172,11 +188,69 @@ export default async function AdminTransactionPage({
               </Link>
             </Row>
           ) : null}
+          {tx.providerReference ? (
+            <>
+              <Row label="Verification attempts">{tx.verificationAttempts}</Row>
+              <Row label="Last verification attempt">
+                {tx.lastVerificationAttemptAt
+                  ? tx.lastVerificationAttemptAt.toLocaleString("en-NG", dateFormat)
+                  : "Never checked"}
+              </Row>
+            </>
+          ) : null}
         </dl>
       </Card>
+
+      {tx.verificationLogs.length > 0 ? (
+        <Card className="overflow-hidden">
+          <p className="border-b border-border bg-background px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Verification history
+          </p>
+          <ul className="divide-y divide-border">
+            {tx.verificationLogs.map((log) => (
+              <li key={log.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5 text-sm">
+                <div>
+                  <span className="font-medium">{RESULT_LABEL[log.result]}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {TRIGGER_LABEL[log.trigger]}
+                    {log.adminEmail ? ` by ${log.adminEmail}` : ""}
+                  </span>
+                  {log.failureReason ? (
+                    <span className="ml-2 text-xs text-danger">{log.failureReason}</span>
+                  ) : null}
+                </div>
+                <time
+                  dateTime={log.createdAt.toISOString()}
+                  className="shrink-0 text-xs text-muted-foreground"
+                >
+                  {log.createdAt.toLocaleString("en-NG", dateFormat)}
+                </time>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
     </div>
   );
 }
+
+const RESULT_LABEL: Record<PaymentVerificationResult, string> = {
+  CREDITED: "Credited",
+  ALREADY_CREDITED: "Already credited",
+  STILL_PENDING: "Still pending at KoraPay",
+  FAILED: "Failed",
+  MISMATCH: "Amount/currency mismatch — not credited",
+  PROVIDER_UNAVAILABLE: "KoraPay could not be reached",
+  UNKNOWN_REFERENCE: "Unknown reference",
+};
+
+const TRIGGER_LABEL: Record<PaymentVerificationTrigger, string> = {
+  WEBHOOK: "KoraPay webhook",
+  RETURN_REDIRECT: "Customer returned from checkout",
+  USER_VIEW: "Page view",
+  ADMIN_MANUAL: "Manual admin recheck",
+  RECONCILIATION_SWEEP: "Automatic sweep",
+};
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (

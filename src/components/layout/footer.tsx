@@ -3,7 +3,9 @@ import { Container } from "@/components/ui/container";
 import { Wordmark } from "@/components/layout/wordmark";
 
 const links = [
+  { href: "/about", label: "About" },
   { href: "/services", label: "Services" },
+  { href: "/how-it-works", label: "How It Works" },
   { href: "/pricing", label: "Pricing" },
   { href: "/faq", label: "FAQ" },
   { href: "/terms", label: "Terms" },
@@ -18,7 +20,7 @@ export function Footer() {
         <div>
           <Wordmark />
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-            Virtual numbers for SMS verification, priced in your own currency.
+            Virtual numbers for SMS verification, priced in Naira.
           </p>
         </div>
 

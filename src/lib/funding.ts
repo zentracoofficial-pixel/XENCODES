@@ -240,7 +240,13 @@ export async function voidUnverifiedTopup(
 export type TopUpOutcome =
   | { state: "credited" }
   | { state: "failed" }
-  | { state: "still_pending" }
+  | {
+      state: "still_pending";
+      /** Why KoraPay was not able to confirm this one just now, for the
+       *  reconciliation log below. Absent means "asked KoraPay, it genuinely
+       *  said pending" — the ordinary case. */
+      reason?: "provider_unavailable" | "amount_mismatch" | "currency_mismatch";
+    }
   | { state: "unknown_reference" };
 
 /**
@@ -253,6 +259,11 @@ export type TopUpOutcome =
  * safe and simply does nothing the second time, since completeTopUp() and
  * settleFailedTopUp() are both idempotent against a row that already left
  * PENDING.
+ *
+ * Low-level: never call this directly for anything triggered by a page view
+ * or a sweep. It always calls KoraPay's API, with no backoff and no
+ * reconciliation-log entry — see reconcileTopUp() below, which wraps this
+ * with both and is what every caller outside the webhook should use.
  */
 export async function verifyAndSettleTopUp(providerReference: string): Promise<TopUpOutcome> {
   const row = await prisma.walletTransaction.findUnique({ where: { providerReference } });
@@ -266,7 +277,7 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
   } catch (error) {
     if (error instanceof KorapayError) {
       console.error(`[funding] KoraPay verify failed for ${providerReference}:`, error.message);
-      return { state: "still_pending" };
+      return { state: "still_pending", reason: "provider_unavailable" };
     }
     throw error;
   }
@@ -283,13 +294,13 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
       console.error(
         `[funding] refusing to credit ${providerReference}: KoraPay confirmed ${charge.amountKobo} kobo but the pending request was for ${row.amountKobo} kobo.`,
       );
-      return { state: "still_pending" };
+      return { state: "still_pending", reason: "amount_mismatch" };
     }
     if (charge.currency !== undefined && charge.currency !== row.currency) {
       console.error(
         `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${row.currency}".`,
       );
-      return { state: "still_pending" };
+      return { state: "still_pending", reason: "currency_mismatch" };
     }
 
     const result = await completeTopUp(providerReference, charge.providerTransactionId);
@@ -311,4 +322,152 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
     return { state: "failed" };
   }
   return { state: "still_pending" };
+}
+
+/** Where a call to reconcileTopUp() originated, for the reconciliation log
+ *  and for deciding whether backoff applies (see BACKOFF_TRIGGERS below). */
+export type VerificationTrigger =
+  | "WEBHOOK"
+  | "RETURN_REDIRECT"
+  | "USER_VIEW"
+  | "ADMIN_MANUAL"
+  | "RECONCILIATION_SWEEP";
+
+/** Triggers that represent one specific, meaningful real-world event
+ *  (KoraPay's own webhook, or a customer actually arriving back from
+ *  checkout) always run, however recently this reference was last checked.
+ *  Everything else — a customer's dashboard simply rendering, or the
+ *  periodic sweep — is throttled below, since those can otherwise fire far
+ *  more often than KoraPay needs to be asked. */
+const BACKOFF_TRIGGERS = new Set<VerificationTrigger>(["USER_VIEW", "RECONCILIATION_SWEEP"]);
+const AUTOMATIC_VERIFICATION_BACKOFF_MS = 20_000;
+
+/**
+ * The one function every caller other than verifyAndSettleTopUp's own
+ * internal use should call: the same idempotent verification, plus backoff
+ * bookkeeping and an entry in PaymentVerificationLog so a stuck payment has
+ * a visible trail (what was checked, when, by what trigger, with what
+ * result) instead of only a server log line.
+ *
+ * Conceptually the "processVerifiedFunding" every code path converges on:
+ * the webhook, the customer's return-from-checkout, a customer's dashboard
+ * noticing an older pending row, an admin's manual "Verify" click, and the
+ * reconciliation sweep piggybacked on the daily provider-sync cron all call
+ * this, never verifyAndSettleTopUp() directly (except that function calling
+ * itself, and the webhook route, which is itself one of this function's
+ * triggers).
+ */
+export async function reconcileTopUp(
+  providerReference: string,
+  trigger: VerificationTrigger,
+  admin?: { id: string; email: string },
+): Promise<TopUpOutcome> {
+  const row = await prisma.walletTransaction.findUnique({ where: { providerReference } });
+  if (!row) return { state: "unknown_reference" };
+  if (row.status !== "PENDING") {
+    return row.status === "SUCCESSFUL" ? { state: "credited" } : { state: "failed" };
+  }
+
+  if (BACKOFF_TRIGGERS.has(trigger) && row.lastVerificationAttemptAt) {
+    const elapsedMs = Date.now() - row.lastVerificationAttemptAt.getTime();
+    if (elapsedMs < AUTOMATIC_VERIFICATION_BACKOFF_MS) {
+      // Skipped entirely: no KoraPay call, no log row. A page render or a
+      // sweep landing here again seconds later should not itself become
+      // more noise than the situation it is trying to observe.
+      return { state: "still_pending" };
+    }
+  }
+
+  await prisma.walletTransaction.update({
+    where: { id: row.id },
+    data: { lastVerificationAttemptAt: new Date(), verificationAttempts: { increment: 1 } },
+  });
+
+  const outcome = await verifyAndSettleTopUp(providerReference);
+
+  const result: import("@/generated/prisma/client").PaymentVerificationResult =
+    outcome.state === "credited"
+      ? "CREDITED"
+      : outcome.state === "failed"
+        ? "FAILED"
+        : outcome.state === "unknown_reference"
+          ? "UNKNOWN_REFERENCE"
+          : outcome.reason === "provider_unavailable"
+            ? "PROVIDER_UNAVAILABLE"
+            : outcome.reason === "amount_mismatch" || outcome.reason === "currency_mismatch"
+              ? "MISMATCH"
+              : "STILL_PENDING";
+
+  await prisma.paymentVerificationLog
+    .create({
+      data: {
+        walletTransactionId: row.id,
+        trigger,
+        result,
+        failureReason:
+          outcome.state === "still_pending" && outcome.reason
+            ? outcome.reason
+            : undefined,
+        adminId: admin?.id,
+        adminEmail: admin?.email,
+      },
+    })
+    // Never lets a logging failure undo a real verification result: the
+    // credit (or lack of one) above has already happened by this point.
+    .catch((error) => console.error(`[funding] failed to log verification for ${providerReference}:`, error));
+
+  return outcome;
+}
+
+/** A PENDING top up younger than this was very likely created moments ago by
+ *  a customer mid-checkout; the sweep leaves it alone so as not to compete
+ *  with the webhook and return-redirect paths that are the normal way that
+ *  one settles. Older than this, those normal paths have had a fair chance
+ *  and this is exactly the "webhook missed" case reconciliation exists for. */
+const SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
+/** A PENDING top up older than this has not been worth asking KoraPay about
+ *  for a long time — almost certainly an abandoned checkout, not a payment
+ *  quietly waiting to clear. Left PENDING (never guessed at as FAILED
+ *  without KoraPay actually saying so), just no longer swept automatically;
+ *  an admin can still recheck it by hand from /admin/wallet at any time. */
+const SWEEP_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+/** Bounds one sweep's worst-case KoraPay calls, since this runs inside the
+ *  existing 60-second-capped cron alongside the catalog sync (see
+ *  maxDuration in the cron route) and must leave it headroom. */
+const SWEEP_BATCH_SIZE = 25;
+
+/**
+ * The other half of "the server should notice a missed webhook on its own":
+ * a bounded, backed-off sweep of old PENDING top ups, run once a day from
+ * the existing provider-sync cron rather than a dedicated one (a Hobby-plan
+ * Vercel project cannot declare a more frequent cron at all). Each row still
+ * goes through reconcileTopUp() with the RECONCILIATION_SWEEP trigger, so it
+ * gets the same backoff, idempotent crediting, and log entry as every other
+ * caller — this just decides which references are worth asking about today.
+ */
+export async function sweepPendingTopUps(): Promise<{ checked: number }> {
+  const now = Date.now();
+  const candidates = await prisma.walletTransaction.findMany({
+    where: {
+      type: "TOPUP",
+      status: "PENDING",
+      providerReference: { not: null },
+      createdAt: {
+        lte: new Date(now - SWEEP_MIN_AGE_MS),
+        gte: new Date(now - SWEEP_MAX_AGE_MS),
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    take: SWEEP_BATCH_SIZE,
+    select: { providerReference: true },
+  });
+
+  for (const row of candidates) {
+    if (!row.providerReference) continue;
+    await reconcileTopUp(row.providerReference, "RECONCILIATION_SWEEP").catch((error) =>
+      console.error(`[funding] sweep failed for ${row.providerReference}:`, error),
+    );
+  }
+
+  return { checked: candidates.length };
 }
