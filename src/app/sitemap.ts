@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
+import { SERVICE_PAGES } from "@/data/service-pages";
 
 // Public, indexable pages only. Login, register, and every authenticated
 // route are deliberately absent: they carry their own noindex metadata (see
@@ -8,7 +9,14 @@ import { SITE_URL } from "@/lib/site";
 // URLs someone might want to land on from a search.
 const routes: { path: string; priority: number; changeFrequency: "daily" | "weekly" | "monthly" }[] = [
   { path: "/", priority: 1, changeFrequency: "daily" },
+  { path: "/about", priority: 0.8, changeFrequency: "monthly" },
+  { path: "/how-it-works", priority: 0.8, changeFrequency: "monthly" },
   { path: "/services", priority: 0.9, changeFrequency: "daily" },
+  ...SERVICE_PAGES.map((page) => ({
+    path: `/services/${page.slug}`,
+    priority: 0.7,
+    changeFrequency: "daily" as const,
+  })),
   { path: "/buy", priority: 0.9, changeFrequency: "daily" },
   { path: "/pricing", priority: 0.8, changeFrequency: "weekly" },
   { path: "/faq", priority: 0.7, changeFrequency: "monthly" },

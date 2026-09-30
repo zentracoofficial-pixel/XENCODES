@@ -22,7 +22,7 @@ export const faqs: FaqItem[] = [
   {
     question: "What currency does Xencodes use?",
     answer:
-      "Nigeria uses NGN, funded by card, bank transfer or USSD through KoraPay. Every other supported country, including Ghana, the UK and the US, uses USD. USD funding isn't connected yet, so an international account can browse and see USD prices ahead of that going live; nothing is charged until it is.",
+      "Xencodes currently operates in Nigerian Naira (NGN) only. You fund your wallet by card, bank transfer or USSD through KoraPay, and every number is priced in NGN. This is separate from which countries you can buy a virtual number for — you can still verify accounts for services in the US, UK and elsewhere, paid for from your NGN wallet.",
   },
   {
     question: "How long does it take to receive an SMS?",

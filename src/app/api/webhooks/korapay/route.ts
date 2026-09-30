@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyKorapayWebhookSignature, KorapayError } from "@/lib/korapay";
-import { verifyAndSettleTopUp } from "@/lib/funding";
+import { reconcileTopUp } from "@/lib/funding";
 
 /**
  * KoraPay's webhook: told a reference changed status, then asked directly
@@ -10,10 +10,12 @@ import { verifyAndSettleTopUp } from "@/lib/funding";
  * signature: without a valid x-korapay-signature this request could be
  * anyone on the internet claiming a payment succeeded. Second, even a
  * correctly signed body's own claim about the outcome is only used to
- * decide which reference to ask KoraPay about; verifyAndSettleTopUp()
- * makes its own call back to KoraPay with this server's own secret key
- * before completeTopUp() ever runs, so a forged or stale event body
- * cannot credit a wallet by itself.
+ * decide which reference to ask KoraPay about; reconcileTopUp() makes its
+ * own call back to KoraPay with this server's own secret key before
+ * completeTopUp() ever runs, so a forged or stale event body cannot credit
+ * a wallet by itself. Also logs the attempt to PaymentVerificationLog, so a
+ * webhook that arrives but cannot settle (KoraPay's read API briefly down,
+ * a mismatch) leaves a visible trail rather than only a server log line.
  */
 export const dynamic = "force-dynamic";
 
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const outcome = await verifyAndSettleTopUp(reference);
+    const outcome = await reconcileTopUp(reference, "WEBHOOK");
     return NextResponse.json({ received: true, outcome: outcome.state });
   } catch (error) {
     console.error(`[korapay-webhook] failed to settle ${reference}:`, error);

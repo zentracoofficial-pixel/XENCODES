@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { createPendingTopUp, settleFailedTopUp, verifyAndSettleTopUp } from "@/lib/funding";
+import { createPendingTopUp, settleFailedTopUp, reconcileTopUp } from "@/lib/funding";
 import {
   validateTopUpAmount,
   calculateTopupFeeKobo,
@@ -152,7 +152,9 @@ export interface TopUpStatus {
  * Called when the customer lands back on the wallet page from KoraPay's
  * checkout, so they see the outcome immediately rather than waiting on
  * the webhook. Safe to call any number of times for the same reference:
- * verifyAndSettleTopUp() only ever acts once on a row that leaves PENDING.
+ * reconcileTopUp() only ever credits once on a row that leaves PENDING, and
+ * this specific trigger always actually asks KoraPay (no backoff), since it
+ * only ever fires once per real checkout return, not on every render.
  */
 export async function checkTopUpStatusAction(reference: string): Promise<TopUpStatus> {
   const user = await getActiveUser();
@@ -163,7 +165,39 @@ export async function checkTopUpStatusAction(reference: string): Promise<TopUpSt
   });
   if (!row) return { state: "unknown_reference" };
 
-  const outcome = await verifyAndSettleTopUp(reference);
+  const outcome = await reconcileTopUp(reference, "RETURN_REDIRECT");
   revalidatePath("/dashboard/wallet");
   return { state: outcome.state };
+}
+
+/**
+ * Opportunistic reconciliation for a top up that never got a checkout
+ * return to trigger checkTopUpStatusAction() above — the case a bank
+ * transfer settles after the customer already left KoraPay's checkout page,
+ * or a webhook silently failed to arrive. Called from the wallet page on
+ * every load for the signed-in customer's own PENDING top ups; backed off
+ * per row (USER_VIEW trigger) so a customer refreshing repeatedly does not
+ * turn every page view into a fresh KoraPay call.
+ *
+ * Capped at the 3 most recent pending rows so a customer who has walked
+ * away from many failed attempts cannot make their own page load slow by
+ * fanning out into many KoraPay calls at once.
+ */
+export async function reconcileStalePendingTopUpsAction(): Promise<void> {
+  const user = await getActiveUser();
+  if (!user) return;
+
+  const pending = await prisma.walletTransaction.findMany({
+    where: { userId: user.id, type: "TOPUP", status: "PENDING", providerReference: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: 3,
+    select: { providerReference: true },
+  });
+
+  for (const row of pending) {
+    if (!row.providerReference) continue;
+    await reconcileTopUp(row.providerReference, "USER_VIEW").catch((error) =>
+      console.error(`[wallet] background reconciliation failed for ${row.providerReference}:`, error),
+    );
+  }
 }

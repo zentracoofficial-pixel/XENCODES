@@ -40,12 +40,24 @@ const TYPE_FILTERS: { label: string; value: WalletTransactionType | "ALL" }[] = 
   { label: "Adjustments", value: "ADJUSTMENT" },
 ];
 
+/**
+ * "Needs attention" is not a stored status: it is PENDING rows that have
+ * already been checked against KoraPay at least once (verificationAttempts
+ * > 0) and are still stuck — the "verification required" bucket the manual
+ * reconciliation view needs, without widening WalletTransactionStatus
+ * itself. A PENDING row nobody has looked at yet (a customer mid-checkout
+ * seconds ago) is not "needing attention"; one that has been asked about
+ * and still hasn't resolved is.
+ */
+const NEEDS_ATTENTION = "NEEDS_ATTENTION" as const;
+
 const STATUS_FILTERS: {
   label: string;
-  value: WalletTransactionStatus | "ALL";
+  value: WalletTransactionStatus | "ALL" | typeof NEEDS_ATTENTION;
 }[] = [
   { label: "Any status", value: "ALL" },
   { label: "Pending", value: "PENDING" },
+  { label: "Needs attention", value: NEEDS_ATTENTION },
   { label: "Successful", value: "SUCCESSFUL" },
   { label: "Failed", value: "FAILED" },
   { label: "Cancelled", value: "CANCELLED" },
@@ -77,7 +89,11 @@ export default async function AdminWalletPage({
 
   const where: Prisma.WalletTransactionWhereInput = {
     ...(activeType === "ALL" ? {} : { type: activeType }),
-    ...(activeStatus === "ALL" ? {} : { status: activeStatus }),
+    ...(activeStatus === "ALL"
+      ? {}
+      : activeStatus === NEEDS_ATTENTION
+        ? { status: "PENDING", verificationAttempts: { gt: 0 } }
+        : { status: activeStatus }),
     // A deleted account's own past transactions are kept for financial
     // records (see deleteUserAction in admin/users/actions.ts), but that is
     // not the same as wanting them cluttering ordinary browsing here.
@@ -312,6 +328,11 @@ export default async function AdminWalletPage({
                           <Badge variant={WALLET_STATUS_VARIANT[tx.status]}>
                             {tx.status}
                           </Badge>
+                          {tx.status === "PENDING" && tx.verificationAttempts > 0 ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              checked {tx.verificationAttempts}×
+                            </span>
+                          ) : null}
                           {unverified ? (
                             <AlertTriangle
                               className="h-3.5 w-3.5 shrink-0 text-danger"

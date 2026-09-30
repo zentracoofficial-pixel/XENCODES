@@ -18,6 +18,7 @@ import {
 } from "@/lib/settings";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { AddFunds } from "./add-funds";
+import { reconcileStalePendingTopUpsAction } from "./actions";
 
 export const metadata: Metadata = { title: "Wallet" };
 
@@ -38,6 +39,14 @@ const dateFormat: Intl.DateTimeFormatOptions = {
 export default async function WalletPage() {
   const session = await auth();
   const userId = session!.user.id;
+
+  // A bank-transfer top up can settle after the customer already left
+  // KoraPay's checkout page, so a webhook is the only other thing that
+  // would otherwise ever notice. This gives every wallet-page load a
+  // second chance, backed off per transaction (see reconcileTopUp() in
+  // src/lib/funding.ts) so it never turns a page view into a KoraPay call
+  // every time.
+  await reconcileStalePendingTopUpsAction();
 
   const [user, transactions, settings] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),

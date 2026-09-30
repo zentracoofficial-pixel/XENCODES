@@ -10,6 +10,7 @@ import { Wordmark } from "@/components/layout/wordmark";
 const navLinks = [
   { href: "/services", label: "Services" },
   { href: "/pricing", label: "Pricing" },
+  { href: "/how-it-works", label: "How It Works" },
   { href: "/faq", label: "FAQ" },
 ];
 

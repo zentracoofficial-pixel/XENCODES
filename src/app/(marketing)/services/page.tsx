@@ -5,6 +5,7 @@ import { searchServices, getInventoryStatus } from "@/lib/inventory";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { ServicesList } from "./services-list";
+import { SERVICE_PAGES } from "@/data/service-pages";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ const DIRECTORY_LIMIT = 5000;
 export const metadata: Metadata = {
   title: "Supported Services",
   description:
-    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in your own currency.",
+    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in Nigerian Naira.",
   keywords: [
     "WhatsApp verification number",
     "Telegram virtual number",
@@ -68,6 +69,18 @@ export default async function ServicesPage() {
         </Link>{" "}
         before you buy.
       </p>
+
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+        {SERVICE_PAGES.map((page) => (
+          <Link
+            key={page.slug}
+            href={`/services/${page.slug}`}
+            className="text-forest underline-offset-4 hover:underline"
+          >
+            {page.name} verification guide
+          </Link>
+        ))}
+      </div>
     </Container>
   );
 }

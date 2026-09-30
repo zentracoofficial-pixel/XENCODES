@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runProviderSync } from "@/lib/provider-sync";
+import { sweepPendingTopUps } from "@/lib/funding";
 
 export const dynamic = "force-dynamic";
 // A full catalog sync reads the supplier's whole catalog in a handful of
@@ -48,5 +49,17 @@ export async function GET(request: Request) {
   }
 
   const result = await runProviderSync();
+
+  // Piggybacked on this same daily cron rather than declaring a second one:
+  // a Hobby-plan project can only run a cron once a day at all, so a
+  // dedicated payment-reconciliation cron could never check more often than
+  // this anyway. Wrapped in its own try/catch so a bug in reconciliation can
+  // never turn a successful catalog sync into a failed cron run.
+  try {
+    await sweepPendingTopUps();
+  } catch (error) {
+    console.error("[cron] pending top-up sweep failed:", error);
+  }
+
   return NextResponse.json(result, { status: result.ok ? 200 : 502 });
 }

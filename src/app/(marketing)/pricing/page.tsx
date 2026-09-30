@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Pay as you go pricing for virtual numbers, in your own currency. You pay per number, the price depends on the service and country, and no code means no charge.",
+    "Pay as you go pricing for virtual numbers, in Nigerian Naira. You pay per number, the price depends on the service and country, and no code means no charge.",
   alternates: { canonical: "/pricing" },
 };
 

@@ -358,44 +358,110 @@ enum WalletTransactionStatus {
 }
 
 model WalletTransaction {
-  id                    String                  @id @default(cuid())
-  userId                String
+  id                        String                   @id @default(cuid())
+  userId                    String
   /// Restrict, not cascade: see the matching note on Activation.user.
-  user                  User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
-  type                  WalletTransactionType
-  amountKobo            Int
-  description           String
+  user                      User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type                      WalletTransactionType
+  amountKobo                Int
+  description               String
   /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment).
   /// Stored per row rather than assumed globally so NGN and USD movements
   /// are never blended into one sum by an aggregate query.
-  currency              String                  @default("NGN")
+  currency                  String                   @default("NGN")
   /// Defaults to SUCCESSFUL because every row that existed before funding
   /// was introduced was an already-settled purchase, refund or adjustment.
   /// Only a top-up ever starts life PENDING.
-  status                WalletTransactionStatus @default(SUCCESSFUL)
+  status                    WalletTransactionStatus  @default(SUCCESSFUL)
   /// The payment provider that owns this movement, for example "korapay".
   /// Null for internal movements like a purchase or an admin adjustment.
-  provider              String?
+  provider                  String?
   /// Our reference, generated before the provider is called and passed to
   /// it, so a webhook arriving later can be matched back to this exact row.
   /// Unique because it is what makes crediting idempotent.
-  providerReference     String?                 @unique
+  providerReference         String?                  @unique
   /// The provider's own id for the payment, recorded once it is known.
-  providerTransactionId String?
+  providerTransactionId     String?
   /// When the money actually landed, as distinct from when it was asked for.
-  completedAt           DateTime?
-  failureReason         String?
+  completedAt               DateTime?
+  failureReason             String?
   /// The order this movement belongs to, for a purchase or its refund. Null
   /// for a top up or an admin adjustment, which are not about one order.
   /// Not a relation: an order can be deleted with its customer while the
   /// ledger row stays as history.
-  activationId          String?
-  createdAt             DateTime                @default(now())
+  activationId              String?
+  createdAt                 DateTime                 @default(now())
+  /// When a verification (webhook, page-view check, admin recheck, or the
+  /// reconciliation sweep) last actually asked KoraPay about this reference.
+  /// Null for a row never checked yet. Exists so automatic re-checks can
+  /// back off a stuck PENDING row instead of asking KoraPay again on every
+  /// dashboard load — see reconcileTopUp() in src/lib/funding.ts.
+  lastVerificationAttemptAt DateTime?
+  /// How many times reconcileTopUp() has actually called KoraPay for this
+  /// reference (skipped, backed-off attempts do not increment this).
+  verificationAttempts      Int                      @default(0)
+  verificationLogs          PaymentVerificationLog[]
 
   @@index([userId])
   @@index([status])
   @@index([activationId])
   @@map("wallet_transactions")
+}
+
+enum PaymentVerificationTrigger {
+  /// KoraPay's own webhook calling our endpoint.
+  WEBHOOK
+  /// The customer's browser landing back on /dashboard/wallet from KoraPay's
+  /// checkout redirect.
+  RETURN_REDIRECT
+  /// The customer viewing a page (wallet, dashboard) with an older PENDING
+  /// top up still on their account, unrelated to a just-completed checkout.
+  USER_VIEW
+  /// An admin clicking "Verify"/"Recheck" on a specific transaction.
+  ADMIN_MANUAL
+  /// The periodic sweep piggybacked on the existing provider-sync cron.
+  RECONCILIATION_SWEEP
+}
+
+enum PaymentVerificationResult {
+  CREDITED
+  ALREADY_CREDITED
+  STILL_PENDING
+  FAILED
+  /// KoraPay confirmed a status, but the amount or currency did not match
+  /// the pending request; never credited.
+  MISMATCH
+  /// KoraPay could not be reached or rejected the verification call itself;
+  /// distinct from a genuine "still pending" answer from KoraPay.
+  PROVIDER_UNAVAILABLE
+  UNKNOWN_REFERENCE
+}
+
+/// One row per verification attempt against KoraPay for a funding
+/// transaction — the operational trail an admin needs to see why a payment
+/// is stuck, without exposing any payment credentials. Append-only: nothing
+/// here is ever the source of truth for a balance, only a record of what was
+/// checked and when.
+model PaymentVerificationLog {
+  id                  String                     @id @default(cuid())
+  walletTransactionId String
+  walletTransaction   WalletTransaction          @relation(fields: [walletTransactionId], references: [id], onDelete: Cascade)
+  trigger             PaymentVerificationTrigger
+  result              PaymentVerificationResult
+  /// KoraPay's own reported charge status at the time ("success", "pending",
+  /// "failed", "expired"), when a call to KoraPay actually completed. Null
+  /// when the attempt was skipped (backoff) or KoraPay could not be reached.
+  providerStatus      String?
+  failureReason       String?
+  /// Set only for an ADMIN_MANUAL trigger. Not a relation: an admin account
+  /// can be removed later while this log entry stays as history.
+  adminId             String?
+  adminEmail          String?
+  createdAt           DateTime                   @default(now())
+
+  @@index([walletTransactionId])
+  @@index([createdAt])
+  @@map("payment_verification_logs")
 }
 
 /// Admin override for one service. An absent row, or a null margin, means

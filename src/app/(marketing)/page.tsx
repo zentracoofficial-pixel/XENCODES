@@ -18,7 +18,7 @@ import {
 } from "@/lib/inventory";
 import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
-import { SITE_NAME, SITE_URL, SITE_LOGO_URL } from "@/lib/site";
+import { SITE_NAME, SITE_URL, SITE_LOGO_URL, SUPPORT_EMAIL } from "@/lib/site";
 import { formatMoney } from "@/lib/currency";
 import { getDefaultCurrency } from "@/lib/currency-config";
 
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Virtual Numbers for SMS Verification, Worldwide",
   description:
-    "Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go in your own currency, refunded when no code arrives.",
+    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go in NGN, refunded automatically when no code arrives.",
   keywords: [
     "virtual number for SMS verification",
     "SMS verification number",
@@ -59,23 +59,35 @@ export default async function HomePage() {
         data={{
           "@context": "https://schema.org",
           "@type": "WebSite",
+          "@id": `${SITE_URL}/#website`,
           name: SITE_NAME,
           url: SITE_URL,
           description:
-            "Virtual phone numbers for receiving SMS verification codes, priced in your own currency.",
+            "Xencodes is a virtual SMS verification platform: virtual phone numbers for receiving SMS verification codes across supported online services, priced in Nigerian Naira.",
+          publisher: { "@id": `${SITE_URL}/#organization` },
+          inLanguage: "en",
         }}
       />
-      {/* Helps Google identify Xencodes as an organization distinct from
-          the page content itself. Only fields that are actually true:
-          no sameAs (no public social profiles to point to yet), no
-          address or founding date that would be invented for this. */}
+      {/* Helps Google (and any system reading this page) identify Xencodes
+          as one consistent real-world entity, not just this one page. Only
+          fields that are actually true: no sameAs (no official public
+          social profiles exist yet to point to), no address or founding
+          date that would be invented for this. contactPoint uses the same
+          support address shown on the dashboard's own "Contact support"
+          card, never a second, unlisted one. */}
       <JsonLd
         data={{
           "@context": "https://schema.org",
           "@type": "Organization",
+          "@id": `${SITE_URL}/#organization`,
           name: SITE_NAME,
           url: SITE_URL,
           logo: SITE_LOGO_URL,
+          description:
+            "Xencodes provides virtual phone numbers for receiving SMS verification codes across supported online services. Users choose a service and country, purchase a number, and receive the verification code through their Xencodes activation.",
+          contactPoint: [
+            { "@type": "ContactPoint", contactType: "customer support", email: SUPPORT_EMAIL },
+          ],
         }}
       />
       <JsonLd
@@ -106,6 +118,11 @@ export default async function HomePage() {
               <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted-foreground text-pretty">
                 Search for the service you need, choose a country, and receive
                 your verification SMS in real time.
+              </p>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
+                Xencodes is a virtual SMS verification platform: rent a
+                virtual phone number for the exact service and country you
+                need, and receive the code straight to your activation page.
               </p>
 
               {/* Only figures that are true right now. With nothing on sale
@@ -249,8 +266,8 @@ export default async function HomePage() {
                 body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
               },
               {
-                title: "Priced in NGN or USD",
-                body: "Nigeria pays in NGN, everywhere else pays in USD, with nothing added at checkout.",
+                title: "Priced in Naira",
+                body: "Xencodes currently operates in NGN, with nothing added at checkout beyond KoraPay's own processing fee.",
               },
               {
                 title: "No code, no charge",
