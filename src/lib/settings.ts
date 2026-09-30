@@ -60,6 +60,31 @@ export const SETTING_KEYS = {
   lowBalanceThresholdNgnKobo: "low_balance_threshold_ngn_kobo",
   /** Same, in USD cents. */
   lowBalanceThresholdUsdCents: "low_balance_threshold_usd_cents",
+
+  /** Whether evaluateNoCodeRecovery() (src/lib/recovery.ts) may send an
+   *  email on its own, on top of letting an admin see and manually message
+   *  a struggling customer from /admin/recovery. Off by default: an
+   *  automatic email is a real Resend send with no admin in the loop, so a
+   *  fresh deployment should not start sending them until someone
+   *  deliberately turns it on. */
+  noCodeRecoveryAutoEmailEnabled: "no_code_recovery_auto_email_enabled",
+  /** How many no-code activations (settled without ever reaching RECEIVED)
+   *  within the detection window count as "struggling". */
+  noCodeRecoveryThreshold: "no_code_recovery_threshold",
+  /** How many days back the no-code count above is measured over. */
+  noCodeRecoveryWindowDays: "no_code_recovery_window_days",
+  /** Minimum days between one automatic recovery email and the next for the
+   *  same customer, so a customer who keeps buying numbers after already
+   *  being emailed is not emailed again on every subsequent failure. Does
+   *  not limit a manual send: an admin sending a message is a deliberate
+   *  choice each time, not something this cooldown needs to protect Resend
+   *  quota against. */
+  noCodeRecoveryEmailCooldownDays: "no_code_recovery_email_cooldown_days",
+  /** The admin-editable subject/body for the automatic recovery email —
+   *  see renderRecoveryTemplate() in src/lib/recovery.ts for the safe
+   *  {{variable}} substitution these are rendered through. */
+  noCodeRecoveryAutoEmailSubject: "no_code_recovery_auto_email_subject",
+  noCodeRecoveryAutoEmailBody: "no_code_recovery_auto_email_body",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the
@@ -96,6 +121,25 @@ export const DEFAULT_TOPUP_FEE_CAP_KOBO = 200_000; // NGN 2,000
 export const DEFAULT_LOW_BALANCE_THRESHOLD_NGN_KOBO = 50_000; // NGN 500
 export const DEFAULT_LOW_BALANCE_THRESHOLD_USD_CENTS = 200; // $2.00
 
+/** 3 in 30 days is enough purchases to be confident this is a real pattern,
+ *  not one unlucky number — see src/lib/recovery.ts's own header for why a
+ *  single no-code purchase is never treated as "struggling" on its own. */
+export const DEFAULT_NO_CODE_RECOVERY_THRESHOLD = 3;
+export const DEFAULT_NO_CODE_RECOVERY_WINDOW_DAYS = 30;
+export const DEFAULT_NO_CODE_RECOVERY_EMAIL_COOLDOWN_DAYS = 14;
+
+export const DEFAULT_NO_CODE_RECOVERY_AUTO_EMAIL_SUBJECT =
+  "Need help with your Xencodes verification?";
+export const DEFAULT_NO_CODE_RECOVERY_AUTO_EMAIL_BODY = `Hi {{first_name}},
+
+We noticed you've made several recent attempts to receive a verification code for {{service}} without a successful delivery.
+
+{{recommended_country}} currently has stronger delivery performance for this service.
+
+You can try another available country from your Xencodes dashboard. If you still have trouble, our team can help — just reply to this email.
+
+Xencodes Team`;
+
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
 export async function readSettings(): Promise<Record<string, string>> {
@@ -118,4 +162,17 @@ export function readNumber(
 ) {
   const parsed = Number(settings[key]);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Absent means "never explicitly set", which reads as the given default
+ *  rather than as false — see each boolean setting's own default (e.g.
+ *  noCodeRecoveryAutoEmailEnabled defaults to off). Anything present reads
+ *  literally: only the string "true" is true. */
+export function readBoolean(
+  settings: Record<string, string>,
+  key: SettingKey,
+  fallback = false,
+) {
+  const raw = settings[key];
+  return raw === undefined ? fallback : raw === "true";
 }

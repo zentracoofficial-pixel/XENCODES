@@ -100,6 +100,60 @@ export async function saveTopupFeeSettingsAction(
   return { success: true };
 }
 
+/**
+ * The customer-recovery thresholds and the admin-editable automatic email
+ * template — see src/lib/recovery.ts for how each one is actually used.
+ * Validated to sane, non-empty bounds: a threshold of 0 or a negative
+ * window would make every purchase "struggling", and an empty template
+ * would send a blank email.
+ */
+export async function saveRecoverySettingsAction(
+  _prev: SettingsState,
+  formData: FormData,
+): Promise<SettingsState> {
+  const admin = await requireAdmin();
+
+  const autoEmailEnabled = formData.get("autoEmailEnabled") === "on";
+  const threshold = Number(formData.get("threshold"));
+  const windowDays = Number(formData.get("windowDays"));
+  const cooldownDays = Number(formData.get("cooldownDays"));
+  const subject = String(formData.get("subject") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+
+  if (!Number.isInteger(threshold) || threshold < 1 || threshold > 50) {
+    return { error: "Enter a whole no-code threshold between 1 and 50." };
+  }
+  if (!Number.isInteger(windowDays) || windowDays < 1 || windowDays > 365) {
+    return { error: "Enter a whole detection window between 1 and 365 days." };
+  }
+  if (!Number.isInteger(cooldownDays) || cooldownDays < 0 || cooldownDays > 365) {
+    return { error: "Enter a whole cooldown between 0 and 365 days." };
+  }
+  if (!subject || !body) {
+    return { error: "The automatic email needs both a subject and a body." };
+  }
+
+  await Promise.all([
+    writeSetting(SETTING_KEYS.noCodeRecoveryAutoEmailEnabled, autoEmailEnabled ? "true" : "false"),
+    writeSetting(SETTING_KEYS.noCodeRecoveryThreshold, String(threshold)),
+    writeSetting(SETTING_KEYS.noCodeRecoveryWindowDays, String(windowDays)),
+    writeSetting(SETTING_KEYS.noCodeRecoveryEmailCooldownDays, String(cooldownDays)),
+    writeSetting(SETTING_KEYS.noCodeRecoveryAutoEmailSubject, subject),
+    writeSetting(SETTING_KEYS.noCodeRecoveryAutoEmailBody, body),
+  ]);
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "no_code_recovery",
+    metadata: { autoEmailEnabled, threshold, windowDays, cooldownDays },
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/admin/recovery");
+  return { success: true };
+}
+
 export interface TestEmailState {
   status?: "sent" | "error";
   message?: string;

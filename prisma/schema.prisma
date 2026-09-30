@@ -101,6 +101,8 @@ model User {
   supportTickets             SupportTicket[]
   notifications              Notification[]
   favoriteServices           FavoriteService[]
+  noCodeRecoveryStatus       NoCodeRecoveryStatus?
+  recoveryEmailLogs          RecoveryEmailLog[]
 
   @@map("users")
 }
@@ -746,7 +748,7 @@ enum SalesNotificationStatus {
 /// process somehow saw twice, a future code path, a bug — from ever
 /// producing a second email, not what makes the first call safe.
 model SalesNotification {
-  id                String                   @id @default(cuid())
+  id                String                  @id @default(cuid())
   type              SalesNotificationType
   transactionId     String
   recipient         String
@@ -760,8 +762,138 @@ model SalesNotification {
   /// Resend actually accept this" is answerable without Resend's own
   /// dashboard.
   providerMessageId String?
-  sentAt            DateTime                 @default(now())
+  sentAt            DateTime                @default(now())
 
   @@unique([type, transactionId])
   @@map("sales_notifications")
+}
+
+enum NoCodeRecoveryStatusValue {
+  /// Currently meets (or has met) the no-code threshold and has not been
+  /// resolved or dismissed. May or may not have been emailed yet — see
+  /// lastEmailedAt, not this, for that.
+  OPEN
+  /// An admin marked this customer's situation handled, or a later
+  /// activation for them settled into RECEIVED (see evaluateNoCodeRecovery
+  /// in src/lib/recovery.ts) and the episode closed itself out.
+  RESOLVED
+  /// An admin looked at this and decided no action was needed (e.g. the
+  /// customer clearly just changed their mind on a couple of orders, not a
+  /// real delivery problem) — distinct from RESOLVED so the admin view can
+  /// tell "we helped" apart from "we looked and it wasn't a real issue".
+  DISMISSED
+}
+
+/// One row per customer, continuously refreshed whenever an order of
+/// theirs settles — the same "episode" shape as ProviderBalanceStatus, not
+/// a growing history table: what src/app/admin/recovery reads to show
+/// which customers currently look like they are struggling to receive a
+/// code, and what src/lib/recovery.ts's automatic-email cooldown reads to
+/// decide whether it has already reached out recently.
+///
+/// Cascade on the user relation (unlike Activation's Restrict): this is a
+/// derived status, not financial history, so it has nothing left to say
+/// once the account itself is gone.
+model NoCodeRecoveryStatus {
+  userId                 String                    @id
+  user                   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                 NoCodeRecoveryStatusValue @default(OPEN)
+  /// The detection window (days) in effect when this row was last
+  /// (re)computed — see SETTING_KEYS.noCodeRecoveryWindowDays. Kept here so
+  /// a stored row stays self-explanatory even after an admin later changes
+  /// the setting.
+  windowDays             Int
+  /// Total activations for this user within the window, from purchase
+  /// through however each one settled.
+  purchaseCount          Int
+  /// Of those, the ones that reached RECEIVED — a genuine delivered code.
+  successCount           Int
+  /// Of those, the ones that settled without ever reaching RECEIVED
+  /// (EXPIRED, CANCELLED or REFUNDED — see SETTLED_STATUSES in
+  /// src/lib/deliverability.ts, the same "did a code actually arrive"
+  /// question this reuses). Never counts a purchase that never happened
+  /// (a declined payment never creates an Activation row at all) and never
+  /// counts a still-WAITING order, so this can only ever describe orders
+  /// that genuinely finished one way or the other.
+  noCodeCount            Int
+  /// Distinct service names involved in the no-code activations, e.g.
+  /// ["WhatsApp", "Telegram"] — a JSON string array, not a relation, since
+  /// this is a display snapshot rather than something ever queried back.
+  affectedServices       Json
+  /// Distinct country names, the same way.
+  affectedCountries      Json
+  lastPurchaseAt         DateTime
+  lastNoCodeAt           DateTime?
+  /// The most recent RECEIVED activation for this user, even if it falls
+  /// outside the window — "when did they last actually succeed" is useful
+  /// context regardless of the detection window's own boundary.
+  lastSuccessAt          DateTime?
+  /// The service this customer has struggled with most, and
+  /// getCountryRecommendation()'s own pick for it right now — the same
+  /// centralized recommendation the buy panel uses, never a separately
+  /// invented "best country for this customer" score. Null when no
+  /// currently-available country could be recommended (e.g. the service is
+  /// disabled or has no stock at all right now).
+  recommendedServiceSlug String?
+  recommendedServiceName String?
+  recommendedCountrySlug String?
+  recommendedCountryName String?
+  firstDetectedAt        DateTime                  @default(now())
+  lastDetectedAt         DateTime                  @default(now())
+  /// Null until the first recovery email (manual or automatic) goes out;
+  /// the automatic-email cooldown in src/lib/recovery.ts reads this
+  /// directly rather than needing a separate counter.
+  lastEmailedAt          DateTime?
+  resolvedAt             DateTime?
+  dismissedAt            DateTime?
+  updatedAt              DateTime                  @updatedAt
+
+  @@index([status])
+  @@map("no_code_recovery_status")
+}
+
+enum RecoveryEmailType {
+  /// Sent by an admin from src/app/admin/recovery, with admin-authored
+  /// subject/body.
+  MANUAL
+  /// Sent by evaluateNoCodeRecovery() itself, using the admin-editable
+  /// template in Settings (see SETTING_KEYS.noCodeRecoveryAutoEmail*).
+  AUTOMATIC
+}
+
+enum RecoveryEmailDeliveryStatus {
+  SENT
+  FAILED
+}
+
+/// Append-only audit trail of every no-code recovery email actually
+/// attempted, manual or automatic — mirrors SalesNotification's shape and
+/// intent (a real attempt, its real outcome), not EmailCampaign's (a single
+/// send to a whole audience at once).
+model RecoveryEmailLog {
+  id                String                      @id @default(cuid())
+  userId            String
+  user              User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Snapshot of the address this was actually sent to, in case the
+  /// account's own email is later changed.
+  recipientEmail    String
+  emailType         RecoveryEmailType
+  subject           String
+  /// The plain-text body actually sent, after template variables were
+  /// substituted — an admin reviewing this log sees exactly what the
+  /// customer received, not the raw template with placeholders still in it.
+  bodyText          String
+  status            RecoveryEmailDeliveryStatus
+  failureReason     String?
+  providerMessageId String?
+  /// Set only for MANUAL sends — who sent it. Plain values, not a relation,
+  /// for the same reason as AuditLog.actorId/actorEmail: this row must stay
+  /// legible even after that admin account changes.
+  sentByAdminId     String?
+  sentByAdminEmail  String?
+  createdAt         DateTime                    @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("recovery_email_logs")
 }

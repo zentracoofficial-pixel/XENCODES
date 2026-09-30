@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Coins,
+  HeartPulse,
   History,
   LayoutDashboard,
   LifeBuoy,
@@ -42,6 +43,7 @@ const links = [
   { href: "/admin/currencies", label: "Currencies", icon: Coins },
   { href: "/admin/wallet", label: "Wallet", icon: Wallet },
   { href: "/admin/email", label: "Email", icon: Mail },
+  { href: "/admin/recovery", label: "Recovery", icon: HeartPulse },
   { href: "/admin/support", label: "Support", icon: LifeBuoy },
   { href: "/admin/audit", label: "Activity log", icon: History },
   { href: "/admin/settings", label: "Settings", icon: Settings },

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CreditCard, Mail, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
+import { CreditCard, HeartPulse, Mail, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
@@ -14,7 +14,8 @@ import { FUNDING_PROVIDER } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
 import { isEmailConfigured, emailFromAddress } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/site";
-import { MarginForm, TopupFeeForm, TestEmailButton } from "./settings-forms";
+import { getRecoverySettings } from "@/lib/recovery";
+import { MarginForm, TopupFeeForm, TestEmailButton, RecoverySettingsForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -29,7 +30,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies] =
+  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings] =
     await Promise.all([
       readSettings(),
       loadMarginRules(),
@@ -37,6 +38,7 @@ export default async function AdminSettingsPage() {
       getNumberProvider(),
       getEnabledProviders(),
       getEnabledCurrencies(),
+      getRecoverySettings(),
     ]);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
@@ -224,6 +226,31 @@ export default async function AdminSettingsPage() {
               )}
             />
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <HeartPulse className="h-4 w-4" />
+          Customer recovery
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+          Detects a customer who keeps buying numbers without receiving a code, from real settled
+          orders only. Struggling customers always show up on{" "}
+          <Link href="/admin/recovery" className="text-forest hover:underline">
+            Recovery
+          </Link>{" "}
+          for a manual message; these settings additionally control the optional automatic email.
+        </p>
+        <div className="mt-4">
+          <RecoverySettingsForm
+            autoEmailEnabled={recoverySettings.autoEmailEnabled}
+            threshold={recoverySettings.threshold}
+            windowDays={recoverySettings.windowDays}
+            cooldownDays={recoverySettings.cooldownDays}
+            subject={recoverySettings.autoEmailSubject}
+            body={recoverySettings.autoEmailBody}
+          />
         </div>
       </Card>
 
