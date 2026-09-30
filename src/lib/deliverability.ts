@@ -90,7 +90,11 @@ export interface QualityStat {
   sampleSize: number;
 }
 
-const SETTLED_STATUSES: ActivationStatus[] = ["RECEIVED", "EXPIRED", "CANCELLED", "REFUNDED"];
+/** Every terminal outcome an activation can settle into — reused by
+ *  src/lib/recovery.ts, which asks the same "did a code actually arrive"
+ *  question about one customer's recent orders that this file asks about a
+ *  service/country pair's. */
+export const SETTLED_STATUSES: ActivationStatus[] = ["RECEIVED", "EXPIRED", "CANCELLED", "REFUNDED"];
 
 function toStat(received: number, settled: number, minSample: number): QualityStat | null {
   if (settled < minSample) return null;

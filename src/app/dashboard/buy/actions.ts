@@ -10,6 +10,7 @@ import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
 import { notifyNumberPurchaseSale } from "@/lib/sales-notification";
+import { evaluateNoCodeRecovery, resolveRecoveryOnSuccess } from "@/lib/recovery";
 
 /**
  * Buying a number, and waiting for its code.
@@ -406,6 +407,14 @@ export async function getActivationStateAction(
       console.error(`[buy] sales notification failed for activation ${received.id}:`, error);
     });
 
+    // A code arriving closes out any open "struggling to receive a code"
+    // episode for this customer — see resolveRecoveryOnSuccess()'s own
+    // comment. Never allowed to affect the activation itself: a failure
+    // here is logged, not surfaced to the customer waiting on their code.
+    await resolveRecoveryOnSuccess(received.userId).catch((error) => {
+      console.error(`[buy] recovery resolution failed for activation ${received.id}:`, error);
+    });
+
     return toState(received);
   }
 
@@ -449,6 +458,16 @@ export async function getActivationStateAction(
 
       return tx.activation.findUniqueOrThrow({ where: { id: activation.id } });
     });
+
+    // Only the caller that actually performed this settlement (not a
+    // concurrent one that lost the atomic guard above) evaluates recovery,
+    // so a customer polling their own waiting order does not re-run this
+    // check on every poll after it has already settled once.
+    if (closed) {
+      await evaluateNoCodeRecovery(userId).catch((error) => {
+        console.error(`[buy] recovery evaluation failed for user ${userId}:`, error);
+      });
+    }
 
     // A concurrent call already settled it: return its real current state
     // rather than crediting anything a second time.
@@ -507,5 +526,10 @@ export async function cancelActivationAction(
   });
 
   if (!cancelled) return null;
+
+  await evaluateNoCodeRecovery(userId).catch((error) => {
+    console.error(`[buy] recovery evaluation failed for user ${userId}:`, error);
+  });
+
   return toState(cancelled);
 }

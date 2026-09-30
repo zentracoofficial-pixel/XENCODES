@@ -6,10 +6,12 @@ import { cn } from "@/lib/utils";
 import {
   saveMarginSettingsAction,
   saveTopupFeeSettingsAction,
+  saveRecoverySettingsAction,
   sendTestEmailAction,
   type SettingsState,
   type TestEmailState,
 } from "./actions";
+import { RECOVERY_TEMPLATE_VARIABLES } from "@/lib/recovery-template-vars";
 
 const initial: SettingsState = {};
 const initialTestEmail: TestEmailState = {};
@@ -128,6 +130,125 @@ export function TopupFeeForm({ feePercent }: { feePercent: number }) {
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save fee"}
+      </Button>
+    </form>
+  );
+}
+
+export function RecoverySettingsForm({
+  autoEmailEnabled,
+  threshold,
+  windowDays,
+  cooldownDays,
+  subject,
+  body,
+}: {
+  autoEmailEnabled: boolean;
+  threshold: number;
+  windowDays: number;
+  cooldownDays: number;
+  subject: string;
+  body: string;
+}) {
+  const [state, formAction, pending] = useActionState(saveRecoverySettingsAction, initial);
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <label className="flex items-center gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          name="autoEmailEnabled"
+          defaultChecked={autoEmailEnabled}
+          className="h-4 w-4 rounded border-border accent-forest"
+        />
+        Send the automatic email below on its own, in addition to letting an admin send one
+        manually from Recovery
+      </label>
+
+      <div className="grid max-w-2xl gap-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <label className={labelClass} htmlFor="threshold">
+            No-code threshold
+          </label>
+          <input
+            id="threshold"
+            name="threshold"
+            type="number"
+            step="1"
+            min="1"
+            max="50"
+            defaultValue={threshold}
+            className={inputClass}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className={labelClass} htmlFor="windowDays">
+            Detection window (days)
+          </label>
+          <input
+            id="windowDays"
+            name="windowDays"
+            type="number"
+            step="1"
+            min="1"
+            max="365"
+            defaultValue={windowDays}
+            className={inputClass}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className={labelClass} htmlFor="cooldownDays">
+            Email cooldown (days)
+          </label>
+          <input
+            id="cooldownDays"
+            name="cooldownDays"
+            type="number"
+            step="1"
+            min="0"
+            max="365"
+            defaultValue={cooldownDays}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <p className="max-w-xl text-xs text-muted-foreground">
+        A customer with this many purchases that settled without a code, within the window, shows
+        up on Recovery. The cooldown only limits the automatic email — a manual send from Recovery
+        is never blocked by it.
+      </p>
+
+      <div className="space-y-1.5">
+        <label className={labelClass} htmlFor="recovery-subject">
+          Automatic email subject
+        </label>
+        <input id="recovery-subject" name="subject" type="text" defaultValue={subject} className={inputClass} />
+      </div>
+      <div className="space-y-1.5">
+        <label className={labelClass} htmlFor="recovery-body">
+          Automatic email body
+        </label>
+        <textarea
+          id="recovery-body"
+          name="body"
+          rows={8}
+          defaultValue={body}
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
+        />
+        <p className="text-xs text-muted-foreground">
+          Personalize with:{" "}
+          {RECOVERY_TEMPLATE_VARIABLES.map((v) => (
+            <code key={v} className="mr-1">{`{{${v}}}`}</code>
+          ))}
+          . Anything else in the text is sent exactly as typed.
+        </p>
+      </div>
+
+      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
+      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
+
+      <Button type="submit" disabled={pending}>
+        {pending ? "Saving" : "Save recovery settings"}
       </Button>
     </form>
   );
