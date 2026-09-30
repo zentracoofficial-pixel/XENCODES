@@ -21,9 +21,16 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 100;
 
-const STATUS_FILTERS: { label: string; value: ActivationStatus | "ALL" }[] = [
+/** Not a stored status: WAITING orders whose session has already expired but
+ *  have not yet settled — the sweep should catch these within a day, but an
+ *  admin needing to act sooner (or checking that nothing is stuck) needs a
+ *  filter for exactly this, not a scan through every Pending row by hand. */
+const OVERDUE = "OVERDUE" as const;
+
+const STATUS_FILTERS: { label: string; value: ActivationStatus | "ALL" | typeof OVERDUE }[] = [
   { label: "All", value: "ALL" },
   { label: "Pending", value: "WAITING" },
+  { label: "Needs attention", value: OVERDUE },
   { label: "Completed", value: "RECEIVED" },
   { label: "Failed", value: "EXPIRED" },
   { label: "Cancelled", value: "CANCELLED" },
@@ -41,6 +48,15 @@ const SORTS = {
 >;
 
 type SortKey = keyof typeof SORTS;
+
+/** "18 minutes" / "2 hours" — how long a WAITING order has been open, so a
+ *  stuck one is obvious without doing the subtraction by eye. */
+function formatWaitingFor(createdAt: Date): string {
+  const minutes = Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 /**
  * Every order in one place, rather than a page per status.
@@ -108,7 +124,11 @@ export default async function AdminOrdersPage({
   ]);
 
   const where: Prisma.ActivationWhereInput = {
-    ...(activeFilter === "ALL" ? {} : { status: activeFilter }),
+    ...(activeFilter === "ALL"
+      ? {}
+      : activeFilter === OVERDUE
+        ? { status: "WAITING", expiresAt: { lt: new Date() } }
+        : { status: activeFilter }),
     ...(service ? { serviceSlug: service } : {}),
     ...(country ? { countrySlug: country } : {}),
     ...(provider ? { provider } : {}),
@@ -402,9 +422,22 @@ export default async function AdminOrdersPage({
                         {priced ? `${margin}%` : "n/a"}
                       </td>
                       <td className="px-3 py-3">
-                        <Badge variant={ACTIVATION_STATUS_VARIANT[order.status]}>
-                          {ORDER_STATUS_LABEL[order.status]}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant={ACTIVATION_STATUS_VARIANT[order.status]}>
+                            {ORDER_STATUS_LABEL[order.status]}
+                          </Badge>
+                          {order.status === "WAITING" ? (
+                            <span
+                              className={cn(
+                                "text-[11px]",
+                                order.expiresAt < new Date() ? "font-medium text-danger" : "text-muted-foreground",
+                              )}
+                            >
+                              {formatWaitingFor(order.createdAt)}
+                              {order.expiresAt < new Date() ? " · overdue" : ""}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-5 py-3 text-right text-xs text-muted-foreground">
                         {order.createdAt.toLocaleDateString("en-NG", {

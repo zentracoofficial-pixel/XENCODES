@@ -259,63 +259,85 @@ enum ActivationStatus {
   REFUNDED
 }
 
+/// Why a customer's wallet was refunded for an activation that never
+/// delivered a code — set alongside the status transition, whether that
+/// transition was automatic or an admin's own action. Never set on RECEIVED
+/// (a successful activation is never refunded).
+enum ActivationRefundReason {
+  /// The local session simply ran out with nothing from the provider.
+  NO_SMS_RECEIVED
+  /// GrizzlySMS itself reported the order cancelled or refunded on its own
+  /// side while a customer's poll or the sweep was checking it.
+  PROVIDER_REFUNDED
+  /// The customer used their own Cancel button before expiry.
+  CANCELLED_BY_CUSTOMER
+  /// An admin explicitly cited expiry as the reason for a manual refund.
+  ACTIVATION_EXPIRED
+  /// An admin explicitly cited a provider-side problem.
+  PROVIDER_FAILURE
+  /// An admin explicitly cited a support decision.
+  CUSTOMER_SUPPORT
+  /// An admin reason not covered above; always paired with refundNote.
+  OTHER
+}
+
 /// One number purchase. Carries its own economics: an order Xencodes cannot
 /// answer "what did this cost, what did it earn" for should never have been
 /// placed, so every figure that answers it is written at purchase time.
 model Activation {
-  id                  String           @id @default(cuid())
-  userId              String
+  id                          String                  @id @default(cuid())
+  userId                      String
   /// Restrict, not cascade: an order is financial history and must outlive
   /// the account it was placed under. A user is never SQL-deleted (see
   /// User.deletedAt); this is a safety rail against that ever changing by
   /// accident, since a cascade here would silently erase profit history.
-  user                User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  serviceSlug         String
-  serviceName         String
-  countrySlug         String
-  countryName         String
-  phoneNumber         String
+  user                        User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  serviceSlug                 String
+  serviceName                 String
+  countrySlug                 String
+  countryName                 String
+  phoneNumber                 String
   /// Which supplier filled this order. Named generically and stored per
   /// order so historical orders stay readable after a supplier change,
   /// without the old one's name leaking into new business logic.
-  provider            String
+  provider                    String
   /// The supplier's own id for this order, used to poll for the SMS.
-  providerOrderId     String?
+  providerOrderId             String?
   /// The supplier's own id for the service bought, captured at purchase
   /// time (e.g. GrizzlySMS's "wa" for WhatsApp). Reporting only: nothing
   /// reads this back to talk to the supplier, since providerOrderId alone
   /// is enough to poll status or cancel.
-  providerServiceId   String?
+  providerServiceId           String?
   /// The supplier's own id for the country bought, captured the same way.
-  providerCountryId   String?
+  providerCountryId           String?
   /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment):
   /// what priceKobo/providerCostKobo/grossProfitKobo are all denominated
   /// in, the buyer's own currency at the moment of purchase (User.currency),
   /// captured here rather than looked up from the user record so a
   /// historical order stays correctly labelled even if that were ever
   /// revisited.
-  currency            String           @default("NGN")
+  currency                    String                  @default("NGN")
   /// What the customer paid, in `currency` above.
-  priceKobo           Int
+  priceKobo                   Int
   /// What the supplier billed Xencodes for this exact order, converted from
   /// its native USD into `currency` at the admin-configured rate that was
   /// live at purchase time, and captured here rather than recomputed
   /// because both a supplier's USD price and the USD/currency rate move: an
   /// order's margin has to be answerable later from what was true when it
   /// was placed.
-  providerCostKobo    Int              @default(0)
+  providerCostKobo            Int                     @default(0)
   /// priceKobo minus providerCostKobo, stored for the same reason. Gross
   /// margin is derived from these two rather than stored, so it can never
   /// disagree with the money.
-  grossProfitKobo     Int              @default(0)
+  grossProfitKobo             Int                     @default(0)
   /// The margin the pricing rule asked for, and which rule that was, so an
   /// order's price stays explainable after the rules change.
-  targetMarginPercent Int              @default(0)
-  pricingRule         String           @default("legacy")
-  status              ActivationStatus @default(WAITING)
-  code                String?
-  expiresAt           DateTime
-  receivedAt          DateTime?
+  targetMarginPercent         Int                     @default(0)
+  pricingRule                 String                  @default("legacy")
+  status                      ActivationStatus        @default(WAITING)
+  code                        String?
+  expiresAt                   DateTime
+  receivedAt                  DateTime?
   /// A client-generated key, unique per purchase *attempt* (not per
   /// click — the buy panel keeps the same key across retries of the same
   /// service+country selection). Nullable because it's a defense-in-depth
@@ -324,9 +346,33 @@ model Activation {
   /// narrow — stop a duplicate form submission, retried request, or
   /// double-click from ever creating two Activation rows (and charging the
   /// wallet twice) for what the customer experienced as one purchase.
-  idempotencyKey      String?          @unique
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  idempotencyKey              String?                 @unique
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
+  /// Why the customer's wallet was refunded, set on the same write as the
+  /// status transition into a no-code terminal state. Null on RECEIVED, and
+  /// null on any order that predates this field — an old settled order with
+  /// no reason recorded is not re-derived or backfilled, only new ones get
+  /// one going forward.
+  refundReason                ActivationRefundReason?
+  /// Free text, required by the admin refund form only when refundReason is
+  /// OTHER; optional detail on any other reason.
+  refundNote                  String?
+  /// Set only when refundReason came from an admin's own action (never for
+  /// an automatic settlement). Not a relation, matching PaymentVerificationLog's
+  /// adminId/adminEmail: an admin account can be removed later while this
+  /// stays as history.
+  refundedByAdminId           String?
+  refundedByAdminEmail        String?
+  refundedAt                  DateTime?
+  /// When a reconciliation check (customer poll, admin view, or the sweep)
+  /// last actually asked the provider about this order. Mirrors
+  /// WalletTransaction.lastVerificationAttemptAt: lets the sweep and admin
+  /// passive-view back off instead of asking the provider again on every
+  /// render. A customer's own poll always asks regardless (see
+  /// reconcileActivation()'s own comment on which triggers back off).
+  lastProviderStatusCheckAt   DateTime?
+  providerStatusCheckAttempts Int                     @default(0)
 
   @@index([userId])
   @@index([status])

@@ -119,12 +119,15 @@ export function ActivationView({
           secondsRemaining={remaining}
           createdAt={activation.createdAt}
           receivedAt={activation.receivedAt}
+          refundedAmountLabel={formatMoney(activation.priceKobo, activation.currency)}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 {activation.status === "WAITING"
                   ? `Refunded automatically in ${formatDuration(remaining)} if no code arrives`
-                  : `Paid ${formatMoney(activation.priceKobo, activation.currency)}`}
+                  : activation.status === "RECEIVED"
+                    ? `Paid ${formatMoney(activation.priceKobo, activation.currency)}`
+                    : `Refunded ${formatMoney(activation.priceKobo, activation.currency)}`}
               </span>
               {activation.status === "WAITING" ? (
                 <button

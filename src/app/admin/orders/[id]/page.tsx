@@ -14,6 +14,8 @@ import {
   ACTIVATION_STATUS_VARIANT,
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
+import { reconcileActivation, REFUND_REASON_LABEL } from "@/lib/activation-lifecycle";
+import { RefundButton } from "../refund-button";
 
 export const metadata: Metadata = { title: "Admin: Order" };
 
@@ -45,6 +47,20 @@ export default async function AdminOrderDetailPage({
 }) {
   await requireAdmin();
   const { id } = await params;
+
+  const initial = await prisma.activation.findUnique({ where: { id }, select: { status: true } });
+  if (!initial) notFound();
+
+  // Opportunistic check, same reasoning as the wallet admin page: an admin
+  // opening a still-WAITING order is itself a reasonable moment to ask the
+  // provider again, backed off per order (ADMIN_VIEW trigger) so repeatedly
+  // opening this page does not itself hammer the provider. "Check status
+  // now" below always forces a check regardless.
+  if (initial.status === "WAITING") {
+    await reconcileActivation(id, "ADMIN_VIEW").catch((error) =>
+      console.error(`[admin-orders] opportunistic reconcile failed for ${id}:`, error),
+    );
+  }
 
   const order = await prisma.activation.findUnique({
     where: { id },
@@ -91,6 +107,40 @@ export default async function AdminOrderDetailPage({
           {ORDER_STATUS_LABEL[order.status]}
         </Badge>
       </div>
+
+      {order.status === "WAITING" ? (
+        <div className="space-y-3 rounded-lg bg-warning-soft px-3.5 py-3">
+          <p className="text-sm text-warning">
+            This order is still waiting for a code. No refund has happened yet — the customer
+            was charged {formatMoney(order.priceKobo, order.currency)} and stays charged unless
+            this settles (automatically, or by the refund below).
+          </p>
+          <RefundButton
+            activationId={order.id}
+            customerEmail={order.user.email}
+            amountKobo={order.priceKobo}
+            currency={order.currency}
+            serviceName={order.serviceName}
+            countryName={order.countryName}
+          />
+        </div>
+      ) : order.refundReason ? (
+        <div className="rounded-lg border border-border bg-surface px-3.5 py-3 text-sm">
+          <p>
+            Refunded {formatMoney(order.priceKobo, order.currency)} —{" "}
+            <span className="font-medium">{REFUND_REASON_LABEL[order.refundReason]}</span>
+            {order.refundedByAdminEmail ? ` (by ${order.refundedByAdminEmail})` : " (automatic)"}
+          </p>
+          {order.refundNote ? (
+            <p className="mt-1 text-muted-foreground">&ldquo;{order.refundNote}&rdquo;</p>
+          ) : null}
+          {order.refundedAt ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {order.refundedAt.toLocaleString("en-NG", dateFormat)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runProviderSync } from "@/lib/provider-sync";
 import { sweepPendingTopUps } from "@/lib/funding";
+import { sweepPendingActivations } from "@/lib/activation-lifecycle";
 
 export const dynamic = "force-dynamic";
 // A full catalog sync reads the supplier's whole catalog in a handful of
@@ -59,6 +60,16 @@ export async function GET(request: Request) {
     await sweepPendingTopUps();
   } catch (error) {
     console.error("[cron] pending top-up sweep failed:", error);
+  }
+
+  // Same reasoning as the top-up sweep above: an abandoned WAITING
+  // activation (the customer closed the tab before their 20-minute session
+  // ended and never came back) has no other automatic path to a refund.
+  // Its own try/catch keeps a bug here from ever failing the catalog sync.
+  try {
+    await sweepPendingActivations();
+  } catch (error) {
+    console.error("[cron] pending activation sweep failed:", error);
   }
 
   return NextResponse.json(result, { status: result.ok ? 200 : 502 });
