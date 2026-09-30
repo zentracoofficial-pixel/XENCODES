@@ -457,13 +457,14 @@ export function BuyPanel({
   const countryOptions: ComboboxOption[] = visibleCountries.map((item) => ({
     value: item.slug,
     label: item.name,
-    // Every option states its own real chances (or an honest "not enough
-    // data yet" fallback) right in the list, not only after it is picked —
-    // see CountryOption.deliverabilityLabel's own comment for where this
-    // text comes from.
-    hint: [item.recommended ? "Recommended" : null, item.dialCode, item.deliverabilityLabel.text]
-      .filter(Boolean)
-      .join(" · "),
+    // No delivery-rate text here: GrizzlySMS has no deliverability field to
+    // source a real one from, and most pairs never reach the minimum
+    // sample size for Xencodes' own historical rate, so showing anything
+    // here was almost always an uninformative "not enough data yet"
+    // placeholder. The internally-computed rate still exists and still
+    // drives which variant gets recommended below — it just isn't printed
+    // as a number or label here anymore.
+    hint: [item.recommended ? "Recommended" : null, item.dialCode].filter(Boolean).join(" · "),
     leading: (
       <span aria-hidden className="text-lg leading-none">
         {item.flag}
@@ -691,14 +692,6 @@ export function BuyPanel({
                     Recommended
                   </p>
                 ) : null}
-                <p
-                  className={cn(
-                    "text-xs",
-                    country.qualityTier === "low" ? "font-medium text-danger" : "text-muted-foreground",
-                  )}
-                >
-                  {country.deliverabilityLabel.text}
-                </p>
               </div>
             </div>
           ) : null}
@@ -707,13 +700,18 @@ export function BuyPanel({
             <p className="mt-2 text-xs text-muted-foreground">{country.recommendationReason}</p>
           ) : null}
 
+          {/* No percentage shown: see the countryOptions hint above for why.
+              The qualitative caution stays, since it is a genuine,
+              sufficiently-sampled Xencodes finding worth a customer knowing
+              before they buy — the object was to the number, not the
+              warning. */}
           {country.qualityTier === "low" ? (
             <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-danger-soft px-3.5 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <p className="text-sm text-danger">
-                This country has a low delivery rate recently — {country.successRate}% of
-                buyers received a code. You can still buy it, but consider another
-                country if one is available.
+                This country has had a low delivery rate recently. You can
+                still buy it, but consider another country if one is
+                available.
               </p>
             </div>
           ) : null}
