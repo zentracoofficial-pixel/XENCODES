@@ -10,7 +10,8 @@ import {
   type AudienceSegment,
 } from "@/lib/email-targeting";
 import { renderEmail } from "@/lib/email-template";
-import { campaignEmail, type CampaignContent } from "@/lib/email-messages";
+import { campaignEmail, verificationEmail, type CampaignContent } from "@/lib/email-messages";
+import { resendVerificationEmail } from "@/lib/verification";
 
 /**
  * A send this large would risk running past a serverless function's time
@@ -46,6 +47,8 @@ function parseSegment(formData: FormData): AudienceSegment {
       };
     case "specific_user":
       return { kind, userId: String(formData.get("userId") ?? "") };
+    case "unverified":
+      return { kind: "unverified" };
     default:
       return { kind: "all" };
   }
@@ -295,4 +298,176 @@ export async function sendCampaignAction(
   }
 
   return { success: true, sentCount, failedCount };
+}
+
+export interface SendVerificationRemindersState {
+  error?: string;
+  success?: boolean;
+  sentCount?: number;
+  failedCount?: number;
+  skippedCount?: number;
+}
+
+/**
+ * The "Unverified users" audience's send path — deliberately not
+ * sendCampaignAction() above. A campaign renders one HTML/text pair once
+ * and mails the same copy to everyone; this audience's entire point is the
+ * opposite — every recipient needs their own verification token and their
+ * own one-account-only link, issued through the exact system that already
+ * mints them at signup and from the customer's own "resend" button (see
+ * src/lib/verification.ts). There is no separate verification mechanism
+ * here: resendVerificationEmail(user), called once per recipient, is the
+ * same function and the same branded template either path ends up at.
+ *
+ * Reusing it also gets three other things for free rather than
+ * reimplemented:
+ *  - It already refuses a user whose emailVerified became set after they
+ *    were counted (resolveAudience() ran once for the whole batch; this
+ *    loop re-reads each row immediately before sending), which is exactly
+ *    the race the task this function exists for calls out by name.
+ *  - It already enforces the same per-account resend cooldown and
+ *    hourly cap a customer's own resend button is limited by, so this bulk
+ *    operation cannot spam a given inbox (or Xencodes' Resend quota) past
+ *    those existing limits.
+ *  - That same cooldown is this operation's idempotency guard: clicking
+ *    Send twice, or a retried request, finds every recipient still inside
+ *    the cooldown the first pass just started and skips them, rather than
+ *    a second token and a second email going out.
+ */
+// Both parameters are unused: there is no form data to read (the audience
+// is fixed, not composed), but useActionState still calls this with
+// (prevState, formData), so the signature has to accept both.
+export async function sendVerificationRemindersAction(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _prev: SendVerificationRemindersState,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _formData: FormData,
+): Promise<SendVerificationRemindersState> {
+  const admin = await requireAdmin();
+
+  if (!isEmailConfigured()) {
+    return {
+      error:
+        "Email is not configured on this deployment: RESEND_API_KEY is not set. Nothing was sent.",
+    };
+  }
+
+  // The canonical, server-side set, resolved fresh for this send — never
+  // the count a possibly-stale admin screen was last showing.
+  const recipients = dedupeRecipients(await resolveAudience({ kind: "unverified" }));
+  if (recipients.length === 0) {
+    return { error: "There are no unverified users right now." };
+  }
+  if (recipients.length > MAX_CAMPAIGN_RECIPIENTS) {
+    return {
+      error: `${recipients.length} unverified users, above the ${MAX_CAMPAIGN_RECIPIENTS} limit for one send. Try again once the list is smaller.`,
+    };
+  }
+
+  // Read once, not hardcoded a second time: this is the exact subject the
+  // email that actually goes out will carry, from the one template both
+  // signup and the customer's own resend already use.
+  const subject = verificationEmail("https://placeholder.invalid/").subject;
+
+  const campaign = await prisma.emailCampaign.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      subject,
+      audienceLabel: describeAudience({ kind: "unverified" }),
+      audienceFilter: { kind: "unverified" },
+      recipientCount: recipients.length,
+      status: "SENDING",
+    },
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  let firstFailure: string | null = null;
+
+  for (const recipient of recipients) {
+    // Re-fetched fresh, immediately before this exact send: a batch of any
+    // real size takes long enough for an account to verify or get deleted
+    // partway through, and neither should still receive a verification
+    // email by the time this specific iteration runs, whatever
+    // resolveAudience() found when the batch started. Suspension is
+    // deliberately not re-checked here, matching resolveAudience()'s own
+    // LIVE_USER filter (shared by every other audience, none of which
+    // exclude suspended accounts either) — a suspended account can still be
+    // legitimately verified later (see adminVerifyUserEmail(), which does
+    // not check suspension either), and excluding it here only at send time
+    // would silently send fewer emails than the recipient count the admin
+    // was already shown.
+    const user = await prisma.user.findUnique({ where: { id: recipient.id } });
+    if (!user || user.deletedAt) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const result = await resendVerificationEmail(user);
+    switch (result.status) {
+      case "sent":
+        sentCount += 1;
+        break;
+      case "already_verified":
+      case "cooling_down":
+      case "limit_reached":
+        // Deliberately not a failure: the account either no longer needs
+        // this email, or already has one on the way / already received the
+        // maximum this hour — see this function's own comment on why that
+        // cooldown is also this operation's idempotency guard.
+        skippedCount += 1;
+        break;
+      case "not_authenticated":
+        // Unreachable in practice: resendVerificationEmail() only returns
+        // this for a missing user, and `user` above is always a real row.
+        skippedCount += 1;
+        break;
+      case "provider_error":
+        failedCount += 1;
+        firstFailure ??= result.message;
+        console.error(
+          `[email-verification-reminders] failed to send to user ${user.id}: ${result.message}`,
+        );
+        break;
+    }
+  }
+
+  // FAILED only when every attempt actually failed outright; a run that
+  // skipped everyone (nobody left who still needed one) is not a failure of
+  // this operation, just nothing to do — still recorded as SENT with 0 sent.
+  const status = sentCount === 0 && failedCount > 0 ? "FAILED" : "SENT";
+
+  await prisma.emailCampaign.update({
+    where: { id: campaign.id },
+    data: { status, sentCount, failedCount, skippedCount, failureReason: firstFailure, sentAt: new Date() },
+  });
+
+  await recordAudit({
+    actor: admin,
+    action: "email.send_verification_reminders",
+    targetType: "email_campaign",
+    targetId: campaign.id,
+    metadata: {
+      recipientCount: recipients.length,
+      sentCount,
+      failedCount,
+      skippedCount,
+      failureReason: firstFailure,
+    },
+  });
+
+  if (sentCount === 0 && failedCount > 0) {
+    return {
+      error: `Nothing was delivered to any of the ${recipients.length} unverified users. ${
+        firstFailure ?? "The mail provider rejected every message."
+      }`,
+      sentCount,
+      failedCount,
+      skippedCount,
+    };
+  }
+
+  return { success: true, sentCount, failedCount, skippedCount };
 }

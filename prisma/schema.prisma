@@ -813,6 +813,12 @@ model EmailCampaign {
   recipientCount Int
   sentCount      Int                 @default(0)
   failedCount    Int                 @default(0)
+  /// Recipients deliberately not sent to, distinct from a provider failure:
+  /// a user who became verified (or hit their resend cooldown/hourly limit)
+  /// between being counted and actually being sent to, for the "Unverified
+  /// users" audience. Always 0 for every other audience, since none of them
+  /// can skip a recipient this way.
+  skippedCount   Int                 @default(0)
   status         EmailCampaignStatus @default(DRAFT)
   /// Why delivery failed, when it did. Carries the provider's own reason
   /// (a rejected domain, a missing API key) rather than a generic label,

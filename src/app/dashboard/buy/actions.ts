@@ -1,11 +1,11 @@
 "use server";
 
-import { auth } from "@/auth";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { quotePair } from "@/lib/inventory";
 import { resolveProvider, ProviderError } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
+import { getActiveUser } from "@/lib/session";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
@@ -67,8 +67,20 @@ export async function purchaseNumberAction(
    */
   idempotencyKey?: string,
 ): Promise<PurchaseResult> {
-  const session = await auth();
-  if (!session?.user?.id) return { error: "login_required" };
+  // getActiveUser(), not a bare session check: this is a server action,
+  // invoked directly from the buy panel's client component rather than
+  // through a page navigation, so the dashboard layout's requireActiveUser()
+  // gate never runs in front of it. getActiveUser() re-reads the account
+  // fresh (deletedAt, status) and compares the token's stamped
+  // sessionVersion against the current column (see its own comment in
+  // src/lib/session.ts), which is what actually stops a suspended/deleted
+  // account, or a session already revoked by a password change or "log out
+  // everywhere", from still being able to spend real money through this
+  // exact entry point. The proxy only ever keeps admins out of the page;
+  // this is the authoritative check for the action itself.
+  const user = await getActiveUser();
+  if (!user) return { error: "login_required" };
+  if (user.role === "ADMIN") return { error: "admin_account" };
 
   // Checked before anything else, including the live quote: if this exact
   // attempt already produced an order, hand back that same order rather
@@ -78,24 +90,10 @@ export async function purchaseNumberAction(
       where: { idempotencyKey },
       select: { id: true, userId: true },
     });
-    if (already && already.userId === session.user.id) {
+    if (already && already.userId === user.id) {
       return { activationId: already.id };
     }
   }
-
-  // Which account can pay, and in which currency, is established before any
-  // supplier lookup: everything downstream (the quote, the charge, the
-  // stored order) is priced in this account's own currency, never assumed
-  // to be Naira. Checked here too, rather than only later: a session issued
-  // before a suspension or deletion stays valid until it expires on its own
-  // (JWT strategy), so this is what actually stops it from spending money
-  // in the meantime. The proxy already keeps admins out of the buy flow;
-  // this is the authoritative check, in case someone calls this action
-  // directly.
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!user) return { error: "unknown" };
-  if (user.deletedAt || user.status !== "ACTIVE") return { error: "unknown" };
-  if (user.role === "ADMIN") return { error: "admin_account" };
 
   const buyerCurrency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
 
@@ -285,7 +283,7 @@ export async function purchaseNumberAction(
       error.code === "P2002"
     ) {
       const winner = await prisma.activation.findUnique({ where: { idempotencyKey } });
-      if (winner && winner.userId === session.user.id) {
+      if (winner && winner.userId === user.id) {
         return { activationId: winner.id };
       }
     }
@@ -323,11 +321,15 @@ export async function purchaseNumberAction(
 export async function getActivationStateAction(
   activationId: string,
 ): Promise<ActivationState | null> {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+  // getActiveUser(), not a bare session check — see purchaseNumberAction()'s
+  // own comment above: this is a server action invoked directly from the
+  // activation view, not through a page load, so a suspended/deleted/revoked
+  // session must be re-checked here rather than assumed caught upstream.
+  const user = await getActiveUser();
+  if (!user) return null;
 
   const owned = await prisma.activation.findFirst({
-    where: { id: activationId, userId: session.user.id },
+    where: { id: activationId, userId: user.id },
     select: { id: true },
   });
   if (!owned) return null;
@@ -338,11 +340,14 @@ export async function getActivationStateAction(
 export async function cancelActivationAction(
   activationId: string,
 ): Promise<ActivationState | null> {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+  // See getActivationStateAction()'s own comment: this credits a refund to
+  // the wallet, so it must never run for a suspended/deleted/revoked
+  // session just because its JWT has not yet expired.
+  const user = await getActiveUser();
+  if (!user) return null;
 
   const activation = await prisma.activation.findFirst({
-    where: { id: activationId, userId: session.user.id },
+    where: { id: activationId, userId: user.id },
   });
   if (!activation || activation.status !== "WAITING") return null;
 
@@ -358,7 +363,7 @@ export async function cancelActivationAction(
     }
   }
 
-  const userId = session.user.id;
+  const userId = user.id;
   const now = new Date();
   const cancelled = await prisma.$transaction(async (tx) => {
     // Same atomic guard as reconcileActivation()'s own settlement: only the

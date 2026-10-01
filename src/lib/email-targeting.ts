@@ -20,7 +20,15 @@ export type AudienceSegment =
   | { kind: "low_balance"; thresholdKobo: number }
   | { kind: "inactive_login"; days: number }
   | { kind: "selected"; userIds: string[] }
-  | { kind: "specific_user"; userId: string };
+  | { kind: "specific_user"; userId: string }
+  /// Not a normal campaign segment: resolveAudience() answers it the same
+  /// way as any other (the current, canonical set of unverified accounts),
+  /// but src/app/admin/email/actions.ts sends to it through
+  /// sendVerificationRemindersAction() instead of sendCampaignAction() —
+  /// each recipient gets their own token and link via the existing
+  /// verification system, never one shared campaign email. See that
+  /// function's own comment for why.
+  | { kind: "unverified" };
 
 export const AUDIENCE_LABELS: Record<AudienceSegment["kind"], string> = {
   all: "All users",
@@ -32,6 +40,7 @@ export const AUDIENCE_LABELS: Record<AudienceSegment["kind"], string> = {
   inactive_login: "Haven't logged in recently",
   selected: "Selected users",
   specific_user: "One specific user",
+  unverified: "Unverified users",
 };
 
 export function describeAudience(segment: AudienceSegment): string {
@@ -54,6 +63,8 @@ export function describeAudience(segment: AudienceSegment): string {
       return `${segment.userIds.length} selected user${segment.userIds.length === 1 ? "" : "s"}`;
     case "specific_user":
       return "One specific user";
+    case "unverified":
+      return "Unverified users";
   }
 }
 
@@ -167,6 +178,19 @@ export async function resolveAudience(
     case "specific_user":
       return prisma.user.findMany({
         where: { ...LIVE_USER, id: segment.userId },
+        select: { id: true, email: true },
+      });
+
+    // The canonical server-side definition of "unverified" — the exact
+    // field every other check in the app reads (the purchase limit, the
+    // dashboard banner, /verify-email, adminVerifyUserEmail()). LIVE_USER
+    // already excludes deleted accounts and admins; emailVerified: null is
+    // the one additional condition. Recomputed fresh at send time, not
+    // cached from this count, so a user who verifies in the meantime is not
+    // in the list the send loop actually iterates.
+    case "unverified":
+      return prisma.user.findMany({
+        where: { ...LIVE_USER, emailVerified: null },
         select: { id: true, email: true },
       });
   }
