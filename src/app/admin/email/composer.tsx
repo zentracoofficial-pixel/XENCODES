@@ -5,14 +5,16 @@ import { Monitor, Smartphone, Send, Loader2, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { renderEmailHtml } from "@/lib/email-template";
-import { campaignEmail } from "@/lib/email-messages";
+import { campaignEmail, verificationEmail } from "@/lib/email-messages";
 import {
   getRecipientCountAction,
   searchUsersAction,
   sendTestEmailAction,
   sendCampaignAction,
+  sendVerificationRemindersAction,
   type SendTestState,
   type SendCampaignState,
+  type SendVerificationRemindersState,
 } from "./actions";
 
 const SEGMENTS = [
@@ -25,7 +27,15 @@ const SEGMENTS = [
   { value: "inactive_login", label: "Haven't logged in recently" },
   { value: "selected", label: "Selected users" },
   { value: "specific_user", label: "One specific user" },
+  { value: "unverified", label: "Unverified users" },
 ] as const;
+
+/** Only for the live preview pane: a real verification URL always carries a
+ *  real, single-use token for one specific account (see
+ *  sendVerificationRemindersAction in ./actions), never typed or chosen by
+ *  the admin. This placeholder never leaves the browser and is never sent
+ *  anywhere. */
+const PREVIEW_VERIFY_URL = "https://www.xencodes.com/verify-email?token=preview-only";
 
 type SegmentKind = (typeof SEGMENTS)[number]["value"];
 
@@ -41,6 +51,7 @@ const EXAMPLE = {
 
 const testInitial: SendTestState = {};
 const sendInitial: SendCampaignState = {};
+const verifySendInitial: SendVerificationRemindersState = {};
 
 export function EmailComposer() {
   const [segmentKind, setSegmentKind] = useState<SegmentKind>("all");
@@ -67,6 +78,12 @@ export function EmailComposer() {
 
   const [testState, testAction, testPending] = useActionState(sendTestEmailAction, testInitial);
   const [sendState, sendAction, sendPending] = useActionState(sendCampaignAction, sendInitial);
+  const [verifySendState, verifySendAction, verifySendPending] = useActionState(
+    sendVerificationRemindersAction,
+    verifySendInitial,
+  );
+
+  const isUnverifiedSegment = segmentKind === "unverified";
 
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -101,29 +118,44 @@ export function EmailComposer() {
   }, [userQuery]);
 
   const isEmpty = !title && !body && !ctaText && !ctaUrl;
-  const html = renderEmailHtml(
-    campaignEmail(
-      isEmpty
-        ? EXAMPLE
-        : {
-            subject,
-            title: title || "Email title",
-            body,
-            ctaText: ctaText || undefined,
-            ctaUrl: ctaUrl || undefined,
-            previewText: previewText || undefined,
-          },
-    ),
-    { colorScheme: scheme },
-  );
+  // Unverified users always get the real, existing verification email, not
+  // whatever is typed in the composer below (which is hidden for this
+  // segment anyway) — see sendVerificationRemindersAction in ./actions.
+  // PREVIEW_VERIFY_URL is a placeholder only; the real send mints one real
+  // token and URL per recipient.
+  const html = isUnverifiedSegment
+    ? renderEmailHtml(verificationEmail(PREVIEW_VERIFY_URL), { colorScheme: scheme })
+    : renderEmailHtml(
+        campaignEmail(
+          isEmpty
+            ? EXAMPLE
+            : {
+                subject,
+                title: title || "Email title",
+                body,
+                ctaText: ctaText || undefined,
+                ctaUrl: ctaUrl || undefined,
+                previewText: previewText || undefined,
+              },
+        ),
+        { colorScheme: scheme },
+      );
 
-  const readyToReview = Boolean(subject && title && body) && (count?.count ?? 0) > 0;
+  const readyToReview = isUnverifiedSegment
+    ? (count?.count ?? 0) > 0
+    : Boolean(subject && title && body) && (count?.count ?? 0) > 0;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
-      <form ref={formRef} action={sendAction} className="space-y-5">
+      <form
+        ref={formRef}
+        action={isUnverifiedSegment ? verifySendAction : sendAction}
+        className="space-y-5"
+      >
         {/* Hidden fields keep the composed content on the actual send action,
-            since React state alone would not be picked up by a form action. */}
+            since React state alone would not be picked up by a form action.
+            Unused by sendVerificationRemindersAction (the audience is fixed),
+            but harmless to still send. */}
         <input type="hidden" name="segmentKind" value={segmentKind} />
         <input type="hidden" name="days" value={days} />
         <input type="hidden" name="thresholdNaira" value={thresholdNaira} />
@@ -133,7 +165,12 @@ export function EmailComposer() {
           <h2 className="text-sm font-semibold">Audience</h2>
           <select
             value={segmentKind}
-            onChange={(e) => setSegmentKind(e.target.value as SegmentKind)}
+            onChange={(e) => {
+              setSegmentKind(e.target.value as SegmentKind);
+              // A confirm screen for the previous audience's send action
+              // must not carry over to a different one.
+              setReviewing(false);
+            }}
             className="h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
           >
             {SEGMENTS.map((s) => (
@@ -236,6 +273,19 @@ export function EmailComposer() {
           </p>
         </Card>
 
+        {isUnverifiedSegment ? (
+          <Card className="space-y-2 p-5">
+            <h2 className="text-sm font-semibold">Email</h2>
+            <p className="text-sm text-foreground">Verify your Xencodes email address</p>
+            <p className="text-sm text-muted-foreground">
+              This is the same verification email sent automatically at signup and from a
+              customer&apos;s own &ldquo;resend&rdquo; button — not a custom message. Each recipient
+              gets their own verification link for their own account; nothing here can be edited.
+              An account that becomes verified, is still inside its resend cooldown, or has already
+              hit its hourly resend limit is skipped rather than emailed again.
+            </p>
+          </Card>
+        ) : (
         <Card className="space-y-4 p-5">
           <h2 className="text-sm font-semibold">Compose</h2>
           <Field label="Subject line" name="subject" value={subject} onChange={setSubject} />
@@ -276,7 +326,9 @@ export function EmailComposer() {
             />
           </div>
         </Card>
+        )}
 
+        {!isUnverifiedSegment && (
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
@@ -294,11 +346,67 @@ export function EmailComposer() {
           ) : null}
           {testState.error ? <span className="text-sm text-danger">{testState.error}</span> : null}
         </div>
+        )}
 
         {!reviewing ? (
           <Button type="button" disabled={!readyToReview} onClick={() => setReviewing(true)}>
             Review and send
           </Button>
+        ) : isUnverifiedSegment ? (
+          <Card className="space-y-3 border-danger/30 p-5">
+            <h2 className="text-sm font-semibold">Confirm send</h2>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Audience</dt>
+              <dd className="font-medium text-foreground">Unverified users</dd>
+              <dt className="text-muted-foreground">Recipients</dt>
+              <dd className="font-medium text-foreground">{count?.count ?? 0} users</dd>
+              <dt className="text-muted-foreground">Email</dt>
+              <dd className="font-medium text-foreground">Verify your Xencodes email address</dd>
+            </dl>
+            <p className="text-sm text-muted-foreground">
+              Each recipient gets their own unique, single-use verification link. This cannot be
+              undone.
+            </p>
+            {verifySendState.error ? (
+              <p className="text-sm text-danger">{verifySendState.error}</p>
+            ) : null}
+            {verifySendState.success ? (
+              <div className="text-sm">
+                <p className="text-success">Verification emails sent: {verifySendState.sentCount}</p>
+                <p className="text-muted-foreground">
+                  Failed: {verifySendState.failedCount ?? 0} · Skipped:{" "}
+                  {verifySendState.skippedCount ?? 0}
+                </p>
+              </div>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={verifySendPending}
+                onClick={() => setReviewing(false)}
+              >
+                Back
+              </Button>
+              <Button
+                type="submit"
+                variant="danger"
+                size="sm"
+                disabled={verifySendPending}
+                className="gap-1.5"
+              >
+                {verifySendPending ? (
+                  "Sending…"
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    Send now
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
         ) : (
           <Card className="space-y-3 border-danger/30 p-5">
             <h2 className="text-sm font-semibold">Confirm send</h2>

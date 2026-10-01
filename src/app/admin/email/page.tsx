@@ -87,6 +87,7 @@ export default async function AdminEmailPage({
                     <th className="px-3 py-2.5 text-right font-medium">Recipients</th>
                     <th className="px-3 py-2.5 text-right font-medium">Sent</th>
                     <th className="px-3 py-2.5 text-right font-medium">Failed</th>
+                    <th className="px-3 py-2.5 text-right font-medium">Skipped</th>
                     <th className="px-3 py-2.5 font-medium">Sent by</th>
                     <th className="px-3 py-2.5 font-medium">Status</th>
                     <th className="px-5 py-2.5 text-right font-medium">Date</th>
@@ -110,6 +111,9 @@ export default async function AdminEmailPage({
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-danger">
                         {c.failedCount || 0}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
+                        {c.skippedCount || 0}
                       </td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">{c.adminEmail}</td>
                       <td className="px-3 py-3">
