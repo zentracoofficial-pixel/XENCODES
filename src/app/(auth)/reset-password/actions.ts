@@ -30,8 +30,20 @@ export async function resetPasswordAction(
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
+  // sessionVersion is bumped here too, exactly like changePasswordAction()
+  // in src/app/dashboard/settings/actions.ts: a password reset is the one
+  // moment someone most plausibly needed to lock out a session they don't
+  // control (a stolen cookie, a shared machine, a compromised device), so
+  // every already-issued JWT — including on whatever device is still
+  // signed in — must stop working immediately rather than staying valid
+  // until it expires on its own. See User.sessionVersion's own schema
+  // comment for why this is the only revocation mechanism a JWT-only
+  // session strategy has.
   await prisma.$transaction([
-    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { passwordHash, sessionVersion: { increment: 1 } },
+    }),
     prisma.passwordResetToken.update({
       where: { id: record.id },
       data: { usedAt: new Date() },
