@@ -81,15 +81,19 @@ export function toActivationState(activation: ActivationRow): ActivationState {
 
 /** Where a call to reconcileActivation() originated. CUSTOMER_POLL and
  *  ADMIN_MANUAL_CHECK represent one specific, deliberate real-world check
- *  and always ask the provider; ADMIN_VIEW (a page simply rendering) and
- *  SWEEP (the periodic batch) are throttled — see BACKOFF_TRIGGERS. */
+ *  and always ask the provider; CUSTOMER_VIEW and ADMIN_VIEW (a page simply
+ *  rendering) and SWEEP (the periodic batch) are throttled — see
+ *  BACKOFF_TRIGGERS. CUSTOMER_VIEW exists separately from ADMIN_VIEW only so
+ *  the reconciliation log and server logs say which side actually triggered
+ *  the check; both are throttled identically. */
 export type ActivationReconcileTrigger =
   | "CUSTOMER_POLL"
+  | "CUSTOMER_VIEW"
   | "ADMIN_VIEW"
   | "ADMIN_MANUAL_CHECK"
   | "SWEEP";
 
-const BACKOFF_TRIGGERS = new Set<ActivationReconcileTrigger>(["ADMIN_VIEW", "SWEEP"]);
+const BACKOFF_TRIGGERS = new Set<ActivationReconcileTrigger>(["CUSTOMER_VIEW", "ADMIN_VIEW", "SWEEP"]);
 const PROVIDER_CHECK_BACKOFF_MS = 20_000;
 
 export const REFUND_REASON_LABEL: Record<ActivationRefundReason, string> = {

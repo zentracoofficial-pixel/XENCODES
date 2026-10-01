@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "./activation-logo";
+import { reconcileActivation } from "@/lib/activation-lifecycle";
 import { getRecentActivity } from "@/lib/recent-activity";
 import { getLowBalanceThreshold, shouldShowLowBalanceWarning } from "@/lib/low-balance";
 import { RecentActivityList } from "./recent-activity-list";
@@ -18,6 +19,28 @@ export const metadata: Metadata = { title: "Dashboard" };
 export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
+
+  // Opportunistic, bounded reconciliation: this customer's own dashboard
+  // loading is itself a reasonable moment to ask the provider again about
+  // any of their own orders stuck past their session end, so a stuck order
+  // can settle (and refund) on its own without them needing to open its
+  // live-polling activation page or wait for the once-daily sweep. Goes
+  // through the same reconcileActivation() every other settlement path
+  // uses, backed off per order (CUSTOMER_VIEW trigger — see
+  // activation-lifecycle.ts), so repeated dashboard loads do not themselves
+  // turn into more provider traffic than the situation warrants. Mirrors
+  // reconcileStalePendingTopUpsAction()'s same pattern for wallet top-ups.
+  const overdue = await prisma.activation.findMany({
+    where: { userId, status: "WAITING", expiresAt: { lt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    take: 3,
+    select: { id: true },
+  });
+  for (const row of overdue) {
+    await reconcileActivation(row.id, "CUSTOMER_VIEW").catch((error) =>
+      console.error(`[dashboard] opportunistic reconcile failed for ${row.id}:`, error),
+    );
+  }
 
   const [user, current, activity, favorites, fundedCount, activationCount, deliveredAgg, smsReceivedCount] =
     await Promise.all([
