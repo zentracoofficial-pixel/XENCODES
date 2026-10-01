@@ -322,11 +322,13 @@ export default async function AdminUserDetailPage({
         <UserActions
           userId={user.id}
           email={user.email}
+          name={user.name}
           status={user.status}
           role={user.role}
           currency={user.currency}
           isSelf={admin.id === user.id}
           isDeleted={Boolean(user.deletedAt)}
+          emailVerified={Boolean(user.emailVerified)}
           deletionImpact={deletionImpact}
         />
       </div>

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { creditWallet } from "@/lib/wallet";
 import { majorToMinor } from "@/lib/currency";
 import { recordAudit } from "@/lib/audit";
+import { adminVerifyUserEmail } from "@/lib/verification";
 
 async function guardNotSelf(targetUserId: string, action: string) {
   const admin = await requireAdmin();
@@ -161,5 +162,41 @@ export async function adminCreditWalletAction(
 
   revalidatePath(`/admin/users/${userId}`);
   revalidatePath("/admin/wallet");
+  return { success: true };
+}
+
+export interface VerifyEmailActionResult {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * The manual-verification fallback: marks an account verified without
+ * requiring a customer to click a link or have filed a
+ * ManualVerificationRequest first — see adminVerifyUserEmail()'s own
+ * comment in src/lib/verification.ts for why this works even when Resend is
+ * entirely down. Reason is optional and free text, recorded on the audit
+ * log alongside the admin who acted, never on the user record itself.
+ */
+export async function verifyUserEmailAction(
+  userId: string,
+  reason: string,
+): Promise<VerifyEmailActionResult> {
+  const admin = await requireAdmin();
+
+  const result = await adminVerifyUserEmail(userId);
+  if (result.status === "not_found") return { error: "That account no longer exists." };
+  if (result.status === "already_verified") return { error: "This account is already verified." };
+
+  await recordAudit({
+    actor: admin,
+    action: "user.manually_verify_email",
+    targetType: "user",
+    targetId: userId,
+    metadata: reason.trim() ? { reason: reason.trim() } : undefined,
+  });
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
   return { success: true };
 }

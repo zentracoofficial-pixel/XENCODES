@@ -47,7 +47,7 @@ async function createVerificationToken(userId: string): Promise<string> {
 
 export type SendVerificationEmailResult =
   | { ok: true }
-  | { ok: false; reason: "not_configured" | "rejected" | "network" };
+  | { ok: false; reason: "not_configured" | "unsafe_sender" | "rejected" | "network" };
 
 /** Creates a token and emails the verification link through the branded
  *  template. Used by both signup and the resend action, so there is one
@@ -213,13 +213,16 @@ export async function resendVerificationEmail(user: User): Promise<ResendVerific
 
   const result = await sendVerificationEmail(user);
   if (!result.ok) {
-    const message =
-      result.reason === "not_configured"
-        ? "Email delivery is not configured on this deployment yet."
-        : result.reason === "network"
-          ? "Could not reach the email provider. Please try again shortly."
-          : "The email provider rejected the message.";
-    return { status: "provider_error", message };
+    // Logged here, not shown to the customer: "not_configured"/"unsafe_sender"
+    // are internal deployment problems, and "network"/"rejected" are Resend's
+    // own wording — none of that is safe or useful for a customer to see
+    // (see EmailDeliveryError's own comment in src/lib/email.ts). The
+    // account stays unverified either way; admin can still verify it by hand.
+    console.error(`[verification] failed to send verification email to user ${user.id}: ${result.reason}`);
+    return {
+      status: "provider_error",
+      message: "We couldn't send the verification email right now. Please try again later or contact support.",
+    };
   }
 
   return { status: "sent", cooldownSeconds: RESEND_COOLDOWN_SECONDS };
@@ -306,4 +309,35 @@ export async function requestManualVerification(
     if (isUniqueViolation) return { status: "already_pending" };
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Direct admin verification (no customer request needed)
+// ---------------------------------------------------------------------------
+
+export type AdminVerifyEmailResult =
+  | { status: "verified" }
+  | { status: "already_verified" }
+  | { status: "not_found" };
+
+/**
+ * The fallback the whole email-sending fix in this task exists to make
+ * possible: an admin marking an account verified directly, independent of
+ * Resend, a token, or a prior ManualVerificationRequest from the customer.
+ * Works even when Resend is completely down, misconfigured, or rate
+ * limited, because it never calls it — this only ever touches
+ * User.emailVerified, the one canonical field every other check in the app
+ * already reads (the purchase limit, the dashboard banner, /verify-email).
+ *
+ * Does not touch EmailVerificationToken: any outstanding token for this user
+ * simply becomes moot, since verifyEmailToken() already treats an account
+ * verified by any other means as "alreadyVerified" rather than erroring.
+ */
+export async function adminVerifyUserEmail(userId: string): Promise<AdminVerifyEmailResult> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { emailVerified: true } });
+  if (!user) return { status: "not_found" };
+  if (user.emailVerified) return { status: "already_verified" };
+
+  await prisma.user.update({ where: { id: userId }, data: { emailVerified: new Date() } });
+  return { status: "verified" };
 }
