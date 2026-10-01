@@ -259,17 +259,22 @@ export default async function AdminUsersPage({
                       })}
                     </td>
                     <td className="px-5 py-3">
-                      <Badge
-                        variant={
-                          user.deletedAt
-                            ? "neutral"
-                            : user.status === "ACTIVE"
-                              ? "success"
-                              : "danger"
-                        }
-                      >
-                        {user.deletedAt ? "DELETED" : user.status}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge
+                          variant={
+                            user.deletedAt
+                              ? "neutral"
+                              : user.status === "ACTIVE"
+                                ? "success"
+                                : "danger"
+                          }
+                        >
+                          {user.deletedAt ? "DELETED" : user.status}
+                        </Badge>
+                        {!user.emailVerified && !user.deletedAt ? (
+                          <Badge variant="warning">Unverified</Badge>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CreditCard, HeartPulse, Mail, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
+import { AlertTriangle, CreditCard, HeartPulse, Mail, Percent, Plug, ShieldCheck, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
@@ -12,7 +12,7 @@ import { formatMoney } from "@/lib/currency";
 import { getEnabledCurrencies } from "@/lib/currency-config";
 import { FUNDING_PROVIDER } from "@/lib/funding-limits";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { isEmailConfigured, emailFromAddress } from "@/lib/email";
+import { isEmailConfigured, emailFromAddress, isProductionSenderUnsafe } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { getRecoverySettings } from "@/lib/recovery";
 import { MarginForm, TopupFeeForm, TestEmailButton, RecoverySettingsForm } from "./settings-forms";
@@ -132,8 +132,16 @@ export default async function AdminSettingsPage() {
         <h2 className="flex items-center gap-2 font-semibold">
           <Mail className="h-4 w-4" />
           Email
-          <Badge variant={isEmailConfigured() ? "success" : "warning"}>
-            {isEmailConfigured() ? "Connected" : "Not connected"}
+          <Badge
+            variant={
+              isProductionSenderUnsafe() ? "danger" : isEmailConfigured() ? "success" : "warning"
+            }
+          >
+            {isProductionSenderUnsafe()
+              ? "Unsafe sender"
+              : isEmailConfigured()
+                ? "Connected"
+                : "Not connected"}
           </Badge>
         </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
@@ -141,6 +149,21 @@ export default async function AdminSettingsPage() {
             ? "Resend is connected. Every outbound email — verification links, password resets, admin campaigns, support notifications — sends through it."
             : "RESEND_API_KEY is not set on this deployment. Nothing is actually sent; every send attempt fails and is logged server-side."}
         </p>
+
+        {isProductionSenderUnsafe() ? (
+          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+            <p className="text-sm text-danger">
+              Production email sender is not configured with a verified Xencodes domain.
+              Every outbound email — verification, password reset, purchase, refund, recovery,
+              support — is currently refusing to send rather than using Resend&apos;s testing
+              domain. Set <code className="rounded bg-background px-1 py-0.5">EMAIL_FROM</code>{" "}
+              to a verified Xencodes address in this deployment&apos;s Production environment
+              variables, then redeploy.
+            </p>
+          </div>
+        ) : null}
+
         <dl className="mt-3 grid gap-2.5 sm:grid-cols-2">
           <div className="rounded-lg border border-border px-4 py-3">
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -161,7 +184,8 @@ export default async function AdminSettingsPage() {
           the <code className="rounded bg-background px-1 py-0.5">EMAIL_FROM</code> environment
           variable is not live on this exact deployment yet — check it is set for Production
           and that a deploy has actually run since. Resend also restricts that sandbox
-          address to only deliver to your own Resend account email.
+          address to only deliver to your own Resend account email, which is why production
+          sends now refuse outright instead of attempting (and failing) that delivery.
         </p>
         <div className="mt-4 border-t border-border pt-4">
           <TestEmailButton defaultTo={SUPPORT_EMAIL} />

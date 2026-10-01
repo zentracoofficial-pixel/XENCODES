@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldOff, Trash2, UserCog } from "lucide-react";
+import { MailCheck, ShieldOff, Trash2, UserCog } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,24 +10,31 @@ import {
   deleteUserAction,
   setUserRoleAction,
   setUserStatusAction,
+  verifyUserEmailAction,
   type CreditWalletState,
   type UserDeletionImpact,
 } from "../actions";
 
 const creditInitial: CreditWalletState = {};
 
+const DEFAULT_VERIFY_REASON =
+  "Email verification completed manually because the verification email could not be delivered.";
+
 export function UserActions({
   userId,
   email,
+  name,
   status,
   role,
   currency,
   isSelf,
   isDeleted,
+  emailVerified,
   deletionImpact,
 }: {
   userId: string;
   email: string;
+  name: string | null;
   status: "ACTIVE" | "SUSPENDED";
   role: "USER" | "ADMIN";
   /** ISO 4217, this account's own currency: what the admin's typed amount
@@ -35,6 +42,7 @@ export function UserActions({
   currency: string;
   isSelf: boolean;
   isDeleted: boolean;
+  emailVerified: boolean;
   deletionImpact: UserDeletionImpact;
 }) {
   const router = useRouter();
@@ -42,6 +50,11 @@ export function UserActions({
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [deleteStep, setDeleteStep] = useState<"idle" | "reviewing">("idle");
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyReason, setVerifyReason] = useState(DEFAULT_VERIFY_REASON);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyDone, setVerifyDone] = useState(false);
+  const [verifyPending, startVerify] = useTransition();
   const boundCredit = adminCreditWalletAction.bind(null, userId);
   const [creditState, creditAction, creditPending] = useActionState(
     boundCredit,
@@ -133,6 +146,85 @@ export function UserActions({
       </Card>
 
       {actionError ? <p className="text-sm text-danger">{actionError}</p> : null}
+
+      {!emailVerified && !isDeleted ? (
+        <Card className="p-5">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <MailCheck className="h-4 w-4" />
+            Email verification
+          </h2>
+          {verifyDone ? (
+            <p className="mt-3 text-sm text-success">
+              Verified. This account no longer needs a verification email.
+            </p>
+          ) : !verifyOpen ? (
+            <>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                This account hasn&apos;t verified its email yet. If the
+                verification email can&apos;t be delivered, you can mark it
+                verified directly — this never requires Resend.
+              </p>
+              <Button variant="outline" className="mt-3" onClick={() => setVerifyOpen(true)}>
+                Verify Email
+              </Button>
+            </>
+          ) : (
+            <div className="mt-3 space-y-3 rounded-lg bg-mint-soft px-3.5 py-3">
+              <p className="text-sm">
+                Verify this customer&apos;s email address?
+                <br />
+                <span className="font-medium">{name || "Customer"}</span>
+                <br />
+                {email}
+                <br />
+                <span className="text-xs text-muted-foreground">
+                  This will mark the email as verified without requiring the
+                  customer to click the verification link.
+                </span>
+              </p>
+              <label className="block text-xs font-medium text-muted-foreground" htmlFor="verify-reason">
+                Reason (optional)
+              </label>
+              <textarea
+                id="verify-reason"
+                value={verifyReason}
+                onChange={(e) => setVerifyReason(e.target.value)}
+                rows={2}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+              />
+              {verifyError ? <p className="text-sm text-danger">{verifyError}</p> : null}
+              <div className="flex gap-2">
+                <Button
+                  disabled={verifyPending}
+                  onClick={() => {
+                    setVerifyError(null);
+                    startVerify(async () => {
+                      const result = await verifyUserEmailAction(userId, verifyReason);
+                      if (result.error) {
+                        setVerifyError(result.error);
+                        return;
+                      }
+                      setVerifyDone(true);
+                    });
+                  }}
+                >
+                  {verifyPending ? "Verifying…" : "Verify Email"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={verifyPending}
+                  onClick={() => {
+                    setVerifyOpen(false);
+                    setVerifyError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      ) : null}
 
       <Card className="p-5">
         <h2 className="font-semibold">Adjust wallet</h2>

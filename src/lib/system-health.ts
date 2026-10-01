@@ -3,7 +3,7 @@ import { getEnabledProviders } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
 import { isKorapayConfigured } from "@/lib/korapay";
-import { isEmailConfigured } from "@/lib/email";
+import { isEmailConfigured, isProductionSenderUnsafe } from "@/lib/email";
 
 /**
  * A compact health rollup for the admin dashboard, reading only signals
@@ -96,11 +96,19 @@ export async function getSystemHealth(): Promise<HealthSignal[]> {
     detail: isKorapayConfigured() ? "Connected" : "KORAPAY_SECRET_KEY not set",
   });
 
-  // Email.
+  // Email. A production deployment still pointed at Resend's own testing
+  // sender is worse than merely "not connected" — it means every
+  // transactional email is actively refusing to send right now (see
+  // isProductionSenderUnsafe()'s own comment in src/lib/email.ts), so it is
+  // surfaced as an error, not a warning, distinct from "no API key at all".
   signals.push({
     label: "Email (Resend)",
-    state: isEmailConfigured() ? "ok" : "warning",
-    detail: isEmailConfigured() ? "Connected" : "RESEND_API_KEY not set",
+    state: isProductionSenderUnsafe() ? "error" : isEmailConfigured() ? "ok" : "warning",
+    detail: isProductionSenderUnsafe()
+      ? "Production sender is still Resend's testing domain"
+      : isEmailConfigured()
+        ? "Connected"
+        : "RESEND_API_KEY not set",
   });
 
   return signals;
