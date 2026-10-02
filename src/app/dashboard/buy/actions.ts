@@ -98,7 +98,7 @@ export async function purchaseNumberAction(
   const buyerCurrency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
 
   // Step one to three: cost, rule, price. All server side, all live.
-  const quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency);
+  let quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency);
   if (!quoted.ok) {
     if (quoted.reason === "no_provider") return { error: "no_provider" };
     if (quoted.reason === "provider_error") return { error: "provider_unavailable" };
@@ -106,8 +106,8 @@ export async function purchaseNumberAction(
     return { error: "unavailable" };
   }
 
-  const { quote, service, country, provider } = quoted;
-  const priceKobo = quote.customerPriceKobo;
+  let { quote, service, country, provider } = quoted;
+  let priceKobo = quote.customerPriceKobo;
 
   // The rule this whole path exists to protect. quotePrice() already
   // clamps to cost, so this only fires if that ever regresses, and it
@@ -150,7 +150,7 @@ export async function purchaseNumberAction(
   // from, re-resolved fresh rather than trusting getNumberProvider(): with
   // more than one provider enabled, "the" provider is not a stable idea,
   // and a purchase must go to the same one the customer's price came from.
-  const resolved = await resolveProvider(provider);
+  let resolved = await resolveProvider(provider);
   if (!resolved.connected) return { error: "no_provider" };
 
   let assigned;
@@ -171,10 +171,60 @@ export async function purchaseNumberAction(
     // comment) — never consulted here or anywhere else in this flow to
     // decide what to show or sell.
     await recordPurchaseFailure(provider, serviceSlug, countrySlug, reason);
-    if (error instanceof ProviderError && error.code === "out_of_stock") {
+    if (!(error instanceof ProviderError) || error.code !== "out_of_stock") {
+      return { error: "provider_unavailable" };
+    }
+
+    // "Out of stock" from the provider a moment after quotePair() itself
+    // confirmed stock is not necessarily true anymore: this whole flow's
+    // inventory is shared with every other buyer on the supplier's own
+    // platform, and the cheapest numbers can be bought out from under this
+    // exact request in the gap between the quote and the purchase call —
+    // same root cause as the targeted-pool fallback in the provider adapter
+    // itself, just one level up. Re-quoting fresh, once, tells a real
+    // sellout apart from a pair that is still buyable at a price this
+    // request's own ceiling no longer matches, rather than reporting the
+    // pair out of stock when it may not be.
+    const recheck = await quotePair(serviceSlug, countrySlug, buyerCurrency);
+    if (!recheck.ok) return { error: "unavailable" };
+
+    if (recheck.quote.customerPriceKobo !== priceKobo) {
+      // The live price moved. Never silently charge more than what the
+      // customer agreed to: surface this exactly like any other mid-flow
+      // price change (see the expectedPriceKobo check above) so they see
+      // the new figure and confirm again, win or lose.
+      return { error: "price_changed", priceKobo: recheck.quote.customerPriceKobo };
+    }
+
+    // Nothing the customer agreed to has changed — same price, same pair —
+    // so this is a one-time, invisible retry against the fresh quote
+    // rather than a dead end over a transient stock race. Every local
+    // binding downstream is refreshed from the recheck so the order
+    // actually recorded matches whichever provider/pool really fulfilled
+    // it, not the one originally targeted.
+    quoted = recheck;
+    ({ quote, service, country, provider } = quoted);
+    priceKobo = quote.customerPriceKobo;
+    resolved = await resolveProvider(provider);
+    if (!resolved.connected) return { error: "no_provider" };
+
+    try {
+      assigned = await resolved.provider.purchaseNumber(
+        serviceSlug,
+        countrySlug,
+        quote.providerCostKobo,
+        quoted.providerOfferId,
+      );
+    } catch (retryError) {
+      const retryReason =
+        retryError instanceof ProviderError
+          ? retryError.code
+          : retryError instanceof Error
+            ? retryError.message
+            : "unknown";
+      await recordPurchaseFailure(provider, serviceSlug, countrySlug, retryReason);
       return { error: "unavailable" };
     }
-    return { error: "provider_unavailable" };
   }
   await recordPurchaseSuccess(provider, serviceSlug, countrySlug);
 
