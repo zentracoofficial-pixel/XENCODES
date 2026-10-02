@@ -246,7 +246,25 @@ async function loadServiceCatalog(): Promise<ProviderService[] | null> {
       console.error(`[inventory] getServices failed for "${id}":`, error);
       continue;
     }
+    // Within one provider's own list, two different service codes sharing a
+    // slug (an identically-named "second" service, the same shape of thing
+    // src/lib/provider/country-meta.ts's assignVariantLabels() exists to
+    // catch for countries) would otherwise merge silently here with no
+    // trace: this provider has no equivalent "variant" picker for services
+    // the way the buy panel does for countries, so unlike a country
+    // collision this is left unmerged into the catalog rather than invented
+    // a UI for it — but it is at least made visible, so a real occurrence is
+    // debuggable instead of simply invisible.
+    const seenThisProvider = new Set<string>();
     for (const service of services) {
+      if (seenThisProvider.has(service.slug)) {
+        console.error(
+          `[inventory] "${id}" reports more than one service named ` +
+            `"${service.name}" (slug "${service.slug}"); only the first is listed.`,
+        );
+        continue;
+      }
+      seenThisProvider.add(service.slug);
       if (!merged.has(service.slug)) merged.set(service.slug, service);
     }
   }
