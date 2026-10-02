@@ -29,7 +29,11 @@ import {
   type QualityStat,
   type QualityTier,
 } from "@/lib/deliverability";
-import { getPoolQualityForPair, selectQualityPool } from "@/lib/provider-pool-quality";
+import {
+  getPoolQualityForPair,
+  getPreferredPoolQualityForService,
+  selectQualityPool,
+} from "@/lib/provider-pool-quality";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -475,11 +479,12 @@ export async function getServiceCountries(
   serviceSlug: string,
   currency: CurrencyConfigEntry,
 ): Promise<InventoryCountry[]> {
-  const [rules, serviceSetting, cacheFresh, historicalQuality] = await Promise.all([
+  const [rules, serviceSetting, cacheFresh, historicalQuality, preferredPoolQuality] = await Promise.all([
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
     anyProviderCacheFresh(),
     getCountryQualityForService(serviceSlug),
+    getPreferredPoolQualityForService(serviceSlug),
   ]);
   if (serviceSetting?.enabled === false) return [];
 
@@ -571,9 +576,14 @@ export async function getServiceCountries(
       const quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
-      // Xencodes' own measured rate for this exact pair, when there is
-      // enough settled history to trust it.
-      const measured = historicalQuality.get(offer.country.slug);
+      // the specific pool's own rate when Xencodes has real evidence to
+      // route this exact pair to a particular seller pool (see
+      // getPreferredPoolQualityForService()'s own comment — this is what
+      // the purchase would actually experience, not the blended figure
+      // across every pool including the ones being deliberately avoided);
+      // otherwise Xencodes' own blended measured rate for this exact pair,
+      // when there is enough settled history to trust it.
+      const measured = preferredPoolQuality.get(offer.country.slug) ?? historicalQuality.get(offer.country.slug);
       const successRate = offer.successRate ?? measured?.successRatePercent;
       const qualityTier = offer.successRate === undefined ? measured?.tier : undefined;
       return [
@@ -741,6 +751,7 @@ export async function quotePair(
   // already shows at least two pools with enough history to possibly matter.
   let effectiveCostUsdCents = winner.offer.costUsdCents;
   let chosenProviderOfferId: string | undefined;
+  let chosenPoolQuality: QualityStat | undefined;
   if (winner.provider.getProviderPools) {
     const qualityByPool = await getPoolQualityForPair(serviceSlug, winner.offer.country.slug).catch(
       (error) => {
@@ -760,6 +771,7 @@ export async function quotePair(
         if (chosen && isUsableUsdCost(chosen.costUsdCents)) {
           effectiveCostUsdCents = chosen.costUsdCents;
           chosenProviderOfferId = chosen.providerOfferId;
+          chosenPoolQuality = qualityByPool.get(chosen.providerOfferId);
         }
       }
     }
@@ -768,13 +780,20 @@ export async function quotePair(
   const quote = quoteForCurrency(rules, effectiveCostUsdCents, serviceSlug, currency);
 
   // Same fallback order as getServiceCountries(): the provider's own rate
-  // when it reports one, otherwise Xencodes' own measured rate for this
-  // exact pair. This is the figure purchaseNumberAction() will use to warn
-  // the customer before a low-quality purchase actually goes through.
+  // when it reports one; otherwise, once a specific pool was chosen above
+  // for its own confirmed better record, that pool's own rate — already in
+  // hand from qualityByPool, so this never costs a second lookup — since
+  // that is what this exact purchase will actually experience, not the
+  // blended rate across every pool this country has ever been served from
+  // (which is what getPairQuality() below measures, and which Xencodes is
+  // specifically routing around when a pool was chosen); otherwise
+  // Xencodes' own blended measured rate for this exact pair. This is the
+  // figure purchaseNumberAction() will use to warn the customer before a
+  // low-quality purchase actually goes through.
   const measured =
-    winner.offer.successRate === undefined
-      ? await getPairQuality(serviceSlug, winner.offer.country.slug)
-      : null;
+    winner.offer.successRate !== undefined
+      ? null
+      : (chosenPoolQuality ?? (await getPairQuality(serviceSlug, winner.offer.country.slug)));
 
   return {
     ok: true,

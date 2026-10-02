@@ -218,20 +218,23 @@ export interface PoolQualityRow {
 }
 
 /**
- * Every pool with enough real settled history to rate, across every
- * service+country pair that has any — the admin-facing view of exactly what
- * selectQualityPool() uses to decide, computed the identical way (same
- * 90-day/14-day blend, same sample-size gates) so this can never disagree
- * with what purchases are actually doing. Returns an empty array, not an
- * error, when nothing has enough history yet — expected for every pair on
- * day one of this feature existing, and for most pairs for a good while
- * after.
+ * Every pool with enough real settled history to rate, optionally narrowed
+ * to one service — the shared computation behind both getPoolQualityReport()
+ * (the admin-facing view, every service) and
+ * getPreferredPoolQualityForService() (one service, customer-facing), so
+ * the two can never quietly disagree about which pool selectQualityPool()
+ * would actually choose. Computed the identical way as selectQualityPool()
+ * itself (same 90-day/14-day blend, same sample-size gates, same
+ * MEANINGFUL_ADVANTAGE_POINTS bar). Returns an empty array, not an error,
+ * when nothing has enough history yet — expected for every pair on day one
+ * of this feature existing, and for most pairs for a good while after.
  */
-export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
+async function computePoolQualityRows(serviceSlug?: string): Promise<PoolQualityRow[]> {
   const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
   const where = (sinceDate: Date) => ({
+    ...(serviceSlug ? { serviceSlug } : {}),
     providerOfferId: { not: null },
     status: { in: SETTLED_STATUSES },
     createdAt: { gte: sinceDate },
@@ -255,7 +258,11 @@ export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
     // would silently split one pair into several rows if its name was ever
     // edited mid-window.
     prisma.activation.findMany({
-      where: { providerOfferId: { not: null }, createdAt: { gte: overallSince } },
+      where: {
+        ...(serviceSlug ? { serviceSlug } : {}),
+        providerOfferId: { not: null },
+        createdAt: { gte: overallSince },
+      },
       distinct: ["serviceSlug", "countrySlug"],
       select: { serviceSlug: true, serviceName: true, countrySlug: true, countryName: true },
     }),
@@ -339,4 +346,41 @@ export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
   });
 
   return rows;
+}
+
+/** The admin-facing view of every rated pool across every service — see
+ *  computePoolQualityRows()'s own comment. */
+export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
+  return computePoolQualityRows();
+}
+
+/**
+ * Per-country, the one pool (if any) that currently has a confirmed,
+ * materially better delivery record than its country's other rated pools
+ * for this service — the exact pool selectQualityPool() would route a
+ * purchase to right now, computed the identical way.
+ *
+ * Exists because a country's blended rate across every pool GrizzlySMS has
+ * ever served it from (getCountryQualityForService() in deliverability.ts)
+ * can keep looking bad long after Xencodes has real evidence to route
+ * around its worst pools — the customer-facing warning would otherwise
+ * never reflect an improvement the backend already made. A country with no
+ * confirmed best pool yet is simply absent here, so its caller falls back
+ * to the honest blended figure exactly as before this existed.
+ */
+export async function getPreferredPoolQualityForService(
+  serviceSlug: string,
+): Promise<Map<string, QualityStat>> {
+  const rows = await computePoolQualityRows(serviceSlug);
+  const result = new Map<string, QualityStat>();
+  for (const row of rows) {
+    if (row.preferred) {
+      result.set(row.countrySlug, {
+        successRatePercent: row.successRatePercent,
+        tier: row.tier,
+        sampleSize: row.sampleSize,
+      });
+    }
+  }
+  return result;
 }
