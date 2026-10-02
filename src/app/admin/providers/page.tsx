@@ -13,6 +13,7 @@ import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
 import { QualityReportCard } from "./quality-report-card";
+import { PriceTierDiagnosticCard } from "./price-tier-diagnostic-card";
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -73,6 +74,8 @@ export default async function AdminProvidersPage() {
         connected: resolution?.connected === true,
         capabilities:
           resolution?.connected === true ? getProviderCapabilities(resolution.provider) : null,
+        supportsPriceDiagnostic:
+          resolution?.connected === true && typeof resolution.provider.debugPriceTiers === "function",
         status: status
           ? {
               lastSuccessAt: status.lastSuccessAt?.toISOString() ?? null,
@@ -114,6 +117,12 @@ export default async function AdminProvidersPage() {
           <ProviderCard key={row.id} {...row} />
         ))}
       </div>
+
+      {rows
+        .filter((row) => row.supportsPriceDiagnostic)
+        .map((row) => (
+          <PriceTierDiagnosticCard key={`diagnostic-${row.id}`} providerId={row.id} />
+        ))}
 
       <FlaggedFailuresCard
         items={flagged.map((row) => ({

@@ -253,6 +253,18 @@ export interface NumberProvider {
    * getServices() call as the test.
    */
   testConnection?(): Promise<{ ok: boolean; message: string }>;
+
+  /**
+   * Read-only, admin-triggered only, never part of the normal sync or
+   * purchase path: asks the supplier directly, for one exact service and
+   * country, whatever richer price/quality information its API exposes
+   * beyond the single cost this adapter normally reads — and returns the
+   * raw answer verbatim rather than a parsed shape, since the whole point is
+   * finding out what that answer actually looks like before any code is
+   * written against an assumed one. Optional: an adapter nobody has asked
+   * this question of yet can leave it undefined.
+   */
+  debugPriceTiers?(serviceSlug: string, countrySlug: string): Promise<string>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */

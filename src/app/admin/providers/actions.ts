@@ -166,3 +166,50 @@ export async function syncAllProvidersAction(): Promise<ProviderSyncResult> {
   refresh();
   return result;
 }
+
+export interface PriceTierDiagnosticResult {
+  ok: boolean;
+  text: string;
+}
+
+/**
+ * Diagnostic only — see NumberProvider.debugPriceTiers's own comment in
+ * src/lib/provider/types.ts. Asks the live supplier directly what its
+ * richer price-version actions actually return for one exact service and
+ * country, so the next real selection-logic change can be grounded in a
+ * confirmed live response rather than a guess. Read-only, never reserves a
+ * number or spends anything; not part of the normal sync or purchase path.
+ */
+export async function debugProviderPriceTiersAction(
+  providerId: string,
+  serviceSlug: string,
+  countrySlug: string,
+): Promise<PriceTierDiagnosticResult> {
+  const admin = await requireAdmin();
+
+  if (!serviceSlug.trim() || !countrySlug.trim()) {
+    return { ok: false, text: "Enter both a service slug and a country slug." };
+  }
+
+  const resolution = await resolveProvider(providerId);
+  if (!resolution.connected) {
+    return { ok: false, text: "Provider is not connected." };
+  }
+  if (!resolution.provider.debugPriceTiers) {
+    return { ok: false, text: "This provider has no price-tier diagnostic." };
+  }
+
+  try {
+    const text = await resolution.provider.debugPriceTiers(serviceSlug.trim(), countrySlug.trim());
+    await recordAudit({
+      actor: admin,
+      action: "provider.debug_price_tiers",
+      targetType: "provider",
+      targetId: providerId,
+      metadata: { providerId, serviceSlug, countrySlug },
+    });
+    return { ok: true, text };
+  } catch (error) {
+    return { ok: false, text: error instanceof Error ? error.message : "Diagnostic failed." };
+  }
+}
