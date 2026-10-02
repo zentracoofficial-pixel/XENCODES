@@ -14,6 +14,7 @@ import {
   ACTIVATION_STATUS_VARIANT,
   ORDER_STATUS_LABEL,
 } from "@/lib/activation-status";
+import { reconcileActivation } from "@/lib/activation-lifecycle";
 
 export const metadata: Metadata = { title: "Admin: Orders" };
 
@@ -82,6 +83,31 @@ export default async function AdminOrdersPage({
   }>;
 }) {
   await requireAdmin();
+
+  // Opportunistic, bounded reconciliation: an admin loading this list is
+  // itself a reasonable moment to ask the provider again about orders that
+  // are overdue and stuck, so a stuck order can settle (and refund) itself
+  // and drop out of "Pending" without needing a click into its own page or
+  // the explicit "Refund" button — and without waiting for the once-daily
+  // sweep. Goes through the exact same reconcileActivation() every other
+  // settlement path uses, with the ADMIN_VIEW trigger already backed off per
+  // order (see activation-lifecycle.ts), so repeatedly loading this list
+  // does not itself turn into more provider traffic than the sweep would
+  // allow in a single run. Runs regardless of the active filter, so an
+  // admin browsing "Completed" or "Refunded" still clears stuck orders
+  // elsewhere in the system.
+  const OVERDUE_RECONCILE_LIMIT = 25;
+  const overdue = await prisma.activation.findMany({
+    where: { status: "WAITING", expiresAt: { lt: new Date() } },
+    orderBy: { createdAt: "asc" },
+    take: OVERDUE_RECONCILE_LIMIT,
+    select: { id: true },
+  });
+  for (const row of overdue) {
+    await reconcileActivation(row.id, "ADMIN_VIEW").catch((error) =>
+      console.error(`[admin-orders] opportunistic reconcile failed for ${row.id}:`, error),
+    );
+  }
 
   const { status, q, sort, service, country, provider, from, to, includeDeleted, page: pageRaw } =
     await searchParams;
