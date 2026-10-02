@@ -4,6 +4,7 @@ import {
   type ProviderAvailability,
   type ProviderCatalogEntry,
   type ProviderOrderStatus,
+  type ProviderPool,
   type ProviderService,
   type PurchasedNumber,
   type StockLevel,
@@ -578,6 +579,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     serviceSlug: string,
     countrySlug: string,
     maxCostUsdCents?: number,
+    providerOfferId?: string,
   ): Promise<PurchasedNumber> {
     const code = await this.resolveServiceCode(serviceSlug);
     const resolved = code ? await this.resolveCountryId(code, countrySlug) : null;
@@ -598,6 +600,15 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (maxCostUsdCents !== undefined) {
       const maxUsd = maxCostUsdCents / 100;
       params.maxPrice = maxUsd.toFixed(4);
+    }
+    // Targets one exact seller/pool (see ProviderPool) rather than
+    // GrizzlySMS's own default assignment — set only when
+    // src/lib/provider-pool-quality.ts found real evidence this one pool
+    // delivers materially better than the alternatives. A documented
+    // getNumberV2 parameter (confirmed from GrizzlySMS's own published
+    // client library), passed through verbatim.
+    if (providerOfferId !== undefined) {
+      params.providerIds = providerOfferId;
     }
 
     // Read raw text rather than callJson(): a sold-out pair answers with the
@@ -704,6 +715,44 @@ export class GrizzlySmsProvider implements NumberProvider {
       }
     }
     return lines.join("\n\n");
+  }
+
+  /**
+   * The real per-seller breakdown behind one exact service+country — see
+   * ProviderPool's own comment in types.ts. Confirmed, from a live response
+   * on a real account, that getPricesV3 returns a "providers" object keyed
+   * by GrizzlySMS's own seller id for a pair with more than one (WhatsApp/
+   * USA: 11 distinct ids, prices from $1 to $5 — the same price points a
+   * customer reported seeing on GrizzlySMS's own site), and omits
+   * "providers" entirely for a pair with nothing to distinguish (Fiverr/
+   * USA, same account). Returns null for either shape of "nothing to
+   * choose between" — GrizzlySMS has no breakdown for this pair, or this
+   * exact pair/service could not be resolved — never an empty array passed
+   * off as a confirmed "only one pool" answer.
+   */
+  async getProviderPools(serviceSlug: string, countrySlug: string): Promise<ProviderPool[] | null> {
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return null;
+    const resolved = await this.resolveCountryId(code, countrySlug);
+    if (!resolved) return null;
+
+    let text: string;
+    try {
+      text = await this.call({ action: "getPricesV3", service: code, country: resolved.id });
+    } catch (error) {
+      console.error(`[grizzlysms] getPricesV3 failed for "${serviceSlug}"/"${countrySlug}":`, error);
+      return null;
+    }
+
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error(`[grizzlysms] getPricesV3 returned non-JSON for "${serviceSlug}"/"${countrySlug}": ${text.slice(0, 500)}`);
+      return null;
+    }
+
+    return parseProviderPools(data, resolved.id, code);
   }
 
   /**
@@ -950,4 +999,45 @@ function parsePurchaseResponse(data: unknown): PurchasedNumber | null {
     phoneNumber: formattedNumber,
     sessionSeconds,
   };
+}
+
+/**
+ * getPricesV3's confirmed shape: countryId -> serviceCode -> { price, count,
+ * providers? }, where "providers" (when present) is itself keyed by
+ * GrizzlySMS's own seller id, each an object carrying its own count and a
+ * price — observed, on a real account, as a one-element array (e.g.
+ * `[1.35]`), defended here against a bare number too since nothing
+ * published confirms that shape is permanent. Returns null for anything
+ * that does not match — no "providers" key, an empty one, or an
+ * unrecognised shape — never a guessed or partial pool list.
+ */
+function parseProviderPools(
+  data: unknown,
+  countryId: string,
+  serviceCode: string,
+): ProviderPool[] | null {
+  if (typeof data !== "object" || data === null) return null;
+  const byCountry = (data as Record<string, unknown>)[countryId];
+  if (typeof byCountry !== "object" || byCountry === null) return null;
+  const byService = (byCountry as Record<string, unknown>)[serviceCode];
+  if (typeof byService !== "object" || byService === null) return null;
+  const providers = (byService as Record<string, unknown>).providers;
+  if (typeof providers !== "object" || providers === null) return null;
+
+  const pools: ProviderPool[] = [];
+  for (const [poolId, value] of Object.entries(providers as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const record = value as Record<string, unknown>;
+    const priceField = record.price;
+    const price = Array.isArray(priceField) ? Number(priceField[0]) : Number(priceField);
+    const count = Number(record.count);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    pools.push({
+      providerOfferId: poolId,
+      costUsdCents: usdToCents(price),
+      stockCount: Number.isFinite(count) && count > 0 ? count : 0,
+    });
+  }
+
+  return pools.length > 0 ? pools : null;
 }

@@ -3,6 +3,7 @@ import {
   getNumberProvider,
   getEnabledProviders,
   PROVIDER_UNAVAILABLE_COPY,
+  type NumberProvider,
   type ProviderService,
   type ProviderAvailability,
 } from "@/lib/provider";
@@ -22,7 +23,13 @@ import {
   type DeliverabilityLabel,
   type AvailableStockLevel,
 } from "@/lib/country-recommendation";
-import { getCountryQualityForService, getPairQuality, type QualityTier } from "@/lib/deliverability";
+import {
+  getCountryQualityForService,
+  getPairQuality,
+  type QualityStat,
+  type QualityTier,
+} from "@/lib/deliverability";
+import { getPoolQualityForPair, selectQualityPool } from "@/lib/provider-pool-quality";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -169,6 +176,17 @@ export type QuoteResult =
        *  only: never used to talk to a provider directly. */
       providerServiceId?: string;
       providerCountryId?: string;
+      /** Set only when src/lib/provider-pool-quality.ts found real evidence
+       *  one of this provider's own distinct seller pools (see ProviderPool)
+       *  for this exact pair has a confirmed, materially better delivery
+       *  record than its current alternatives — in which case `quote` and
+       *  `country.priceKobo` are already priced from *this* pool's own cost,
+       *  not the provider's blended one, and a purchase must ask for this
+       *  pool specifically (see purchaseNumber()'s own providerOfferId
+       *  parameter) to actually get what was priced. Absent in the ordinary
+       *  case: no pools to choose between, or not enough evidence yet to
+       *  prefer one — nothing changes from before this feature existed. */
+      providerOfferId?: string;
     }
   | { ok: false; reason: QuoteFailure };
 
@@ -656,6 +674,7 @@ export async function quotePair(
 
   interface Candidate {
     providerId: string;
+    provider: NumberProvider;
     offer: ProviderAvailability;
     service: ProviderService;
   }
@@ -700,7 +719,7 @@ export async function quotePair(
       continue;
     }
 
-    candidates.push({ providerId: id, offer, service });
+    candidates.push({ providerId: id, provider, offer, service });
   }
 
   if (candidates.length === 0) {
@@ -713,7 +732,40 @@ export async function quotePair(
     candidate.offer.costUsdCents < best.offer.costUsdCents ? candidate : best,
   );
 
-  const quote = quoteForCurrency(rules, winner.offer.costUsdCents, serviceSlug, currency);
+  // Quality over cheapest, but only once there is real evidence to act on —
+  // see selectQualityPool()'s own comment in src/lib/provider-pool-quality.ts
+  // for exactly when this does and does not diverge from the winner's own
+  // blended cost above. A pure DB read first (cheap, and almost always the
+  // whole answer: most pairs have no rated pools yet): the live,
+  // network-calling getProviderPools() is only worth asking once that read
+  // already shows at least two pools with enough history to possibly matter.
+  let effectiveCostUsdCents = winner.offer.costUsdCents;
+  let chosenProviderOfferId: string | undefined;
+  if (winner.provider.getProviderPools) {
+    const qualityByPool = await getPoolQualityForPair(serviceSlug, winner.offer.country.slug).catch(
+      (error) => {
+        console.error(`[inventory] pool-quality lookup failed for "${serviceSlug}"/"${countrySlug}":`, error);
+        return new Map<string, QualityStat>();
+      },
+    );
+    if (qualityByPool.size >= 2) {
+      const pools = await winner.provider
+        .getProviderPools(serviceSlug, winner.offer.country.slug)
+        .catch((error) => {
+          console.error(`[inventory] getProviderPools failed for "${serviceSlug}"/"${countrySlug}":`, error);
+          return null;
+        });
+      if (pools) {
+        const chosen = selectQualityPool(pools, qualityByPool);
+        if (chosen && isUsableUsdCost(chosen.costUsdCents)) {
+          effectiveCostUsdCents = chosen.costUsdCents;
+          chosenProviderOfferId = chosen.providerOfferId;
+        }
+      }
+    }
+  }
+
+  const quote = quoteForCurrency(rules, effectiveCostUsdCents, serviceSlug, currency);
 
   // Same fallback order as getServiceCountries(): the provider's own rate
   // when it reports one, otherwise Xencodes' own measured rate for this
@@ -730,6 +782,7 @@ export async function quotePair(
     provider: winner.providerId,
     providerServiceId: winner.service.providerServiceId,
     providerCountryId: winner.offer.country.providerCountryId,
+    providerOfferId: chosenProviderOfferId,
     service: toInventoryService(winner.service),
     country: {
       slug: winner.offer.country.slug,
