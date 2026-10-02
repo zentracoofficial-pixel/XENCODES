@@ -116,10 +116,6 @@ export default async function HomePage() {
                 Get your code.
               </h1>
               <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted-foreground text-pretty">
-                Search for the service you need, choose a country, and receive
-                your verification SMS in real time.
-              </p>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
                 Xencodes is a virtual SMS verification platform: rent a
                 virtual phone number for the exact service and country you
                 need, and receive the code straight to your activation page.
