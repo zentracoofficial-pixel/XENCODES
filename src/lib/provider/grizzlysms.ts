@@ -633,12 +633,32 @@ export class GrizzlySmsProvider implements NumberProvider {
       params.providerIds = providerOfferId;
     }
 
+    let text = await this.call(params);
+    let trimmed = text.trim();
+
+    // A specifically-targeted pool can sell the last of its own thin stock
+    // to someone else (GrizzlySMS resells the same pools to many clients,
+    // not only Xencodes) in the moments between quotePair() confirming it
+    // had stock and this exact call — real, observed in production: the
+    // country+service pair as a whole still had numbers, just not from the
+    // one pool this purchase insisted on. Retrying once, immediately, with
+    // the same price ceiling but GrizzlySMS's own default assignment
+    // instead, is what keeps a pool going briefly dry from making an
+    // otherwise-available pair falsely report as sold out entirely — the
+    // exact customer-facing bug this comment is guarding against. Never
+    // retried when no specific pool was targeted in the first place: that
+    // NO_NUMBERS already means the pair itself has nothing to sell.
+    if (trimmed === "NO_NUMBERS" && providerOfferId !== undefined) {
+      const fallbackParams = { ...params };
+      delete fallbackParams.providerIds;
+      text = await this.call(fallbackParams);
+      trimmed = text.trim();
+    }
+
     // Read raw text rather than callJson(): a sold-out pair answers with the
     // plain error string "NO_NUMBERS", not JSON, and that specific outcome
     // needs its own error code so the buy flow can say "out of stock, try
     // another country" instead of a generic provider error.
-    const text = await this.call(params);
-    const trimmed = text.trim();
     if (trimmed === "NO_NUMBERS") {
       throw new ProviderError("No numbers available for that pair.", "out_of_stock");
     }
