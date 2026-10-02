@@ -162,6 +162,7 @@ export async function purchaseNumberAction(
       serviceSlug,
       countrySlug,
       quote.providerCostKobo,
+      quoted.providerOfferId,
     );
   } catch (error) {
     const reason =
@@ -234,6 +235,7 @@ export async function purchaseNumberAction(
           providerOrderId: assigned.providerOrderId,
           providerServiceId: quoted.providerServiceId ?? null,
           providerCountryId: quoted.providerCountryId ?? null,
+          providerOfferId: quoted.providerOfferId ?? null,
           currency: buyerCurrency.code,
           priceKobo,
           providerCostKobo: quote.providerCostKobo,

@@ -310,6 +310,17 @@ model Activation {
   providerServiceId           String?
   /// The supplier's own id for the country bought, captured the same way.
   providerCountryId           String?
+  /// GrizzlySMS's own per-service-and-country seller id — a real, distinct
+  /// pool within one country, each with its own price and stock (see
+  /// getPricesV3's "providers" field in src/lib/provider/grizzlysms.ts's own
+  /// comment, and src/lib/provider-pool-quality.ts, which tracks real
+  /// outcomes by this id). Null on any order placed before this existed, and
+  /// on any order where no specific pool was deliberately targeted (not
+  /// every provider in this API family — and not every pair even within
+  /// GrizzlySMS — exposes more than one pool). Reporting and quality-
+  /// tracking only: nothing reads this back to talk to the supplier, since
+  /// providerOrderId alone is enough to poll status or cancel.
+  providerOfferId             String?
   /// "NGN" or "USD" (CHECK-constrained, see User.currency's own comment):
   /// what priceKobo/providerCostKobo/grossProfitKobo are all denominated
   /// in, the buyer's own currency at the moment of purchase (User.currency),
@@ -383,6 +394,11 @@ model Activation {
   /// createdAt cutoff, on every buy-page load — a query this frequent
   /// deserves its own index rather than relying on the broader ones above.
   @@index([serviceSlug, countrySlug, createdAt])
+  /// Serves src/lib/provider-pool-quality.ts, the same shape of query as the
+  /// index above, one level more specific (by providerOfferId too) — a
+  /// provider whose pairs genuinely have multiple pools deserves this query
+  /// to stay indexed rather than falling back to the broader one above.
+  @@index([serviceSlug, countrySlug, providerOfferId, createdAt])
   @@map("activations")
 }
 

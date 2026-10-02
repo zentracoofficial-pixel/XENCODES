@@ -110,6 +110,26 @@ export interface ProviderCatalogEntry {
   stockCount?: number;
 }
 
+/**
+ * One real, distinct seller behind a single service+country pair, when a
+ * provider's API exposes more than one — confirmed, from a live GrizzlySMS
+ * response, to be exactly what its own site's multiple price points for one
+ * country+service actually are (see getProviderPools()'s own comment in
+ * src/lib/provider/grizzlysms.ts). Not a guess, not a quality score: just
+ * the real id, cost and stock GrizzlySMS itself reports for that one seller.
+ */
+export interface ProviderPool {
+  /** The provider's own id for this specific seller/pool — distinct from
+   *  both the country id and the service id. Stored on the Activation that
+   *  deliberately targeted it (see Activation.providerOfferId's own schema
+   *  comment) so Xencodes' own outcomes can be tracked per pool, the real
+   *  evidence src/lib/provider-pool-quality.ts uses to ever prefer one pool
+   *  over another. */
+  providerOfferId: string;
+  costUsdCents: number;
+  stockCount: number;
+}
+
 export interface PurchasedNumber {
   /** The supplier's own id for this order, kept for status polling. */
   providerOrderId: string;
@@ -177,11 +197,20 @@ export interface NumberProvider {
    * silently paid. It is a backstop, not a substitute for the caller's own
    * check. In USD cents, the same currency every cost crossing this
    * boundary is in, regardless of what currency the customer is paying.
+   *
+   * `providerOfferId`, when given, asks the supplier for a number from that
+   * one exact pool specifically (see ProviderPool), rather than whatever its
+   * own default assignment would pick — set only when
+   * src/lib/provider-pool-quality.ts's real, evidence-based comparison
+   * found one pool with a confirmed, materially better delivery record than
+   * the others, never as a default. An adapter with no such concept, or
+   * whose API cannot target one, ignores it.
    */
   purchaseNumber(
     serviceSlug: string,
     countrySlug: string,
     maxCostUsdCents?: number,
+    providerOfferId?: string,
   ): Promise<PurchasedNumber>;
 
   /** Polled while a customer waits. Carries the code once it arrives. */
@@ -265,6 +294,17 @@ export interface NumberProvider {
    * this question of yet can leave it undefined.
    */
   debugPriceTiers?(serviceSlug: string, countrySlug: string): Promise<string>;
+
+  /**
+   * The real per-seller breakdown behind one exact service+country, when
+   * this provider's API exposes one (see ProviderPool's own comment).
+   * Returns null — never an empty/guessed result — when the provider has no
+   * such concept, or this exact pair happens not to have more than one pool
+   * right now: every caller treats null as "nothing to choose between,
+   * price and buy exactly as before this existed." Optional for the same
+   * reason debugPriceTiers is.
+   */
+  getProviderPools?(serviceSlug: string, countrySlug: string): Promise<ProviderPool[] | null>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */
