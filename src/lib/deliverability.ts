@@ -96,7 +96,10 @@ export interface QualityStat {
  *  service/country pair's. */
 export const SETTLED_STATUSES: ActivationStatus[] = ["RECEIVED", "EXPIRED", "CANCELLED", "REFUNDED"];
 
-function toStat(received: number, settled: number, minSample: number): QualityStat | null {
+/** Exported for src/lib/provider-pool-quality.ts, which applies this exact
+ *  same statistic one level more specific (by provider pool, not just
+ *  country) — one formula, never two copies that could quietly drift. */
+export function toStat(received: number, settled: number, minSample: number): QualityStat | null {
   if (settled < minSample) return null;
   const rate = (received / settled) * 100;
   return {
@@ -128,7 +131,8 @@ function toStat(received: number, settled: number, minSample: number): QualitySt
  *     day-to-day noise in a small recent sample move the displayed number
  *     around.
  */
-function pickEffectiveStat(
+/** Exported for the same reason toStat() is above. */
+export function pickEffectiveStat(
   overall: QualityStat | null,
   recent: QualityStat | null,
 ): QualityStat | null {

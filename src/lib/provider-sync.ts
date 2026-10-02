@@ -64,6 +64,77 @@ function safeStockCount(count: number | undefined): number {
   return Math.min(Math.trunc(count), MAX_SAFE_STOCK_COUNT);
 }
 
+/**
+ * Keeps every distinct, priceable offer a provider actually reports, even
+ * when two of its own country ids happen to slugify to the identical pair
+ * key — which, for a provider in GrizzlySMS's API family, is exactly the
+ * shape a second, separately-priced, separately-stocked quality pool for
+ * the same country takes when the supplier gives it no "(2)"-style suffix
+ * of its own: two different providerCountryId values reporting under the
+ * same plain name. SyncedOffer's own unique constraint is
+ * (serviceSlug, countrySlug, providerId), so without this, the second one
+ * would silently overwrite — or never even reach — the first, with nothing
+ * in any log to say a whole second pool of real, currently-sellable
+ * inventory (sometimes the pricier, better-quality one in a "cheap vs.
+ * quality" split like the one this file was built to preserve) went
+ * missing. See src/lib/country-variant.ts for why a "(N)" suffix is the
+ * right shape to invent here: the recommendation system in
+ * src/lib/country-recommendation.ts already knows how to compare two
+ * variants of one country on their real delivery record, not on price —
+ * this is just what lets it ever see both in the first place.
+ *
+ * A true duplicate — the exact same providerCountryId appearing twice in
+ * one catalog read — is still dropped silently, exactly as before: that is
+ * the same inventory reported twice, not a second pool.
+ *
+ * `entries` must already be filtered to what is actually priceable and in
+ * stock (see syncOneProvider): collision handling only needs to happen
+ * among offers that would otherwise actually be written.
+ */
+export function dedupeCatalogEntries(
+  entries: ProviderCatalogEntry[],
+  providerId: string,
+): ProviderCatalogEntry[] {
+  const seenPairs = new Map<string, string | undefined>();
+  const result: ProviderCatalogEntry[] = [];
+
+  for (const entry of entries) {
+    let country = entry.country;
+    let pairKey = `${entry.service.slug}::${country.slug}`;
+
+    if (seenPairs.has(pairKey)) {
+      const keptProviderCountryId = seenPairs.get(pairKey);
+      if (keptProviderCountryId === country.providerCountryId) {
+        // The same provider country id, reported twice — nothing new to
+        // sell, not a second pool.
+        continue;
+      }
+
+      let suffix = 2;
+      let candidateSlug = `${country.slug}-${suffix}`;
+      while (seenPairs.has(`${entry.service.slug}::${candidateSlug}`)) {
+        suffix += 1;
+        candidateSlug = `${country.slug}-${suffix}`;
+      }
+
+      console.error(
+        `[provider-sync] "${providerId}" reports two distinct country ids both named ` +
+          `"${country.name}" for "${entry.service.slug}" (kept "${keptProviderCountryId ?? "unknown"}" ` +
+          `first; this one is "${country.providerCountryId ?? "unknown"}") — keeping both rather than ` +
+          `silently dropping real inventory, labelling this one "${country.name} (${suffix})".`,
+      );
+
+      country = { ...country, slug: candidateSlug, name: `${country.name} (${suffix})` };
+      pairKey = `${entry.service.slug}::${candidateSlug}`;
+    }
+
+    seenPairs.set(pairKey, country.providerCountryId);
+    result.push(country === entry.country ? entry : { ...entry, country });
+  }
+
+  return result;
+}
+
 type OfferRow = {
   providerId: string;
   serviceSlug: string;
@@ -238,23 +309,24 @@ async function syncOneProvider(
     const rows: OfferRow[] = [];
     const serviceSlugs = new Set<string>();
     const countrySlugs = new Set<string>();
-    // The table has a unique constraint on (service, country, provider),
-    // and a supplier can legitimately report the same pair twice across its
-    // catalog; keeping the first occurrence avoids failing the whole write
-    // on a duplicate.
-    const seenPairs = new Set<string>();
 
-    for (const entry of catalog) {
-      if (disabled.has(entry.service.slug)) continue;
-      if (entry.stock === "out_of_stock") continue;
-      // An unusable cost means an unknowable margin, so there is no price
-      // to cache against it. Dropped rather than guessed.
-      if (!isUsableUsdCost(entry.costUsdCents)) continue;
+    const priceable = catalog.filter(
+      (entry) =>
+        !disabled.has(entry.service.slug) &&
+        entry.stock !== "out_of_stock" &&
+        // An unusable cost means an unknowable margin, so there is no price
+        // to cache against it. Dropped rather than guessed.
+        isUsableUsdCost(entry.costUsdCents),
+    );
+    // See dedupeCatalogEntries()'s own comment: this is what keeps a second,
+    // identically-named country pool (a real, separately-priced, separately-
+    // stocked quality tier GrizzlySMS gave no "(2)"-style suffix of its own)
+    // from silently overwriting — or never even reaching — the first one,
+    // the table's (service, country, provider) unique constraint would
+    // otherwise collide them into.
+    const deduped = dedupeCatalogEntries(priceable, id);
 
-      const pairKey = `${entry.service.slug}::${entry.country.slug}`;
-      if (seenPairs.has(pairKey)) continue;
-      seenPairs.add(pairKey);
-
+    for (const entry of deduped) {
       // The same centralized engine every displayed and charged price goes
       // through, converted here into the platform's default currency purely
       // for this browsing/highlight cache; quotePair() always recomputes

@@ -9,10 +9,13 @@ import {
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
+import { getPoolQualityReport } from "@/lib/provider-pool-quality";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
 import { QualityReportCard } from "./quality-report-card";
+import { PoolQualityReportCard } from "./pool-quality-report-card";
+import { PriceTierDiagnosticCard } from "./price-tier-diagnostic-card";
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -41,11 +44,12 @@ export const maxDuration = 60;
 export default async function AdminProvidersPage() {
   await requireAdmin();
 
-  const [config, statuses, flagged, quality] = await Promise.all([
+  const [config, statuses, flagged, quality, poolQuality] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
     getQualityReport(),
+    getPoolQualityReport(),
   ]);
   const configById = new Map(config.map((entry) => [entry.id, entry]));
 
@@ -73,6 +77,8 @@ export default async function AdminProvidersPage() {
         connected: resolution?.connected === true,
         capabilities:
           resolution?.connected === true ? getProviderCapabilities(resolution.provider) : null,
+        supportsPriceDiagnostic:
+          resolution?.connected === true && typeof resolution.provider.debugPriceTiers === "function",
         status: status
           ? {
               lastSuccessAt: status.lastSuccessAt?.toISOString() ?? null,
@@ -115,6 +121,12 @@ export default async function AdminProvidersPage() {
         ))}
       </div>
 
+      {rows
+        .filter((row) => row.supportsPriceDiagnostic)
+        .map((row) => (
+          <PriceTierDiagnosticCard key={`diagnostic-${row.id}`} providerId={row.id} />
+        ))}
+
       <FlaggedFailuresCard
         items={flagged.map((row) => ({
           id: row.id,
@@ -147,6 +159,8 @@ export default async function AdminProvidersPage() {
           sampleSize: row.sampleSize,
         }))}
       />
+
+      <PoolQualityReportCard rows={poolQuality} />
     </div>
   );
 }

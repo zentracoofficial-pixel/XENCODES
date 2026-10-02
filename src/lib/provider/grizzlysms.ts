@@ -4,11 +4,12 @@ import {
   type ProviderAvailability,
   type ProviderCatalogEntry,
   type ProviderOrderStatus,
+  type ProviderPool,
   type ProviderService,
   type PurchasedNumber,
   type StockLevel,
 } from "./types";
-import { resolveCountryMeta, slugify } from "./country-meta";
+import { resolveCountryMeta, slugify, assignVariantLabels } from "./country-meta";
 
 /**
  * GrizzlySMS, the live number supplier.
@@ -315,20 +316,36 @@ export class GrizzlySmsProvider implements NumberProvider {
     return matches[0]?.code ?? null;
   }
 
-  private async resolveCountryId(countrySlug: string): Promise<string | null> {
+  /**
+   * Scoped to one exact service, because a "(N)" collision is only ever
+   * meaningful among ids actually priced for that service (a service only
+   * one of two same-named ids currently has stock for was never ambiguous
+   * to begin with — see assignVariantLabels()'s own comment). Reproduces the
+   * exact same labelling getCountries() applies when listing this service's
+   * countries, so a slug this adapter itself synthesized for a second
+   * same-named pool resolves back to the real id to buy, not a dead end —
+   * see country-meta.ts's assignVariantLabels().
+   */
+  private async resolveCountryId(
+    serviceCode: string,
+    countrySlug: string,
+  ): Promise<{ id: string; label: { slug: string; name: string } } | null> {
     if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
-    const matches: Array<[id: string, name: string]> = [];
-    for (const [id, name] of GrizzlySmsProvider.countryNamesCache ?? []) {
-      if (resolveCountryMeta(name).slug === countrySlug) matches.push([id, name]);
+    const idToName = GrizzlySmsProvider.countryNamesCache ?? new Map<string, string>();
+
+    const prices = await this.fetchPrices({ serviceCode });
+    const candidates: Array<{ providerCountryId: string; name: string }> = [];
+    for (const [countryId, byService] of prices) {
+      if (!byService.has(serviceCode)) continue;
+      const name = idToName.get(countryId);
+      if (name) candidates.push({ providerCountryId: countryId, name });
     }
-    if (matches.length > 1) {
-      console.error(
-        `[grizzlysms] slug "${countrySlug}" matches ${matches.length} countries: ` +
-          `${matches.map(([id, name]) => `${name} (${id})`).join(", ")}. ` +
-          "Using the first; verify this did not resolve to the wrong country.",
-      );
+
+    const labels = assignVariantLabels(candidates);
+    for (const [id, label] of labels) {
+      if (label.slug === countrySlug) return { id, label };
     }
-    return matches[0]?.[0] ?? null;
+    return null;
   }
 
   /**
@@ -393,24 +410,45 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (!code) return [];
 
     const prices = await this.fetchPrices({ serviceCode: code });
-    const byCountry: ProviderAvailability[] = [];
+    const raw: Array<{ countryId: string; name: string; cost: number; count: number }> = [];
 
     for (const [countryId, byService] of prices) {
       const entry = byService.get(code);
       if (!entry) continue;
       const name = idToName.get(countryId);
       if (!name) continue;
-
-      byCountry.push({
-        serviceSlug,
-        country: { ...resolveCountryMeta(name), providerCountryId: countryId },
-        costUsdCents: usdToCents(entry.cost),
-        stock: stockFromCount(entry.count),
-        stockCount: entry.count,
-      });
+      raw.push({ countryId, name, cost: entry.cost, count: entry.count });
     }
 
-    return byCountry;
+    // Two of GrizzlySMS's own country ids can share the identical name — a
+    // real, separately priced and stocked pool each (see
+    // src/lib/country-variant.ts), not a duplicate. Labelled here, once, so
+    // every caller of this method (the catalog sync, and inventory.ts's own
+    // live fallback when the sync cache is stale) sees both rather than one
+    // silently colliding with the other. See assignVariantLabels()'s own
+    // comment in country-meta.ts.
+    const labels = assignVariantLabels(raw.map((r) => ({ providerCountryId: r.countryId, name: r.name })));
+    for (const r of raw) {
+      const label = labels.get(r.countryId);
+      if (label && label.name !== r.name) {
+        console.error(
+          `[grizzlysms] two distinct country ids both named "${r.name}" for "${serviceSlug}" ` +
+            `(id ${r.countryId}) — keeping both rather than letting one silently win on price, ` +
+            `labelling this one "${label.name}".`,
+        );
+      }
+    }
+
+    return raw.map((r) => {
+      const label = labels.get(r.countryId)!;
+      return {
+        serviceSlug,
+        country: { ...resolveCountryMeta(r.name), slug: label.slug, name: label.name, providerCountryId: r.countryId },
+        costUsdCents: usdToCents(r.cost),
+        stock: stockFromCount(r.count),
+        stockCount: r.count,
+      };
+    });
   }
 
   /**
@@ -436,21 +474,48 @@ export class GrizzlySmsProvider implements NumberProvider {
     // The price payload is keyed by the supplier's own service code, so a
     // code -> display name lookup is what turns it into our own slugs.
     const nameByCode = new Map(services.map((service) => [service.code, service.name]));
-    const entries: ProviderCatalogEntry[] = [];
 
-    for (const [countryId, byService] of prices) {
+    // Grouped by service first: a collision between two country ids sharing
+    // one name is only meaningful among the entries actually priced for the
+    // SAME service (a service only one of the two ids currently has stock
+    // for was never ambiguous to begin with) — see assignVariantLabels()'s
+    // own comment in country-meta.ts.
+    const byService = new Map<
+      string,
+      Array<{ countryId: string; name: string; cost: number; count: number }>
+    >();
+    for (const [countryId, byServiceEntry] of prices) {
       const countryName = idToName.get(countryId);
       // A price for a country the country list does not name cannot be
       // labelled, and an unlabelled country is not something to offer.
       if (!countryName) continue;
-      const country = { ...resolveCountryMeta(countryName), providerCountryId: countryId };
 
-      for (const [code, entry] of byService) {
-        const serviceName = nameByCode.get(code);
+      for (const [code, entry] of byServiceEntry) {
         // Same reasoning for services: the price list occasionally carries
         // codes absent from the catalog list, and those are skipped rather
         // than shown under their raw code.
-        if (!serviceName) continue;
+        if (!nameByCode.has(code)) continue;
+        const list = byService.get(code);
+        const row = { countryId, name: countryName, cost: entry.cost, count: entry.count };
+        if (list) list.push(row);
+        else byService.set(code, [row]);
+      }
+    }
+
+    const entries: ProviderCatalogEntry[] = [];
+    for (const [code, rows] of byService) {
+      const serviceName = nameByCode.get(code)!;
+      const labels = assignVariantLabels(rows.map((r) => ({ providerCountryId: r.countryId, name: r.name })));
+
+      for (const row of rows) {
+        const label = labels.get(row.countryId)!;
+        if (label.name !== row.name) {
+          console.error(
+            `[grizzlysms] two distinct country ids both named "${row.name}" for "${code}" ` +
+              `(id ${row.countryId}) — keeping both rather than letting one silently win on price, ` +
+              `labelling this one "${label.name}".`,
+          );
+        }
 
         entries.push({
           service: {
@@ -460,10 +525,15 @@ export class GrizzlySmsProvider implements NumberProvider {
             category: "All services",
             providerServiceId: code,
           },
-          country,
-          costUsdCents: usdToCents(entry.cost),
-          stock: stockFromCount(entry.count),
-          stockCount: entry.count,
+          country: {
+            ...resolveCountryMeta(row.name),
+            slug: label.slug,
+            name: label.name,
+            providerCountryId: row.countryId,
+          },
+          costUsdCents: usdToCents(row.cost),
+          stock: stockFromCount(row.count),
+          stockCount: row.count,
         });
       }
     }
@@ -475,11 +545,11 @@ export class GrizzlySmsProvider implements NumberProvider {
     serviceSlug: string,
     countrySlug: string,
   ): Promise<ProviderAvailability | null> {
-    const [code, countryId] = await Promise.all([
-      this.resolveServiceCode(serviceSlug),
-      this.resolveCountryId(countrySlug),
-    ]);
-    if (!code || !countryId) return null;
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return null;
+    const resolved = await this.resolveCountryId(code, countrySlug);
+    if (!resolved) return null;
+    const { id: countryId, label } = resolved;
 
     // Fresh, uncached: this is the figure a purchase is about to be
     // validated against.
@@ -492,7 +562,13 @@ export class GrizzlySmsProvider implements NumberProvider {
 
     return {
       serviceSlug,
-      country: { ...resolveCountryMeta(name), providerCountryId: countryId },
+      // slug/name come from the resolved label, not resolveCountryMeta(name)
+      // alone: for a synthesized "(2)"-style variant, the raw name here is
+      // the same plain name its sibling carries ("USA"), and only the label
+      // actually distinguishes them — carrying it through is what keeps a
+      // purchase, the deliverability lookup, and what the customer sees all
+      // referring to the exact same variant they picked.
+      country: { ...resolveCountryMeta(name), slug: label.slug, name: label.name, providerCountryId: countryId },
       costUsdCents: usdToCents(entry.cost),
       stock: stockFromCount(entry.count),
       stockCount: entry.count,
@@ -503,14 +579,14 @@ export class GrizzlySmsProvider implements NumberProvider {
     serviceSlug: string,
     countrySlug: string,
     maxCostUsdCents?: number,
+    providerOfferId?: string,
   ): Promise<PurchasedNumber> {
-    const [code, countryId] = await Promise.all([
-      this.resolveServiceCode(serviceSlug),
-      this.resolveCountryId(countrySlug),
-    ]);
-    if (!code || !countryId) {
+    const code = await this.resolveServiceCode(serviceSlug);
+    const resolved = code ? await this.resolveCountryId(code, countrySlug) : null;
+    if (!code || !resolved) {
       throw new ProviderError("Unknown service or country.", "rejected");
     }
+    const countryId = resolved.id;
 
     const params: Record<string, string> = {
       action: "getNumberV2",
@@ -524,6 +600,15 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (maxCostUsdCents !== undefined) {
       const maxUsd = maxCostUsdCents / 100;
       params.maxPrice = maxUsd.toFixed(4);
+    }
+    // Targets one exact seller/pool (see ProviderPool) rather than
+    // GrizzlySMS's own default assignment — set only when
+    // src/lib/provider-pool-quality.ts found real evidence this one pool
+    // delivers materially better than the alternatives. A documented
+    // getNumberV2 parameter (confirmed from GrizzlySMS's own published
+    // client library), passed through verbatim.
+    if (providerOfferId !== undefined) {
+      params.providerIds = providerOfferId;
     }
 
     // Read raw text rather than callJson(): a sold-out pair answers with the
@@ -588,6 +673,86 @@ export class GrizzlySmsProvider implements NumberProvider {
         "unknown",
       );
     }
+  }
+
+  /**
+   * Diagnostic only — see NumberProvider.debugPriceTiers's own comment.
+   * GrizzlySMS's client libraries reference getPricesV2 and getPricesV3
+   * actions this adapter has never called (it has only ever used plain
+   * getPrices, confirmed against this account's own live responses); their
+   * real shape against a real account is not confirmed anywhere, and
+   * GrizzlySMS's own public statements say full price-tier access through
+   * the API is a planned, not yet shipped, feature — both reasons this asks
+   * the live account directly and returns/logs exactly what comes back,
+   * rather than this adapter guessing a shape to parse. Read-only: every
+   * action tried here only reads prices, the same as the sync already does
+   * continuously; nothing here reserves a number or spends anything. Each
+   * action is tried independently so one being unsupported or erroring
+   * never hides what the others returned.
+   */
+  async debugPriceTiers(serviceSlug: string, countrySlug: string): Promise<string> {
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return `Could not resolve service "${serviceSlug}" to a GrizzlySMS service code.`;
+
+    if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
+    let countryId: string | null = null;
+    for (const [id, name] of GrizzlySmsProvider.countryNamesCache ?? []) {
+      if (resolveCountryMeta(name).slug === countrySlug) {
+        countryId = id;
+        break;
+      }
+    }
+    if (!countryId) return `Could not resolve country "${countrySlug}" to a GrizzlySMS country id.`;
+
+    const lines: string[] = [`service="${serviceSlug}" (code ${code}), country="${countrySlug}" (id ${countryId})`];
+    for (const action of ["getPrices", "getPricesV2", "getPricesV3"]) {
+      try {
+        const text = await this.call({ action, service: code, country: countryId });
+        console.error(`[grizzlysms] diagnostic ${action} raw response (${text.length} bytes): ${text.slice(0, 4000)}`);
+        lines.push(`${action}: ${text.slice(0, 1500)}${text.length > 1500 ? " …(truncated, full text in logs)" : ""}`);
+      } catch (error) {
+        lines.push(`${action}: FAILED — ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    }
+    return lines.join("\n\n");
+  }
+
+  /**
+   * The real per-seller breakdown behind one exact service+country — see
+   * ProviderPool's own comment in types.ts. Confirmed, from a live response
+   * on a real account, that getPricesV3 returns a "providers" object keyed
+   * by GrizzlySMS's own seller id for a pair with more than one (WhatsApp/
+   * USA: 11 distinct ids, prices from $1 to $5 — the same price points a
+   * customer reported seeing on GrizzlySMS's own site), and omits
+   * "providers" entirely for a pair with nothing to distinguish (Fiverr/
+   * USA, same account). Returns null for either shape of "nothing to
+   * choose between" — GrizzlySMS has no breakdown for this pair, or this
+   * exact pair/service could not be resolved — never an empty array passed
+   * off as a confirmed "only one pool" answer.
+   */
+  async getProviderPools(serviceSlug: string, countrySlug: string): Promise<ProviderPool[] | null> {
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return null;
+    const resolved = await this.resolveCountryId(code, countrySlug);
+    if (!resolved) return null;
+
+    let text: string;
+    try {
+      text = await this.call({ action: "getPricesV3", service: code, country: resolved.id });
+    } catch (error) {
+      console.error(`[grizzlysms] getPricesV3 failed for "${serviceSlug}"/"${countrySlug}":`, error);
+      return null;
+    }
+
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error(`[grizzlysms] getPricesV3 returned non-JSON for "${serviceSlug}"/"${countrySlug}": ${text.slice(0, 500)}`);
+      return null;
+    }
+
+    return parseProviderPools(data, resolved.id, code);
   }
 
   /**
@@ -834,4 +999,45 @@ function parsePurchaseResponse(data: unknown): PurchasedNumber | null {
     phoneNumber: formattedNumber,
     sessionSeconds,
   };
+}
+
+/**
+ * getPricesV3's confirmed shape: countryId -> serviceCode -> { price, count,
+ * providers? }, where "providers" (when present) is itself keyed by
+ * GrizzlySMS's own seller id, each an object carrying its own count and a
+ * price — observed, on a real account, as a one-element array (e.g.
+ * `[1.35]`), defended here against a bare number too since nothing
+ * published confirms that shape is permanent. Returns null for anything
+ * that does not match — no "providers" key, an empty one, or an
+ * unrecognised shape — never a guessed or partial pool list.
+ */
+function parseProviderPools(
+  data: unknown,
+  countryId: string,
+  serviceCode: string,
+): ProviderPool[] | null {
+  if (typeof data !== "object" || data === null) return null;
+  const byCountry = (data as Record<string, unknown>)[countryId];
+  if (typeof byCountry !== "object" || byCountry === null) return null;
+  const byService = (byCountry as Record<string, unknown>)[serviceCode];
+  if (typeof byService !== "object" || byService === null) return null;
+  const providers = (byService as Record<string, unknown>).providers;
+  if (typeof providers !== "object" || providers === null) return null;
+
+  const pools: ProviderPool[] = [];
+  for (const [poolId, value] of Object.entries(providers as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const record = value as Record<string, unknown>;
+    const priceField = record.price;
+    const price = Array.isArray(priceField) ? Number(priceField[0]) : Number(priceField);
+    const count = Number(record.count);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    pools.push({
+      providerOfferId: poolId,
+      costUsdCents: usdToCents(price),
+      stockCount: Number.isFinite(count) && count > 0 ? count : 0,
+    });
+  }
+
+  return pools.length > 0 ? pools : null;
 }
