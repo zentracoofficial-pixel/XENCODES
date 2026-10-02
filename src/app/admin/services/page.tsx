@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
+import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 import { getEnabledProviders, getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
 import { loadMarginRules, resolveMargin, quoteForCurrency, quotePrice } from "@/lib/pricing";
 import { brandIcons } from "@/data/brand-icons";
@@ -18,7 +19,7 @@ export const metadata: Metadata = { title: "Admin: Services" };
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 150;
-const FALLBACK_COLOR = "#63756F";
+const FALLBACK_COLOR = GENERIC_SERVICE_COLOR;
 
 /** A worked example, so the margin rules are legible without arithmetic. In
  *  USD cents, like every supplier cost, then converted into the platform's
