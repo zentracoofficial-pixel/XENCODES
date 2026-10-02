@@ -8,6 +8,7 @@ import {
   toStat,
   pickEffectiveStat,
   type QualityStat,
+  type QualityTier,
 } from "@/lib/deliverability";
 
 /**
@@ -144,8 +145,11 @@ const MIN_POOLS_TO_COMPARE = 2;
  *  diverging from GrizzlySMS's own default assignment to target it
  *  specifically. Set well above ordinary day-to-day noise, the same
  *  reasoning as RECENT_DEGRADATION_THRESHOLD_POINTS in deliverability.ts: a
- *  few points apart is not a real difference worth a customer paying for. */
-const MEANINGFUL_ADVANTAGE_POINTS = 15;
+ *  few points apart is not a real difference worth a customer paying for.
+ *  Exported so the admin report below can mark a pool "preferred" using the
+ *  exact same bar selectQualityPool() itself decides by, rather than a
+ *  second copy of the number. */
+export const MEANINGFUL_ADVANTAGE_POINTS = 15;
 
 /**
  * The actual "quality over cheapest" decision. Returns null — meaning: there
@@ -189,4 +193,146 @@ export function selectQualityPool<T extends { providerOfferId: string; stockCoun
   }
 
   return best.pool;
+}
+
+export interface PoolQualityRow {
+  serviceSlug: string;
+  serviceName: string;
+  countrySlug: string;
+  countryName: string;
+  providerOfferId: string;
+  successRatePercent: number;
+  tier: QualityTier;
+  sampleSize: number;
+  /** True for at most one pool per (service, country) group: the one
+   *  selectQualityPool() would currently actually choose — leading its
+   *  group by at least MEANINGFUL_ADVANTAGE_POINTS. A group where no pool
+   *  clears that bar still lists every rated pool, just with none marked
+   *  preferred, matching selectQualityPool()'s own "not enough of an edge
+   *  yet, change nothing" rule exactly — this is meant to answer "is this
+   *  actually doing anything yet", not just "what has data". */
+  preferred: boolean;
+}
+
+/**
+ * Every pool with enough real settled history to rate, across every
+ * service+country pair that has any — the admin-facing view of exactly what
+ * selectQualityPool() uses to decide, computed the identical way (same
+ * 90-day/14-day blend, same sample-size gates) so this can never disagree
+ * with what purchases are actually doing. Returns an empty array, not an
+ * error, when nothing has enough history yet — expected for every pair on
+ * day one of this feature existing, and for most pairs for a good while
+ * after.
+ */
+export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
+  const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const where = (sinceDate: Date) => ({
+    providerOfferId: { not: null },
+    status: { in: SETTLED_STATUSES },
+    createdAt: { gte: sinceDate },
+  });
+
+  const [overallRows, recentRows, names] = await Promise.all([
+    prisma.activation.groupBy({
+      by: ["serviceSlug", "countrySlug", "providerOfferId", "status"],
+      where: where(overallSince),
+      _count: { _all: true },
+    }),
+    prisma.activation.groupBy({
+      by: ["serviceSlug", "countrySlug", "providerOfferId", "status"],
+      where: where(recentSince),
+      _count: { _all: true },
+    }),
+    // One representative display name per (service, country) pair, read
+    // separately — same reasoning as getQualityReport()'s own comment in
+    // deliverability.ts: folding a display name into the groupBy above
+    // would silently split one pair into several rows if its name was ever
+    // edited mid-window.
+    prisma.activation.findMany({
+      where: { providerOfferId: { not: null }, createdAt: { gte: overallSince } },
+      distinct: ["serviceSlug", "countrySlug"],
+      select: { serviceSlug: true, serviceName: true, countrySlug: true, countryName: true },
+    }),
+  ]);
+
+  function tally(
+    rows: typeof overallRows,
+  ): Map<string, { received: number; settled: number }> {
+    const map = new Map<string, { received: number; settled: number }>();
+    for (const row of rows) {
+      if (!row.providerOfferId) continue;
+      const key = `${row.serviceSlug}::${row.countrySlug}::${row.providerOfferId}`;
+      const entry = map.get(key) ?? { received: 0, settled: 0 };
+      entry.settled += row._count._all;
+      if (row.status === "RECEIVED") entry.received += row._count._all;
+      map.set(key, entry);
+    }
+    return map;
+  }
+
+  const overallByKey = tally(overallRows);
+  const recentByKey = tally(recentRows);
+  const allKeys = new Set([...overallByKey.keys(), ...recentByKey.keys()]);
+
+  interface Entry {
+    serviceSlug: string;
+    countrySlug: string;
+    providerOfferId: string;
+    stat: QualityStat;
+  }
+  const entries: Entry[] = [];
+  for (const key of allKeys) {
+    const [serviceSlug, countrySlug, providerOfferId] = key.split("::");
+    const overallTally = overallByKey.get(key);
+    const recentTally = recentByKey.get(key);
+    const overallStat = overallTally ? toStat(overallTally.received, overallTally.settled, MIN_SAMPLE_SIZE) : null;
+    const recentStat = recentTally ? toStat(recentTally.received, recentTally.settled, MIN_RECENT_SAMPLE_SIZE) : null;
+    const effective = pickEffectiveStat(overallStat, recentStat);
+    if (effective) entries.push({ serviceSlug, countrySlug, providerOfferId, stat: effective });
+  }
+
+  const nameByPair = new Map(names.map((n) => [`${n.serviceSlug}::${n.countrySlug}`, n]));
+
+  const byPair = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const pairKey = `${entry.serviceSlug}::${entry.countrySlug}`;
+    const list = byPair.get(pairKey);
+    if (list) list.push(entry);
+    else byPair.set(pairKey, [entry]);
+  }
+
+  const rows: PoolQualityRow[] = [];
+  for (const [pairKey, group] of byPair) {
+    const sorted = [...group].sort((a, b) => b.stat.successRatePercent - a.stat.successRatePercent);
+    const [best, runnerUp] = sorted;
+    const preferredId =
+      runnerUp && best.stat.successRatePercent - runnerUp.stat.successRatePercent >= MEANINGFUL_ADVANTAGE_POINTS
+        ? best.providerOfferId
+        : null;
+    const name = nameByPair.get(pairKey);
+
+    for (const entry of sorted) {
+      rows.push({
+        serviceSlug: entry.serviceSlug,
+        serviceName: name?.serviceName ?? entry.serviceSlug,
+        countrySlug: entry.countrySlug,
+        countryName: name?.countryName ?? entry.countrySlug,
+        providerOfferId: entry.providerOfferId,
+        successRatePercent: entry.stat.successRatePercent,
+        tier: entry.stat.tier,
+        sampleSize: entry.stat.sampleSize,
+        preferred: entry.providerOfferId === preferredId,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    const pairCompare = `${a.serviceName}/${a.countryName}`.localeCompare(`${b.serviceName}/${b.countryName}`);
+    if (pairCompare !== 0) return pairCompare;
+    return b.successRatePercent - a.successRatePercent;
+  });
+
+  return rows;
 }
