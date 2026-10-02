@@ -184,6 +184,76 @@ export function resolveCountryMeta(name: string): ProviderCountry {
   };
 }
 
+export interface VariantSource {
+  /** The provider's own, real country id — never altered or collapsed. */
+  providerCountryId: string;
+  /** Exactly what the provider calls this id right now. */
+  name: string;
+}
+
+export interface VariantLabel {
+  slug: string;
+  name: string;
+}
+
+/**
+ * Deterministically labels a set of a provider's own country ids for one
+ * exact context (one service's current price list) so two ids the provider
+ * happens to report under the identical name right now — a real, separately
+ * priced and stocked pool each, not a data error, see
+ * src/lib/country-variant.ts's own header — both stay distinguishable and
+ * sellable instead of one colliding with (and silently hiding) the other.
+ *
+ * Grouped purely by the literal name each id carries right now: a genuine
+ * "(2)"-suffixed name the provider already sends forms its own one-member
+ * group and passes through completely unchanged. Only an actual collision
+ * (two or more ids sharing one literal name) gets a synthesized "(N)"
+ * suffix, assigned by ascending numeric provider id — the lowest id keeps
+ * the plain name, each next one is labelled "(2)", "(3)", and so on. A
+ * global used-slugs guard means a synthesized "(2)" can never collide with
+ * a *different* id the provider already names "(2)" on its own.
+ *
+ * This is the one place that assignment is ever made. src/lib/provider/
+ * grizzlysms.ts calls it both when listing a service's countries (so the
+ * second pool is visible at all) and when resolving a country slug back to
+ * a real id to buy (so a synthesized slug is never a dead end) — always
+ * with the same candidate set (every id currently priced for that one
+ * service), so a label produced one call is always reversible from an
+ * identically-scoped later call, however close together or far apart they
+ * run.
+ */
+export function assignVariantLabels(candidates: VariantSource[]): Map<string, VariantLabel> {
+  const byName = new Map<string, VariantSource[]>();
+  for (const candidate of candidates) {
+    const baseSlug = slugify(candidate.name);
+    const group = byName.get(baseSlug);
+    if (group) group.push(candidate);
+    else byName.set(baseSlug, [candidate]);
+  }
+
+  const usedSlugs = new Set<string>();
+  const result = new Map<string, VariantLabel>();
+  for (const [baseSlug, group] of byName) {
+    const sorted = [...group].sort(
+      (a, b) => Number(a.providerCountryId) - Number(b.providerCountryId),
+    );
+    for (const candidate of sorted) {
+      let suffix = 1;
+      let slug = baseSlug;
+      while (usedSlugs.has(slug)) {
+        suffix += 1;
+        slug = `${baseSlug}-${suffix}`;
+      }
+      usedSlugs.add(slug);
+      result.set(candidate.providerCountryId, {
+        slug,
+        name: suffix === 1 ? candidate.name : `${candidate.name} (${suffix})`,
+      });
+    }
+  }
+  return result;
+}
+
 function hashCode(value: string) {
   let hash = 0;
   for (let i = 0; i < value.length; i++) {
