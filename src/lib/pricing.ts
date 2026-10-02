@@ -42,10 +42,15 @@ const PRICE_STEP_KOBO = 100;
 
 /**
  * A margin at or above 100% is not a price, it is a division by zero or a
- * negative. Refused rather than clamped quietly so a typo in the admin
- * panel surfaces as an error instead of as a price nobody can explain.
+ * negative — price = cost / (1 - margin/100) goes to infinity exactly at
+ * 100 and negative past it, not a business choice but what the formula
+ * itself does. 99 is as close to "no limit" as a margin-based price can
+ * get: on a ₦30 cost that is already a ₦3,000 price, a 100x multiple of
+ * cost. Refused past this rather than clamped quietly, so a typo in the
+ * admin panel surfaces as an error instead of as a price nobody can
+ * explain.
  */
-export const MAX_MARGIN_PERCENT = 95;
+export const MAX_MARGIN_PERCENT = 99;
 
 /**
  * Services on the exclusive tier, priced at a deliberately thinner margin.
@@ -165,8 +170,8 @@ const POSTGRES_INT4_MAX = 2_147_483_647;
 /**
  * The highest cost this app will ever price from, chosen so that no
  * margin quotePrice() can apply (up to MAX_MARGIN_PERCENT) produces a
- * customer price past POSTGRES_INT4_MAX. At the loosest margin (95%),
- * price = cost / 0.05 = cost x 20, so dividing the ceiling by 20 keeps
+ * customer price past POSTGRES_INT4_MAX. At the loosest margin (99%),
+ * price = cost / 0.01 = cost x 100, so dividing the ceiling by 100 keeps
  * every possible quote in range by construction, not by hoping a
  * supplier never sends something this large. PRICE_STEP_KOBO is
  * subtracted first as headroom for quotePrice()'s own round-up-to-the-

@@ -46,7 +46,7 @@ export function MarginForm({
               type="number"
               step="1"
               min="0"
-              max="95"
+              max="99"
               defaultValue={defaultPercent}
               className={inputClass}
             />
@@ -64,7 +64,7 @@ export function MarginForm({
               type="number"
               step="1"
               min="0"
-              max="95"
+              max="99"
               defaultValue={exclusivePercent}
               className={inputClass}
             />
