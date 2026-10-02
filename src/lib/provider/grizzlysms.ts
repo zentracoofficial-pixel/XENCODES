@@ -665,6 +665,48 @@ export class GrizzlySmsProvider implements NumberProvider {
   }
 
   /**
+   * Diagnostic only — see NumberProvider.debugPriceTiers's own comment.
+   * GrizzlySMS's client libraries reference getPricesV2 and getPricesV3
+   * actions this adapter has never called (it has only ever used plain
+   * getPrices, confirmed against this account's own live responses); their
+   * real shape against a real account is not confirmed anywhere, and
+   * GrizzlySMS's own public statements say full price-tier access through
+   * the API is a planned, not yet shipped, feature — both reasons this asks
+   * the live account directly and returns/logs exactly what comes back,
+   * rather than this adapter guessing a shape to parse. Read-only: every
+   * action tried here only reads prices, the same as the sync already does
+   * continuously; nothing here reserves a number or spends anything. Each
+   * action is tried independently so one being unsupported or erroring
+   * never hides what the others returned.
+   */
+  async debugPriceTiers(serviceSlug: string, countrySlug: string): Promise<string> {
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return `Could not resolve service "${serviceSlug}" to a GrizzlySMS service code.`;
+
+    if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
+    let countryId: string | null = null;
+    for (const [id, name] of GrizzlySmsProvider.countryNamesCache ?? []) {
+      if (resolveCountryMeta(name).slug === countrySlug) {
+        countryId = id;
+        break;
+      }
+    }
+    if (!countryId) return `Could not resolve country "${countrySlug}" to a GrizzlySMS country id.`;
+
+    const lines: string[] = [`service="${serviceSlug}" (code ${code}), country="${countrySlug}" (id ${countryId})`];
+    for (const action of ["getPrices", "getPricesV2", "getPricesV3"]) {
+      try {
+        const text = await this.call({ action, service: code, country: countryId });
+        console.error(`[grizzlysms] diagnostic ${action} raw response (${text.length} bytes): ${text.slice(0, 4000)}`);
+        lines.push(`${action}: ${text.slice(0, 1500)}${text.length > 1500 ? " …(truncated, full text in logs)" : ""}`);
+      } catch (error) {
+        lines.push(`${action}: FAILED — ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    }
+    return lines.join("\n\n");
+  }
+
+  /**
    * Lets a network/HTTP failure from call() propagate as the ProviderError
    * it already is, matching every other method in this adapter — an
    * earlier version swallowed it into a plain `null` return, which made a
