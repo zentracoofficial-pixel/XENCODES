@@ -96,6 +96,33 @@ export interface QualityStat {
  *  service/country pair's. */
 export const SETTLED_STATUSES: ActivationStatus[] = ["RECEIVED", "EXPIRED", "CANCELLED", "REFUNDED"];
 
+/**
+ * A customer's own voluntary cancellation (the Cancel button in
+ * src/app/dashboard/buy/actions.ts, which sets refundReason to exactly this
+ * value) is not a delivery failure: the order never got the chance to
+ * succeed or fail, the customer simply ended it themselves. Counting it
+ * among settled "no code" outcomes would drag down a country, service, or
+ * pool's measured quality for something that says nothing about whether
+ * GrizzlySMS would have delivered. Every other settled non-RECEIVED
+ * outcome — expired, GrizzlySMS's own cancellation/refund, an admin refund
+ * for any other reason — still counts, because those genuinely did fail to
+ * deliver.
+ *
+ * Spread into a Prisma `where` alongside the status/date filters wherever
+ * SETTLED_STATUSES is used for a quality calculation (never for the
+ * business-reporting refundedCount/expiredCount figures in
+ * getQualityReport()'s "overall" section, which already only count
+ * REFUNDED/EXPIRED and are unaffected either way). Written as an explicit
+ * OR rather than `refundReason: { not: "CANCELLED_BY_CUSTOMER" }` because
+ * Prisma's `not` (and top-level `NOT`) follows SQL's three-valued NULL
+ * logic and would incorrectly also exclude every row where refundReason is
+ * null — i.e. every RECEIVED activation, which has no refund reason at
+ * all. Confirmed against the real database before relying on it.
+ */
+export const EXCLUDE_CUSTOMER_CANCELLED = {
+  OR: [{ refundReason: null }, { refundReason: { not: "CANCELLED_BY_CUSTOMER" as const } }],
+};
+
 /** Exported for src/lib/provider-pool-quality.ts, which applies this exact
  *  same statistic one level more specific (by provider pool, not just
  *  country) — one formula, never two copies that could quietly drift. */
@@ -148,7 +175,12 @@ async function tallyByCountry(
 ): Promise<Map<string, { received: number; settled: number }>> {
   const rows = await prisma.activation.groupBy({
     by: ["countrySlug", "status"],
-    where: { serviceSlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: sinceDate } },
+    where: {
+      serviceSlug,
+      status: { in: SETTLED_STATUSES },
+      createdAt: { gte: sinceDate },
+      ...EXCLUDE_CUSTOMER_CANCELLED,
+    },
     _count: { _all: true },
   });
 
@@ -208,7 +240,13 @@ async function tallyPair(
 ): Promise<{ received: number; settled: number }> {
   const rows = await prisma.activation.groupBy({
     by: ["status"],
-    where: { serviceSlug, countrySlug, status: { in: SETTLED_STATUSES }, createdAt: { gte: sinceDate } },
+    where: {
+      serviceSlug,
+      countrySlug,
+      status: { in: SETTLED_STATUSES },
+      createdAt: { gte: sinceDate },
+      ...EXCLUDE_CUSTOMER_CANCELLED,
+    },
     _count: { _all: true },
   });
 
@@ -295,12 +333,12 @@ export async function getQualityReport(): Promise<QualityReport> {
   const [serviceRows, countryRows, serviceNames, countryNames] = await Promise.all([
     prisma.activation.groupBy({
       by: ["serviceSlug", "status"],
-      where: { status: { in: SETTLED_STATUSES }, createdAt: { gte: since } },
+      where: { status: { in: SETTLED_STATUSES }, createdAt: { gte: since }, ...EXCLUDE_CUSTOMER_CANCELLED },
       _count: { _all: true },
     }),
     prisma.activation.groupBy({
       by: ["countrySlug", "status"],
-      where: { status: { in: SETTLED_STATUSES }, createdAt: { gte: since } },
+      where: { status: { in: SETTLED_STATUSES }, createdAt: { gte: since }, ...EXCLUDE_CUSTOMER_CANCELLED },
       _count: { _all: true },
     }),
     // One representative display name per slug, read separately rather

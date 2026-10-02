@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { AuditActor } from "@/lib/audit";
 import { recordAudit, SYSTEM_ACTOR } from "@/lib/audit";
-import { SETTLED_STATUSES } from "@/lib/deliverability";
+import { SETTLED_STATUSES, EXCLUDE_CUSTOMER_CANCELLED } from "@/lib/deliverability";
 import { getServiceCountries } from "@/lib/inventory";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { sendEmail, EmailDeliveryError } from "@/lib/email";
@@ -40,7 +40,12 @@ import {
  * them a number and it did not deliver a code", never a payment failure
  * dressed up as a delivery one. A still-WAITING activation is excluded the
  * same way the deliverability metric excludes it: it has not finished, so
- * it says nothing yet.
+ * it says nothing yet. The customer's own voluntary cancellation
+ * (refundReason CANCELLED_BY_CUSTOMER) is excluded the same way
+ * deliverability.ts excludes it too (see EXCLUDE_CUSTOMER_CANCELLED there):
+ * a customer who cancels their own order isn't struggling to get a code,
+ * so it is dropped from purchaseCount/noCodeCount entirely rather than
+ * counted as evidence of a problem.
  *
  * Evaluated at the exact moment one of a customer's own activations
  * settles (see getActivationStateAction/cancelActivationAction in
@@ -72,7 +77,12 @@ async function computeWindowStats(
 ): Promise<NoCodeRecoveryWindowStats> {
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   const rows = await prisma.activation.findMany({
-    where: { userId, status: { in: SETTLED_STATUSES }, createdAt: { gte: since } },
+    where: {
+      userId,
+      status: { in: SETTLED_STATUSES },
+      createdAt: { gte: since },
+      ...EXCLUDE_CUSTOMER_CANCELLED,
+    },
     select: {
       status: true,
       serviceSlug: true,

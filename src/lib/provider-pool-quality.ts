@@ -5,6 +5,7 @@ import {
   MIN_SAMPLE_SIZE,
   MIN_RECENT_SAMPLE_SIZE,
   SETTLED_STATUSES,
+  EXCLUDE_CUSTOMER_CANCELLED,
   toStat,
   pickEffectiveStat,
   type QualityStat,
@@ -44,6 +45,7 @@ async function tallyPoolPair(
       providerOfferId,
       status: { in: SETTLED_STATUSES },
       createdAt: { gte: sinceDate },
+      ...EXCLUDE_CUSTOMER_CANCELLED,
     },
     _count: { _all: true },
   });
@@ -93,6 +95,7 @@ export async function getPoolQualityForPair(
     providerOfferId: { not: null },
     status: { in: SETTLED_STATUSES },
     createdAt: { gte: sinceDate },
+    ...EXCLUDE_CUSTOMER_CANCELLED,
   });
 
   const [overallRows, recentRows] = await Promise.all([
@@ -232,6 +235,7 @@ export async function getPoolQualityReport(): Promise<PoolQualityRow[]> {
     providerOfferId: { not: null },
     status: { in: SETTLED_STATUSES },
     createdAt: { gte: sinceDate },
+    ...EXCLUDE_CUSTOMER_CANCELLED,
   });
 
   const [overallRows, recentRows, names] = await Promise.all([
