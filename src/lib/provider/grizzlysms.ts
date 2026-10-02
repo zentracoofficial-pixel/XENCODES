@@ -325,15 +325,32 @@ export class GrizzlySmsProvider implements NumberProvider {
    * countries, so a slug this adapter itself synthesized for a second
    * same-named pool resolves back to the real id to buy, not a dead end —
    * see country-meta.ts's assignVariantLabels().
+   *
+   * Always a fresh, uncached price fetch, never the up-to-90-second
+   * PRICE_LIST_TTL_MS snapshot getCountries() is content to browse against:
+   * every current caller (getAvailability, purchaseNumber, getProviderPools)
+   * is on the purchase-critical path, where a pair that just sold out or
+   * just restocked must be reflected immediately. Candidates are built only
+   * from entries actually present in this service's price list, so a pair
+   * with zero current stock (parsePricesResponse drops any cost<=0 entry
+   * entirely) genuinely has no candidate to resolve to here — but a stale
+   * snapshot could still be missing a pair that has *since* restocked,
+   * which is exactly the false "out of stock" a customer sees when
+   * GrizzlySMS itself can already sell it again. See fetchPrices()'s own
+   * comment on why a pair-scoped call bypasses the cache the same way.
    */
   private async resolveCountryId(
     serviceCode: string,
     countrySlug: string,
-  ): Promise<{ id: string; label: { slug: string; name: string } } | null> {
+  ): Promise<{
+    id: string;
+    label: { slug: string; name: string };
+    entry: { cost: number; count: number };
+  } | null> {
     if (!isFresh(GrizzlySmsProvider.countriesCache, CATALOG_TTL_MS)) await this.loadCountries();
     const idToName = GrizzlySmsProvider.countryNamesCache ?? new Map<string, string>();
 
-    const prices = await this.fetchPrices({ serviceCode });
+    const prices = await this.fetchPrices({ serviceCode, fresh: true });
     const candidates: Array<{ providerCountryId: string; name: string }> = [];
     for (const [countryId, byService] of prices) {
       if (!byService.has(serviceCode)) continue;
@@ -343,23 +360,31 @@ export class GrizzlySmsProvider implements NumberProvider {
 
     const labels = assignVariantLabels(candidates);
     for (const [id, label] of labels) {
-      if (label.slug === countrySlug) return { id, label };
+      if (label.slug === countrySlug) {
+        // Guaranteed present: `id` only became a candidate above because
+        // prices.get(id).has(serviceCode) was already true. Returned here
+        // rather than re-fetched, so a caller never has to make a second
+        // live request just to learn the cost/count of the exact id this
+        // call already looked up — see getAvailability()'s own comment.
+        return { id, label, entry: prices.get(id)!.get(serviceCode)! };
+      }
     }
     return null;
   }
 
   /**
-   * getPrices, scoped as tightly as the caller allows. Country-scoped
-   * results are cached briefly per the NumberProvider contract for
-   * getCountries(); a pair-scoped call always bypasses that cache, because
-   * getAvailability() must never trust anything but a fresh answer.
+   * getPrices, scoped as tightly as the caller allows. Briefly cached per
+   * the NumberProvider contract for getCountries(), which is allowed to be
+   * a little stale; every purchase-critical caller (resolveCountryId, so in
+   * turn getAvailability/purchaseNumber/getProviderPools) passes
+   * `fresh: true` to always bypass that cache, since none of them may ever
+   * trust anything but a live answer.
    */
   private async fetchPrices(params: {
     serviceCode?: string;
-    countryId?: string;
     fresh?: boolean;
   }): Promise<Map<string, Map<string, { cost: number; count: number }>>> {
-    const cacheKey = `${params.serviceCode ?? "*"}::${params.countryId ?? "*"}`;
+    const cacheKey = params.serviceCode ?? "*";
     if (!params.fresh) {
       const cached = GrizzlySmsProvider.priceListCache.get(cacheKey);
       if (isFresh(cached, PRICE_LIST_TTL_MS)) return cached!.value;
@@ -367,7 +392,6 @@ export class GrizzlySmsProvider implements NumberProvider {
 
     const query: Record<string, string> = { action: "getPrices" };
     if (params.serviceCode) query.service = params.serviceCode;
-    if (params.countryId) query.country = params.countryId;
 
     const data = await this.callJson(query);
     const parsed = parsePricesResponse(data, params.serviceCode);
@@ -547,15 +571,13 @@ export class GrizzlySmsProvider implements NumberProvider {
   ): Promise<ProviderAvailability | null> {
     const code = await this.resolveServiceCode(serviceSlug);
     if (!code) return null;
+    // resolveCountryId() itself is now the fresh, uncached lookup this
+    // figure is validated against (see its own comment): no second
+    // fetchPrices() call here, since that would only re-ask GrizzlySMS the
+    // exact same live question resolveCountryId() already just answered.
     const resolved = await this.resolveCountryId(code, countrySlug);
     if (!resolved) return null;
-    const { id: countryId, label } = resolved;
-
-    // Fresh, uncached: this is the figure a purchase is about to be
-    // validated against.
-    const prices = await this.fetchPrices({ serviceCode: code, countryId, fresh: true });
-    const entry = prices.get(countryId)?.get(code);
-    if (!entry) return null;
+    const { id: countryId, label, entry } = resolved;
 
     const name = GrizzlySmsProvider.countryNamesCache?.get(countryId);
     if (!name) return null;
