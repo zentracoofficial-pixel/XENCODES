@@ -7,7 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import {
   resolveAudience,
   describeAudience,
-  type AudienceSegment,
+  parseAudienceSegment,
 } from "@/lib/email-targeting";
 import { renderEmail } from "@/lib/email-template";
 import { campaignEmail, verificationEmail, type CampaignContent } from "@/lib/email-messages";
@@ -22,37 +22,16 @@ import { resendVerificationEmail } from "@/lib/verification";
  */
 const MAX_CAMPAIGN_RECIPIENTS = 500;
 
-export type ComposedEmail = Required<CampaignContent>;
+/**
+ * How long a send may spend mailing before it stops and records what it
+ * did. Under the 60 second route limit declared in ./page.tsx, leaving the
+ * rest for writing the campaign row and the audit entry: past that limit
+ * the platform kills the function outright, which leaves the campaign
+ * stuck on "SENDING" with no record of who was reached.
+ */
+const SEND_TIME_BUDGET_MS = 50_000;
 
-function parseSegment(formData: FormData): AudienceSegment {
-  const kind = String(formData.get("segmentKind") ?? "all") as AudienceSegment["kind"];
-  switch (kind) {
-    case "purchased_recently":
-    case "not_purchased_recently":
-      return { kind, days: Number(formData.get("days")) || 30 };
-    case "low_balance":
-      return {
-        kind,
-        thresholdKobo: Math.round((Number(formData.get("thresholdNaira")) || 0) * 100),
-      };
-    case "inactive_login":
-      return { kind, days: Number(formData.get("days")) || 30 };
-    case "selected":
-      return {
-        kind,
-        userIds: String(formData.get("userIds") ?? "")
-          .split(",")
-          .map((id) => id.trim())
-          .filter(Boolean),
-      };
-    case "specific_user":
-      return { kind, userId: String(formData.get("userId") ?? "") };
-    case "unverified":
-      return { kind: "unverified" };
-    default:
-      return { kind: "all" };
-  }
-}
+export type ComposedEmail = Required<CampaignContent>;
 
 /** Checked before a test or a real send, so a button that would be dropped
  *  (half filled in, or not an https link) is an error the admin sees rather
@@ -126,7 +105,7 @@ export async function getRecipientCountAction(
   formData: FormData,
 ): Promise<RecipientCountResult> {
   await requireAdmin();
-  const segment = parseSegment(formData);
+  const segment = parseAudienceSegment(formData);
   const recipients = dedupeRecipients(await resolveAudience(segment));
   return { count: recipients.length, label: describeAudience(segment) };
 }
@@ -140,7 +119,16 @@ export async function searchUsersAction(
   const q = query.trim();
   if (!q) return [];
   return prisma.user.findMany({
-    where: { email: { contains: q, mode: "insensitive" }, deletedAt: null, role: "USER" },
+    where: {
+      // By name as well as address: an admin often remembers who someone is
+      // before they remember which of their addresses they signed up with.
+      OR: [
+        { email: { contains: q, mode: "insensitive" } },
+        { name: { contains: q, mode: "insensitive" } },
+      ],
+      deletedAt: null,
+      role: "USER",
+    },
     select: { id: true, email: true },
     take: 10,
   });
@@ -183,6 +171,8 @@ export interface SendCampaignState {
   success?: boolean;
   sentCount?: number;
   failedCount?: number;
+  /** Recipients never attempted because the send ran out of time. */
+  skippedCount?: number;
 }
 
 export async function sendCampaignAction(
@@ -205,7 +195,7 @@ export async function sendCampaignAction(
     };
   }
 
-  const segment = parseSegment(formData);
+  const segment = parseAudienceSegment(formData);
   const recipients = dedupeRecipients(await resolveAudience(segment));
 
   if (recipients.length === 0) {
@@ -223,7 +213,13 @@ export async function sendCampaignAction(
       adminEmail: admin.email,
       subject: composed.subject,
       previewText: composed.previewText || null,
-      audienceLabel: describeAudience(segment),
+      // A single recipient is named in the history: "One specific user"
+      // alone cannot be traced back to anyone without digging through the
+      // stored filter JSON.
+      audienceLabel:
+        segment.kind === "specific_user"
+          ? `${describeAudience(segment)}: ${recipients[0].email}`
+          : describeAudience(segment),
       audienceFilter: segment,
       recipientCount: recipients.length,
       status: "SENDING",
@@ -234,12 +230,18 @@ export async function sendCampaignAction(
 
   let sentCount = 0;
   let failedCount = 0;
+  let skippedCount = 0;
   // The first real reason, kept for the history row. One cause (a domain
   // that is not verified, a missing key) explains the whole run, so the
   // first is representative; logging keeps the rest recoverable.
   let firstFailure: string | null = null;
 
-  for (const recipient of recipients) {
+  const deadline = Date.now() + SEND_TIME_BUDGET_MS;
+  for (const [index, recipient] of recipients.entries()) {
+    if (Date.now() > deadline) {
+      skippedCount = recipients.length - index;
+      break;
+    }
     try {
       await sendEmail({ to: recipient.email, subject: composed.subject, html, text });
       sentCount += 1;
@@ -261,13 +263,23 @@ export async function sendCampaignAction(
   // partial delivery is never presented as a clean one.
   const status = sentCount === 0 ? "FAILED" : "SENT";
 
+  // Said plainly in the history row when a send did not finish: a
+  // partially delivered campaign must never read as a complete one.
+  const failureReason =
+    skippedCount > 0
+      ? `Stopped after ${recipients.length - skippedCount} of ${recipients.length} to stay within the time limit; ${skippedCount} were not sent.${
+          firstFailure ? ` First failure: ${firstFailure}` : ""
+        }`
+      : firstFailure;
+
   await prisma.emailCampaign.update({
     where: { id: campaign.id },
     data: {
       status,
       sentCount,
       failedCount,
-      failureReason: firstFailure,
+      skippedCount,
+      failureReason,
       sentAt: new Date(),
     },
   });
@@ -283,7 +295,8 @@ export async function sendCampaignAction(
       recipientCount: recipients.length,
       sentCount,
       failedCount,
-      failureReason: firstFailure,
+      skippedCount,
+      failureReason,
     },
   });
 
@@ -294,10 +307,11 @@ export async function sendCampaignAction(
       }`,
       sentCount,
       failedCount,
+      skippedCount,
     };
   }
 
-  return { success: true, sentCount, failedCount };
+  return { success: true, sentCount, failedCount, skippedCount };
 }
 
 export interface SendVerificationRemindersState {

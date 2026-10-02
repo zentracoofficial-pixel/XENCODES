@@ -11,6 +11,15 @@ export const metadata: Metadata = { title: "Admin: Email" };
 
 export const dynamic = "force-dynamic";
 
+// A campaign is a server action invoked from this page, so it runs under
+// this route's time limit, one sequential provider call per recipient. 60
+// is the ceiling Vercel's Hobby plan allows for any function (see the same
+// declaration, and why, in ../providers/page.tsx), so declaring it can
+// only raise whatever the default was, never lower it.
+// sendCampaignAction() stops itself inside this budget and records what
+// it managed, rather than being killed mid-loop with nothing written down.
+export const maxDuration = 60;
+
 const CAMPAIGN_STATUS_VARIANT = {
   DRAFT: "neutral",
   SENDING: "warning",

@@ -98,23 +98,35 @@ export function EmailComposer() {
 
   // Recompute the recipient count whenever targeting changes. Debounced by
   // riding React's own transition batching rather than a manual timer.
+  // Responses can arrive out of order (picking a user fires a second count
+  // while the first is still in flight); only the latest request may set
+  // the count, or a slow stale answer of "0" can land last and lock the
+  // Review button for an audience that actually has someone in it.
+  const countRequestRef = useRef(0);
   useEffect(() => {
+    const requestId = ++countRequestRef.current;
     startCountTransition(async () => {
       const result = await getRecipientCountAction(buildFormData());
-      setCount(result);
+      if (requestId === countRequestRef.current) setCount(result);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segmentKind, days, thresholdNaira, selectedUsers]);
 
   useEffect(() => {
+    let stale = false;
     const timer = setTimeout(async () => {
       if (!userQuery.trim()) {
         setUserResults([]);
         return;
       }
-      setUserResults(await searchUsersAction(userQuery));
+      const results = await searchUsersAction(userQuery);
+      // A slower earlier search must not overwrite the newer one's results.
+      if (!stale) setUserResults(results);
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
   }, [userQuery]);
 
   const isEmpty = !title && !body && !ctaText && !ctaUrl;
@@ -168,8 +180,13 @@ export function EmailComposer() {
             onChange={(e) => {
               setSegmentKind(e.target.value as SegmentKind);
               // A confirm screen for the previous audience's send action
-              // must not carry over to a different one.
+              // must not carry over to a different one, and neither should
+              // a pick: people chosen for "Selected users" are not who
+              // "One specific user" should be sending to.
               setReviewing(false);
+              setSelectedUsers([]);
+              setUserQuery("");
+              setUserResults([]);
             }}
             className="h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
           >
@@ -226,8 +243,14 @@ export function EmailComposer() {
                         type="button"
                         onClick={() => {
                           setSelectedUsers(
-                            segmentKind === "specific_user" ? [u] : [...selectedUsers, u],
+                            segmentKind === "specific_user"
+                              ? [u]
+                              : selectedUsers.some((x) => x.id === u.id)
+                                ? selectedUsers
+                                : [...selectedUsers, u],
                           );
+                          // Any pick changes who would receive this.
+                          setReviewing(false);
                           setUserQuery("");
                           setUserResults([]);
                         }}
@@ -412,15 +435,28 @@ export function EmailComposer() {
             <h2 className="text-sm font-semibold">Confirm send</h2>
             <p className="text-sm text-muted-foreground">
               This sends <span className="font-semibold text-foreground">{subject}</span> to{" "}
-              <span className="font-semibold text-foreground">{count?.count ?? 0}</span> people (
-              {count?.label}). This cannot be undone.
+              <span className="font-semibold text-foreground">{count?.count ?? 0}</span>{" "}
+              {count?.count === 1 ? "person" : "people"} ({count?.label}
+              {segmentKind === "specific_user" && selectedUsers[0]
+                ? `: ${selectedUsers[0].email}`
+                : ""}
+              ). This cannot be undone.
             </p>
             {sendState.error ? <p className="text-sm text-danger">{sendState.error}</p> : null}
             {sendState.success ? (
-              <p className="text-sm text-success">
-                Sent to {sendState.sentCount} people
-                {sendState.failedCount ? `, ${sendState.failedCount} failed` : ""}.
-              </p>
+              <div className="text-sm">
+                <p className="text-success">
+                  Sent to {sendState.sentCount} people
+                  {sendState.failedCount ? `, ${sendState.failedCount} failed` : ""}.
+                </p>
+                {sendState.skippedCount ? (
+                  <p className="mt-1 text-warning">
+                    {sendState.skippedCount} were not sent: the send ran out of time before
+                    reaching them. See the History tab, and send to a narrower audience to reach
+                    the rest.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <div className="flex gap-2">
               <Button
