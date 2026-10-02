@@ -68,6 +68,54 @@ export function describeAudience(segment: AudienceSegment): string {
   }
 }
 
+/**
+ * The ids the composer submitted in its `userIds` field, de-duplicated.
+ * That one field carries the picked account(s) for both "Selected users"
+ * and "One specific user": the composer has no separate single-id field.
+ */
+function pickedUserIds(formData: FormData): string[] {
+  const ids = String(formData.get("userIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+/**
+ * Reads the audience out of the composer's form fields. Lives here rather
+ * than beside the server actions because a "use server" module can only
+ * export async functions, and this is pure.
+ */
+export function parseAudienceSegment(formData: FormData): AudienceSegment {
+  const kind = String(formData.get("segmentKind") ?? "all") as AudienceSegment["kind"];
+  switch (kind) {
+    case "purchased_recently":
+    case "not_purchased_recently":
+    case "inactive_login":
+      return { kind, days: Number(formData.get("days")) || 30 };
+    case "low_balance":
+      return {
+        kind,
+        thresholdKobo: Math.round((Number(formData.get("thresholdNaira")) || 0) * 100),
+      };
+    case "selected":
+      return { kind, userIds: pickedUserIds(formData) };
+    case "specific_user": {
+      // Exactly one person or nobody. Anything else (nothing picked yet, or
+      // leftovers from an earlier multi-user pick) resolves to an empty
+      // audience, which the send path refuses, rather than quietly
+      // narrowing to "the first one" and emailing someone the admin did
+      // not choose.
+      const ids = pickedUserIds(formData);
+      return { kind, userId: ids.length === 1 ? ids[0] : "" };
+    }
+    case "unverified":
+      return { kind: "unverified" };
+    default:
+      return { kind: "all" };
+  }
+}
+
 /** Base filter every segment shares: a live account with a real inbox. */
 const LIVE_USER: Prisma.UserWhereInput = { deletedAt: null, role: "USER" };
 
