@@ -10,6 +10,7 @@ import {
   type StockLevel,
 } from "./types";
 import { resolveCountryMeta, slugify, assignVariantLabels } from "./country-meta";
+import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 
 /**
  * GrizzlySMS, the live number supplier.
@@ -420,7 +421,7 @@ export class GrizzlySmsProvider implements NumberProvider {
     return services.map((service) => ({
       slug: slugify(service.name),
       name: service.name,
-      color: "#63756F",
+      color: GENERIC_SERVICE_COLOR,
       category: "All services",
       providerServiceId: service.code,
     }));
@@ -545,7 +546,7 @@ export class GrizzlySmsProvider implements NumberProvider {
           service: {
             slug: slugify(serviceName),
             name: serviceName,
-            color: "#63756F",
+            color: GENERIC_SERVICE_COLOR,
             category: "All services",
             providerServiceId: code,
           },

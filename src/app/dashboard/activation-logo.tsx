@@ -1,8 +1,8 @@
 import { ServiceLogo } from "@/components/marketing/service-logo";
-import { resolveBrandIcon } from "@/lib/brand-match";
+import { GENERIC_SERVICE_COLOR, resolveBrandIcon } from "@/lib/brand-match";
 
 /** Neutral tint for a service with no brand colour of its own. */
-const FALLBACK_COLOR = "#63756F";
+const FALLBACK_COLOR = GENERIC_SERVICE_COLOR;
 
 /**
  * The logo for an order.
