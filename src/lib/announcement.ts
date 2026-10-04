@@ -1,8 +1,8 @@
 import { readSettings, readBoolean, SETTING_KEYS } from "@/lib/settings";
 
 /**
- * The announcement bar every signed-in customer sees at the top of their
- * dashboard: a place to say, in the admin's own words, what Xencodes is doing
+ * The announcement popup every signed-in customer sees when they land on
+ * their dashboard: a place to say, in the admin's own words, what Xencodes is doing
  * and when prices move. Editable at /admin/settings, so a notice about a price
  * change never needs a code change.
  *
@@ -13,9 +13,10 @@ import { readSettings, readBoolean, SETTING_KEYS } from "@/lib/settings";
  */
 export const DEFAULT_ANNOUNCEMENT_TITLE = "A note from Xencodes";
 export const DEFAULT_ANNOUNCEMENT_MESSAGE =
-  "We are working hard to give you the best quality and the best services for everything you need. " +
+  "We are working hard to give you the best quality and the best services for everything you need.\n\n" +
   "Prices follow live availability from our suppliers, so a price can occasionally rise when cheaper numbers sell out. " +
-  "We always show you the current price before you buy, and we will keep you informed whenever prices change.";
+  "If the number you picked sells out at the very moment you buy, the next available one may cost slightly more.\n\n" +
+  "We will keep you informed whenever prices change.";
 
 export interface Announcement {
   enabled: boolean;

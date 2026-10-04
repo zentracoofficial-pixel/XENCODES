@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -14,6 +14,7 @@ import {
 } from "./actions";
 import { RECOVERY_TEMPLATE_VARIABLES } from "@/lib/recovery-template-vars";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
+import { AnnouncementModal } from "@/components/announcement-modal";
 
 const initial: SettingsState = {};
 const initialTestEmail: TestEmailState = {};
@@ -280,9 +281,20 @@ export function AnnouncementForm({
   message: string;
 }) {
   const [state, formAction, pending] = useActionState(saveAnnouncementAction, initial);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [preview, setPreview] = useState<{ title: string; message: string } | null>(null);
+
+  function openPreview() {
+    if (!formRef.current) return;
+    const data = new FormData(formRef.current);
+    setPreview({
+      title: String(data.get("title") ?? "").trim() || "Your title",
+      message: String(data.get("message") ?? "").trim() || "Your message.",
+    });
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form ref={formRef} action={formAction} className="space-y-4">
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="enabled" defaultChecked={enabled} className="h-4 w-4" />
         Show the announcement to signed-in customers
@@ -317,17 +329,30 @@ export function AnnouncementForm({
       </div>
 
       <p className="max-w-xl text-xs text-muted-foreground">
-        Shown at the top of every dashboard page. Customers can close it, and it comes back for
-        everyone whenever you change the wording, so use this to announce a price change. Plain
-        text only.
+        Shown as a popup the first time a signed-in customer opens their dashboard. Once they close
+        it, it stays closed until you change the wording, so use this to announce a price change.
+        Leave a blank line between paragraphs. Plain text only.
       </p>
 
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
       {state.success ? <p className="text-sm text-success">Saved.</p> : null}
 
-      <Button type="submit" disabled={pending}>
-        {pending ? "Saving" : "Save announcement"}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={pending}>
+          {pending ? "Saving" : "Save announcement"}
+        </Button>
+        <Button type="button" variant="outline" onClick={openPreview}>
+          Preview popup
+        </Button>
+      </div>
+
+      {preview ? (
+        <AnnouncementModal
+          title={preview.title}
+          message={preview.message}
+          onClose={() => setPreview(null)}
+        />
+      ) : null}
     </form>
   );
 }

@@ -262,7 +262,7 @@ export default async function AdminSettingsPage() {
           Announcement
         </h2>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-          A notice at the top of the customer dashboard. Use it to tell customers about price
+          A popup customers see when they open their dashboard. Use it to tell them about price
           changes or anything else they should know.
         </p>
         <div className="mt-4">

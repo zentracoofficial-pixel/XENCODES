@@ -150,6 +150,36 @@
     animation: xen-rise 0.28s ease-out both;
   }
 
+  /* The announcement popup: a short rise and fade, and a backdrop that fades
+     in with it. Nothing loops. */
+  @keyframes xen-pop {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes xen-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .animate-pop {
+    animation: xen-pop 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .animate-pop::backdrop {
+    animation: xen-fade 0.25s ease-out both;
+  }
+
   /* Service marquee. The track holds two identical copies of the row, so
      shifting it by exactly half its width loops with no visible seam. */
   @keyframes xen-marquee {
@@ -205,7 +235,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .animate-live,
-    .animate-rise {
+    .animate-rise,
+    .animate-pop,
+    .animate-pop::backdrop {
       animation: none;
     }
 
