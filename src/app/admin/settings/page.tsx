@@ -15,7 +15,9 @@ import { isKorapayConfigured } from "@/lib/korapay";
 import { isEmailConfigured, emailFromAddress, isProductionSenderUnsafe } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { getRecoverySettings } from "@/lib/recovery";
-import { MarginForm, TopupFeeForm, TestEmailButton, RecoverySettingsForm } from "./settings-forms";
+import { MarginForm, TopupFeeForm, TestEmailButton, RecoverySettingsForm, AnnouncementForm } from "./settings-forms";
+import { getAnnouncement } from "@/lib/announcement";
+import { Megaphone } from "lucide-react";
 
 export const metadata: Metadata = { title: "Admin: Settings" };
 
@@ -30,7 +32,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings] =
+  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings, announcement] =
     await Promise.all([
       readSettings(),
       loadMarginRules(),
@@ -39,6 +41,7 @@ export default async function AdminSettingsPage() {
       getEnabledProviders(),
       getEnabledCurrencies(),
       getRecoverySettings(),
+      getAnnouncement(),
     ]);
 
   const pendingBootstrap = bootstrapAdminEmails().filter(
@@ -250,6 +253,24 @@ export default async function AdminSettingsPage() {
               )}
             />
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <Megaphone className="h-4 w-4" />
+          Announcement
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+          A notice at the top of the customer dashboard. Use it to tell customers about price
+          changes or anything else they should know.
+        </p>
+        <div className="mt-4">
+          <AnnouncementForm
+            enabled={announcement.enabled}
+            title={announcement.title}
+            message={announcement.message}
+          />
         </div>
       </Card>
 

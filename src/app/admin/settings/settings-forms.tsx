@@ -7,11 +7,13 @@ import {
   saveMarginSettingsAction,
   saveTopupFeeSettingsAction,
   saveRecoverySettingsAction,
+  saveAnnouncementAction,
   sendTestEmailAction,
   type SettingsState,
   type TestEmailState,
 } from "./actions";
 import { RECOVERY_TEMPLATE_VARIABLES } from "@/lib/recovery-template-vars";
+import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
 
 const initial: SettingsState = {};
 const initialTestEmail: TestEmailState = {};
@@ -268,6 +270,68 @@ export function RecoverySettingsForm({
  * message in the inbox rather than spam is the real question — editable so
  * it can also be pointed at any other address to test.
  */
+export function AnnouncementForm({
+  enabled,
+  title,
+  message,
+}: {
+  enabled: boolean;
+  title: string;
+  message: string;
+}) {
+  const [state, formAction, pending] = useActionState(saveAnnouncementAction, initial);
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="enabled" defaultChecked={enabled} className="h-4 w-4" />
+        Show the announcement to signed-in customers
+      </label>
+
+      <div className="max-w-xl space-y-1.5">
+        <label className={labelClass} htmlFor="announcementTitle">
+          Title
+        </label>
+        <input
+          id="announcementTitle"
+          name="title"
+          type="text"
+          maxLength={ANNOUNCEMENT_TITLE_MAX}
+          defaultValue={title}
+          className={inputClass}
+        />
+      </div>
+
+      <div className="max-w-xl space-y-1.5">
+        <label className={labelClass} htmlFor="announcementMessage">
+          Message
+        </label>
+        <textarea
+          id="announcementMessage"
+          name="message"
+          rows={5}
+          maxLength={ANNOUNCEMENT_MESSAGE_MAX}
+          defaultValue={message}
+          className={cn(inputClass, "h-auto py-2 leading-relaxed")}
+        />
+      </div>
+
+      <p className="max-w-xl text-xs text-muted-foreground">
+        Shown at the top of every dashboard page. Customers can close it, and it comes back for
+        everyone whenever you change the wording, so use this to announce a price change. Plain
+        text only.
+      </p>
+
+      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
+      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
+
+      <Button type="submit" disabled={pending}>
+        {pending ? "Saving" : "Save announcement"}
+      </Button>
+    </form>
+  );
+}
+
 export function TestEmailButton({ defaultTo }: { defaultTo: string }) {
   const [state, formAction, pending] = useActionState(sendTestEmailAction, initialTestEmail);
 

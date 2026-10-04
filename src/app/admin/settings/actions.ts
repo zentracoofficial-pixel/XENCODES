@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
+import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
 import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, EmailDeliveryError, emailFromAddress } from "@/lib/email";
@@ -151,6 +152,49 @@ export async function saveRecoverySettingsAction(
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin/recovery");
+  return { success: true };
+}
+
+/**
+ * The dashboard announcement bar. Plain text only: it is rendered as text by
+ * React, never as HTML, and the length is bounded so a pasted essay cannot
+ * push the dashboard off the screen.
+ */
+export async function saveAnnouncementAction(
+  _prev: SettingsState,
+  formData: FormData,
+): Promise<SettingsState> {
+  const admin = await requireAdmin();
+
+  const enabled = formData.get("enabled") === "on";
+  const title = String(formData.get("title") ?? "").trim();
+  const message = String(formData.get("message") ?? "").trim();
+
+  if (enabled && (!title || !message)) {
+    return { error: "Add a title and a message, or switch the announcement off." };
+  }
+  if (title.length > ANNOUNCEMENT_TITLE_MAX) {
+    return { error: `Keep the title under ${ANNOUNCEMENT_TITLE_MAX} characters.` };
+  }
+  if (message.length > ANNOUNCEMENT_MESSAGE_MAX) {
+    return { error: `Keep the message under ${ANNOUNCEMENT_MESSAGE_MAX} characters.` };
+  }
+
+  await Promise.all([
+    writeSetting(SETTING_KEYS.announcementEnabled, enabled ? "true" : "false"),
+    writeSetting(SETTING_KEYS.announcementTitle, title),
+    writeSetting(SETTING_KEYS.announcementMessage, message),
+  ]);
+  await recordAudit({
+    actor: admin,
+    action: "settings.update",
+    targetType: "settings",
+    targetId: "announcement",
+    metadata: { enabled },
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/dashboard", "layout");
   return { success: true };
 }
 
