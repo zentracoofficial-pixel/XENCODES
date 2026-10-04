@@ -85,6 +85,13 @@ export const SETTING_KEYS = {
    *  {{variable}} substitution these are rendered through. */
   noCodeRecoveryAutoEmailSubject: "no_code_recovery_auto_email_subject",
   noCodeRecoveryAutoEmailBody: "no_code_recovery_auto_email_body",
+
+  /** The announcement bar shown to every signed-in customer at the top of
+   *  the dashboard. See src/lib/announcement.ts, the only reader. On unless
+   *  an admin turns it off; the text is admin-editable. */
+  announcementEnabled: "announcement_enabled",
+  announcementTitle: "announcement_title",
+  announcementMessage: "announcement_message",
 } as const;
 
 /** A clearly-labelled placeholder, not a live rate. An admin must set the

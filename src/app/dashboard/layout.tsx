@@ -5,6 +5,8 @@ import { getResendEligibility } from "@/lib/verification";
 import { getUnreadNotificationCount, listRecentNotifications } from "@/lib/notifications";
 import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
 import { VerificationBanner } from "./verification-banner";
+import { AnnouncementBar } from "./announcement-bar";
+import { getAnnouncement } from "@/lib/announcement";
 
 // A customer's wallet, orders and account settings must never be treated
 // as public SEO content, whatever links to them. robots.txt's disallow
@@ -28,7 +30,7 @@ export default async function DashboardLayout({
 
   // Only queried for an unverified account: a verified customer (the
   // overwhelming majority of page loads) skips both queries entirely.
-  const [eligibility, pendingRequest, unreadCount, notifications] = await Promise.all([
+  const [eligibility, pendingRequest, unreadCount, notifications, announcement] = await Promise.all([
     user.emailVerified ? Promise.resolve(null) : getResendEligibility(user.id),
     user.emailVerified
       ? Promise.resolve(null)
@@ -38,6 +40,8 @@ export default async function DashboardLayout({
         }),
     getUnreadNotificationCount(user.id),
     listRecentNotifications(user.id),
+    // A failed settings read must never take the whole dashboard down.
+    getAnnouncement().catch(() => null),
   ]);
 
   const notificationItems = notifications.map((notification) => ({
@@ -55,6 +59,13 @@ export default async function DashboardLayout({
         <DashboardTopBar notifications={notificationItems} unreadCount={unreadCount} />
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-9">
           <div className="mx-auto w-full max-w-4xl">
+            {announcement?.enabled ? (
+              <AnnouncementBar
+                title={announcement.title}
+                message={announcement.message}
+                version={announcement.version}
+              />
+            ) : null}
             {!user.emailVerified && eligibility ? (
               <div className="mb-5">
                 <VerificationBanner
