@@ -4,6 +4,9 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { quotePair } from "@/lib/inventory";
 import { resolveProvider, ProviderError } from "@/lib/provider";
+import type { NumberProvider, PurchasedNumber } from "@/lib/provider/types";
+import { autoAcceptCeilingKobo } from "@/lib/pool-ladder";
+import { runPurchaseCascade } from "@/lib/purchase-cascade";
 import { creditWallet } from "@/lib/wallet";
 import { getActiveUser } from "@/lib/session";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
@@ -50,6 +53,10 @@ export interface PurchaseResult {
   /** Set with "price_changed" so the UI can show the new figure. */
   priceKobo?: number;
 }
+
+/** Stop starting new supplier calls after this long, so the whole purchase
+ *  finishes inside a serverless request's time limit. */
+const PURCHASE_TIME_BUDGET_MS = 8_000;
 
 export async function purchaseNumberAction(
   serviceSlug: string,
@@ -121,8 +128,15 @@ export async function purchaseNumberAction(
   }
 
   // Charging more than the customer agreed to is not something to do
-  // silently. A price that dropped is fine, they simply pay less.
-  if (expectedPriceKobo !== undefined && priceKobo > expectedPriceKobo) {
+  // silently, but a small rise is not worth losing the sale over either: the
+  // rung they were quoted on can sell out before this lands, leaving the next
+  // one up. Up to AUTO_ACCEPT_PRICE_INCREASE_PERCENT above what they were
+  // shown goes through at the price of the rung they actually receive; past
+  // that they see the new price and confirm. A price that dropped is fine,
+  // they simply pay less.
+  const agreedPriceKobo = expectedPriceKobo ?? priceKobo;
+  const ceilingKobo = autoAcceptCeilingKobo(agreedPriceKobo);
+  if (priceKobo > ceilingKobo) {
     return { error: "price_changed", priceKobo };
   }
 
@@ -150,82 +164,75 @@ export async function purchaseNumberAction(
   // from, re-resolved fresh rather than trusting getNumberProvider(): with
   // more than one provider enabled, "the" provider is not a stable idea,
   // and a purchase must go to the same one the customer's price came from.
-  let resolved = await resolveProvider(provider);
+  const resolved = await resolveProvider(provider);
   if (!resolved.connected) return { error: "no_provider" };
 
-  let assigned;
+  // Buy from the pair's price ladder, best rung first, moving down it when a
+  // rung's numbers have run out (see src/lib/purchase-cascade.ts for why an
+  // empty rung is not "out of stock"). Each rung is asked for by its own
+  // seller id and capped at its own price, so the order records, and is
+  // billed at, the rung that really served it.
+  const startedAt = Date.now();
+  const adapters = new Map<string, NumberProvider>([[provider, resolved.provider]]);
+  const adapterFor = async (providerId: string) => {
+    const known = adapters.get(providerId);
+    if (known) return known;
+    const next = await resolveProvider(providerId);
+    if (!next.connected) throw new ProviderError("Provider not connected.", "not_configured");
+    adapters.set(providerId, next.provider);
+    return next.provider;
+  };
+
+  let outcome;
   try {
-    // The provider-side safety rail: an adapter that can enforce a price
-    // ceiling refuses the purchase itself if the live cost has risen past
-    // what was just quoted, rather than this silently paying more.
-    assigned = await resolved.provider.purchaseNumber(
-      serviceSlug,
-      countrySlug,
-      quote.providerCostKobo,
-      quoted.providerOfferId,
-    );
+    outcome = await runPurchaseCascade({
+      initial: quoted,
+      ceilingKobo,
+      balanceKobo: user.walletBalanceKobo,
+      outOfTime: () => Date.now() - startedAt > PURCHASE_TIME_BUDGET_MS,
+      requote: async () => {
+        const fresh = await quotePair(serviceSlug, countrySlug, buyerCurrency);
+        return fresh.ok ? fresh : null;
+      },
+      attempt: async (q, rung) => {
+        try {
+          return await (await adapterFor(q.provider)).purchaseNumber(
+            serviceSlug,
+            countrySlug,
+            rung.costUsdCents,
+            rung.providerOfferId,
+          );
+        } catch (error) {
+          const reason =
+            error instanceof ProviderError ? error.code : error instanceof Error ? error.message : "unknown";
+          // Observability only (see src/lib/provider-failure-stats.ts's own
+          // comment) — never consulted here or anywhere else in this flow to
+          // decide what to show or sell.
+          await recordPurchaseFailure(q.provider, serviceSlug, countrySlug, reason);
+          if (error instanceof ProviderError && error.code === "out_of_stock") return null;
+          throw error;
+        }
+      },
+    });
   } catch (error) {
-    const reason =
-      error instanceof ProviderError ? error.code : error instanceof Error ? error.message : "unknown";
-    // Observability only (see src/lib/provider-failure-stats.ts's own
-    // comment) — never consulted here or anywhere else in this flow to
-    // decide what to show or sell.
-    await recordPurchaseFailure(provider, serviceSlug, countrySlug, reason);
-    if (!(error instanceof ProviderError) || error.code !== "out_of_stock") {
-      return { error: "provider_unavailable" };
-    }
-
-    // "Out of stock" from the provider a moment after quotePair() itself
-    // confirmed stock is not necessarily true anymore: this whole flow's
-    // inventory is shared with every other buyer on the supplier's own
-    // platform, and the cheapest numbers can be bought out from under this
-    // exact request in the gap between the quote and the purchase call —
-    // same root cause as the targeted-pool fallback in the provider adapter
-    // itself, just one level up. Re-quoting fresh, once, tells a real
-    // sellout apart from a pair that is still buyable at a price this
-    // request's own ceiling no longer matches, rather than reporting the
-    // pair out of stock when it may not be.
-    const recheck = await quotePair(serviceSlug, countrySlug, buyerCurrency);
-    if (!recheck.ok) return { error: "unavailable" };
-
-    if (recheck.quote.customerPriceKobo !== priceKobo) {
-      // The live price moved. Never silently charge more than what the
-      // customer agreed to: surface this exactly like any other mid-flow
-      // price change (see the expectedPriceKobo check above) so they see
-      // the new figure and confirm again, win or lose.
-      return { error: "price_changed", priceKobo: recheck.quote.customerPriceKobo };
-    }
-
-    // Nothing the customer agreed to has changed — same price, same pair —
-    // so this is a one-time, invisible retry against the fresh quote
-    // rather than a dead end over a transient stock race. Every local
-    // binding downstream is refreshed from the recheck so the order
-    // actually recorded matches whichever provider/pool really fulfilled
-    // it, not the one originally targeted.
-    quoted = recheck;
-    ({ quote, service, country, provider } = quoted);
-    priceKobo = quote.customerPriceKobo;
-    resolved = await resolveProvider(provider);
-    if (!resolved.connected) return { error: "no_provider" };
-
-    try {
-      assigned = await resolved.provider.purchaseNumber(
-        serviceSlug,
-        countrySlug,
-        quote.providerCostKobo,
-        quoted.providerOfferId,
-      );
-    } catch (retryError) {
-      const retryReason =
-        retryError instanceof ProviderError
-          ? retryError.code
-          : retryError instanceof Error
-            ? retryError.message
-            : "unknown";
-      await recordPurchaseFailure(provider, serviceSlug, countrySlug, retryReason);
-      return { error: "unavailable" };
-    }
+    if (error instanceof ProviderError && error.code === "not_configured") return { error: "no_provider" };
+    return { error: "provider_unavailable" };
   }
+
+  if (!outcome.success) {
+    // Sold out within what the customer agreed to pay. If dearer rungs still
+    // have numbers, show the lowest of them to confirm instead of calling a
+    // pair that has stock "out of stock".
+    if (outcome.dearerPriceKobo !== null) return { error: "price_changed", priceKobo: outcome.dearerPriceKobo };
+    return { error: "unavailable" };
+  }
+
+  const assigned: PurchasedNumber = outcome.success.assigned;
+  quoted = outcome.success.quoted;
+  ({ service, country, provider } = quoted);
+  quote = outcome.success.quote;
+  priceKobo = quote.customerPriceKobo;
+  const boughtOfferId = outcome.success.providerOfferId;
   await recordPurchaseSuccess(provider, serviceSlug, countrySlug);
 
   const expiresAt = new Date(Date.now() + assigned.sessionSeconds * 1000);
@@ -285,7 +292,7 @@ export async function purchaseNumberAction(
           providerOrderId: assigned.providerOrderId,
           providerServiceId: quoted.providerServiceId ?? null,
           providerCountryId: quoted.providerCountryId ?? null,
-          providerOfferId: quoted.providerOfferId ?? null,
+          providerOfferId: boughtOfferId ?? null,
           currency: buyerCurrency.code,
           priceKobo,
           providerCostKobo: quote.providerCostKobo,
@@ -343,7 +350,7 @@ export async function purchaseNumberAction(
     // The number was already reserved, so hand it back rather than leaving
     // it held for a purchase that did not complete.
     try {
-      await resolved.provider.cancelOrder(assigned.providerOrderId);
+      await adapters.get(provider)!.cancelOrder(assigned.providerOrderId);
     } catch {
       // Nothing more we can do here; the hold lapses on the supplier side.
     }

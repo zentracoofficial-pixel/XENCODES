@@ -139,6 +139,67 @@ export async function getPoolQualityForPair(
   return result;
 }
 
+let globalPoolQualityCache: { value: Map<string, QualityStat>; fetchedAt: number } | undefined;
+const GLOBAL_POOL_QUALITY_TTL_MS = 60_000;
+
+/**
+ * Every rated pool across ALL services and countries: how each GrizzlySMS
+ * seller id has delivered for Xencodes overall. A seller id is global, and a
+ * single service+country pair almost never has the 8 settled orders needed to
+ * rate a pool on its own, so this is what lets a seller that keeps failing be
+ * demoted everywhere rather than being rediscovered as bad one country at a
+ * time. Same 90-day/14-day, sample-gated statistic as every other figure in
+ * this file. Cached for a minute: it ranks every quote, and one grouped query
+ * per quote would be wasteful for a number that moves slowly.
+ */
+export async function getGlobalPoolQuality(): Promise<Map<string, QualityStat>> {
+  if (globalPoolQualityCache && Date.now() - globalPoolQualityCache.fetchedAt < GLOBAL_POOL_QUALITY_TTL_MS) {
+    return globalPoolQualityCache.value;
+  }
+
+  const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const where = (sinceDate: Date) => ({
+    providerOfferId: { not: null },
+    status: { in: SETTLED_STATUSES },
+    createdAt: { gte: sinceDate },
+    ...EXCLUDE_CUSTOMER_CANCELLED,
+  });
+
+  const [overallRows, recentRows] = await Promise.all([
+    prisma.activation.groupBy({ by: ["providerOfferId", "status"], where: where(overallSince), _count: { _all: true } }),
+    prisma.activation.groupBy({ by: ["providerOfferId", "status"], where: where(recentSince), _count: { _all: true } }),
+  ]);
+
+  function tally(rows: typeof overallRows): Map<string, { received: number; settled: number }> {
+    const byPool = new Map<string, { received: number; settled: number }>();
+    for (const row of rows) {
+      if (!row.providerOfferId) continue;
+      const entry = byPool.get(row.providerOfferId) ?? { received: 0, settled: 0 };
+      entry.settled += row._count._all;
+      if (row.status === "RECEIVED") entry.received += row._count._all;
+      byPool.set(row.providerOfferId, entry);
+    }
+    return byPool;
+  }
+
+  const overallByPool = tally(overallRows);
+  const recentByPool = tally(recentRows);
+  const result = new Map<string, QualityStat>();
+  for (const poolId of new Set([...overallByPool.keys(), ...recentByPool.keys()])) {
+    const o = overallByPool.get(poolId);
+    const r = recentByPool.get(poolId);
+    const effective = pickEffectiveStat(
+      o ? toStat(o.received, o.settled, MIN_SAMPLE_SIZE) : null,
+      r ? toStat(r.received, r.settled, MIN_RECENT_SAMPLE_SIZE) : null,
+    );
+    if (effective) result.set(poolId, effective);
+  }
+
+  globalPoolQualityCache = { value: result, fetchedAt: Date.now() };
+  return result;
+}
+
 /** At least this many currently-in-stock pools before there is anything to
  *  choose between at all. */
 const MIN_POOLS_TO_COMPARE = 2;
