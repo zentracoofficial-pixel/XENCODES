@@ -792,6 +792,32 @@ export class GrizzlySmsProvider implements NumberProvider {
     return this.fetchPools(code, resolved.id, serviceSlug, countrySlug);
   }
 
+  async getServiceLadder(serviceSlug: string): Promise<Map<string, ProviderPool[]> | null> {
+    const code = await this.resolveServiceCode(serviceSlug);
+    if (!code) return null;
+
+    let data: unknown;
+    try {
+      data = JSON.parse(await this.call({ action: "getPricesV3", service: code }));
+    } catch (error) {
+      console.error(`[grizzlysms] getPricesV3 (whole service) failed for "${serviceSlug}":`, error);
+      return null;
+    }
+
+    // getCountries() already labels every country priced for this service
+    // (including the "(2)" variants), so reusing it keeps these slugs
+    // identical to the ones a quote and a purchase resolve.
+    const countries = await this.getCountries(serviceSlug);
+    const result = new Map<string, ProviderPool[]>();
+    for (const row of countries) {
+      const id = row.country.providerCountryId;
+      if (!id) continue;
+      const pools = parseProviderPools(data, id, code);
+      if (pools) result.set(row.country.slug, pools.filter((pool) => pool.stockCount > 0));
+    }
+    return result;
+  }
+
   /** The live getPricesV3 breakdown for one already-resolved pair. */
   private async fetchPools(
     code: string,

@@ -139,6 +139,62 @@ export async function getPoolQualityForPair(
   return result;
 }
 
+/**
+ * Every rated pool for every country of ONE service, in a single grouped
+ * pair of queries: countrySlug -> poolId -> stat. The same statistic as
+ * getPoolQualityForPair(), batched so a whole country list can be priced the
+ * way each country's live quote will be without one query per country.
+ */
+export async function getPoolQualityByCountryForService(
+  serviceSlug: string,
+): Promise<Map<string, Map<string, QualityStat>>> {
+  const overallSince = new Date(Date.now() - QUALITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - RECENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const where = (sinceDate: Date) => ({
+    serviceSlug,
+    providerOfferId: { not: null },
+    status: { in: SETTLED_STATUSES },
+    createdAt: { gte: sinceDate },
+    ...EXCLUDE_CUSTOMER_CANCELLED,
+  });
+
+  const [overallRows, recentRows] = await Promise.all([
+    prisma.activation.groupBy({ by: ["countrySlug", "providerOfferId", "status"], where: where(overallSince), _count: { _all: true } }),
+    prisma.activation.groupBy({ by: ["countrySlug", "providerOfferId", "status"], where: where(recentSince), _count: { _all: true } }),
+  ]);
+
+  function tally(rows: typeof overallRows): Map<string, { received: number; settled: number }> {
+    const byKey = new Map<string, { received: number; settled: number }>();
+    for (const row of rows) {
+      if (!row.providerOfferId) continue;
+      const key = `${row.countrySlug}::${row.providerOfferId}`;
+      const entry = byKey.get(key) ?? { received: 0, settled: 0 };
+      entry.settled += row._count._all;
+      if (row.status === "RECEIVED") entry.received += row._count._all;
+      byKey.set(key, entry);
+    }
+    return byKey;
+  }
+
+  const overallByKey = tally(overallRows);
+  const recentByKey = tally(recentRows);
+  const result = new Map<string, Map<string, QualityStat>>();
+  for (const key of new Set([...overallByKey.keys(), ...recentByKey.keys()])) {
+    const o = overallByKey.get(key);
+    const r = recentByKey.get(key);
+    const effective = pickEffectiveStat(
+      o ? toStat(o.received, o.settled, MIN_SAMPLE_SIZE) : null,
+      r ? toStat(r.received, r.settled, MIN_RECENT_SAMPLE_SIZE) : null,
+    );
+    if (!effective) continue;
+    const [countrySlug, poolId] = key.split("::");
+    const byPool = result.get(countrySlug) ?? new Map<string, QualityStat>();
+    byPool.set(poolId, effective);
+    result.set(countrySlug, byPool);
+  }
+  return result;
+}
+
 let globalPoolQualityCache: { value: Map<string, QualityStat>; fetchedAt: number } | undefined;
 const GLOBAL_POOL_QUALITY_TTL_MS = 60_000;
 
