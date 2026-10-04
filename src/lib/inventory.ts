@@ -30,10 +30,11 @@ import {
   type QualityTier,
 } from "@/lib/deliverability";
 import {
+  getGlobalPoolQuality,
   getPoolQualityForPair,
   getPreferredPoolQualityForService,
-  selectQualityPool,
 } from "@/lib/provider-pool-quality";
+import { mergePoolQuality, rankPools } from "@/lib/pool-ladder";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -180,17 +181,20 @@ export type QuoteResult =
        *  only: never used to talk to a provider directly. */
       providerServiceId?: string;
       providerCountryId?: string;
-      /** Set only when src/lib/provider-pool-quality.ts found real evidence
-       *  one of this provider's own distinct seller pools (see ProviderPool)
-       *  for this exact pair has a confirmed, materially better delivery
-       *  record than its current alternatives — in which case `quote` and
-       *  `country.priceKobo` are already priced from *this* pool's own cost,
-       *  not the provider's blended one, and a purchase must ask for this
-       *  pool specifically (see purchaseNumber()'s own providerOfferId
-       *  parameter) to actually get what was priced. Absent in the ordinary
-       *  case: no pools to choose between, or not enough evidence yet to
-       *  prefer one — nothing changes from before this feature existed. */
+      /** The seller pool (see ProviderPool) this quote is priced from, when
+       *  the provider broke the pair down into several. `quote` and
+       *  `country.priceKobo` are priced from *this* pool's own cost, and a
+       *  purchase must ask for this pool specifically to get what was priced.
+       *  Always set when the provider reports pools, so every order records
+       *  the pool that really served it (the evidence pool quality is built
+       *  from). Absent for a single-price pair, which is bought untargeted. */
       providerOfferId?: string;
+      /** Every rung this pair can be bought from right now, best first, each
+       *  already priced for this buyer. The first is the one `quote` is
+       *  priced from. purchaseNumberAction() walks down it when a rung's
+       *  numbers run out between the quote and the purchase, so a pair is
+       *  only reported out of stock when every rung is empty. */
+      ladder: Array<{ providerOfferId?: string; costUsdCents: number; quote: PriceQuote }>;
     }
   | { ok: false; reason: QuoteFailure };
 
@@ -742,42 +746,44 @@ export async function quotePair(
     candidate.offer.costUsdCents < best.offer.costUsdCents ? candidate : best,
   );
 
-  // Quality over cheapest, but only once there is real evidence to act on —
-  // see selectQualityPool()'s own comment in src/lib/provider-pool-quality.ts
-  // for exactly when this does and does not diverge from the winner's own
-  // blended cost above. A pure DB read first (cheap, and almost always the
-  // whole answer: most pairs have no rated pools yet): the live,
-  // network-calling getProviderPools() is only worth asking once that read
-  // already shows at least two pools with enough history to possibly matter.
-  let effectiveCostUsdCents = winner.offer.costUsdCents;
-  let chosenProviderOfferId: string | undefined;
-  let chosenPoolQuality: QualityStat | undefined;
-  if (winner.provider.getProviderPools) {
-    const qualityByPool = await getPoolQualityForPair(serviceSlug, winner.offer.country.slug).catch(
-      (error) => {
-        console.error(`[inventory] pool-quality lookup failed for "${serviceSlug}"/"${countrySlug}":`, error);
-        return new Map<string, QualityStat>();
-      },
+  // Sell from the pair's real price ladder, best rung first (see
+  // src/lib/pool-ladder.ts). The provider's own headline cost is the CHEAPEST
+  // rung's price, and a rung that cheap often holds a few dozen numbers: quote
+  // and cap the purchase at that price and the pair reads as "out of stock"
+  // the moment those run out, with thousands of numbers one rung up.
+  // Quality evidence (this pair's own record per pool, else the pool's record
+  // everywhere) decides the order; with none yet it is stock depth.
+  let rungs: Array<{ providerOfferId?: string; costUsdCents: number; stockCount?: number }> = [
+    { costUsdCents: winner.offer.costUsdCents, stockCount: winner.offer.stockCount },
+  ];
+  let qualityByPool = new Map<string, QualityStat>();
+  if (winner.offer.pools && winner.offer.pools.length > 0) {
+    const [pairQuality, globalQuality] = await Promise.all([
+      getPoolQualityForPair(serviceSlug, winner.offer.country.slug),
+      getGlobalPoolQuality(),
+    ]).catch((error) => {
+      console.error(`[inventory] pool-quality lookup failed for "${serviceSlug}"/"${countrySlug}":`, error);
+      return [new Map<string, QualityStat>(), new Map<string, QualityStat>()] as const;
+    });
+    qualityByPool = mergePoolQuality(pairQuality, globalQuality);
+
+    const ranked = rankPools(
+      winner.offer.pools.filter((pool) => isUsableUsdCost(pool.costUsdCents)),
+      qualityByPool,
     );
-    if (qualityByPool.size >= 2) {
-      const pools = await winner.provider
-        .getProviderPools(serviceSlug, winner.offer.country.slug)
-        .catch((error) => {
-          console.error(`[inventory] getProviderPools failed for "${serviceSlug}"/"${countrySlug}":`, error);
-          return null;
-        });
-      if (pools) {
-        const chosen = selectQualityPool(pools, qualityByPool);
-        if (chosen && isUsableUsdCost(chosen.costUsdCents)) {
-          effectiveCostUsdCents = chosen.costUsdCents;
-          chosenProviderOfferId = chosen.providerOfferId;
-          chosenPoolQuality = qualityByPool.get(chosen.providerOfferId);
-        }
-      }
-    }
+    if (ranked.length > 0) rungs = ranked;
   }
 
-  const quote = quoteForCurrency(rules, effectiveCostUsdCents, serviceSlug, currency);
+  const primary = rungs[0];
+  const chosenProviderOfferId = primary.providerOfferId;
+  const chosenPoolQuality = chosenProviderOfferId ? qualityByPool.get(chosenProviderOfferId) : undefined;
+  const ladder = rungs.map((rung) => ({
+    providerOfferId: rung.providerOfferId,
+    costUsdCents: rung.costUsdCents,
+    quote: quoteForCurrency(rules, rung.costUsdCents, serviceSlug, currency),
+  }));
+
+  const quote = ladder[0].quote;
 
   // Same fallback order as getServiceCountries(): the provider's own rate
   // when it reports one; otherwise, once a specific pool was chosen above
@@ -802,6 +808,7 @@ export async function quotePair(
     providerServiceId: winner.service.providerServiceId,
     providerCountryId: winner.offer.country.providerCountryId,
     providerOfferId: chosenProviderOfferId,
+    ladder,
     service: toInventoryService(winner.service),
     country: {
       slug: winner.offer.country.slug,

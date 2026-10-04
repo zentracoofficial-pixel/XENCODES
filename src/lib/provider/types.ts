@@ -89,6 +89,17 @@ export interface ProviderAvailability {
   /** Share of recent activations that received a code, 0 to 100. Absent
    *  unless the supplier actually reports it. */
   successRate?: number;
+  /**
+   * Every price rung with numbers in stock right now, when the supplier sells
+   * one pair from several sellers at several prices (see ProviderPool).
+   * Present only when the supplier actually broke the pair down; absent for
+   * a single-price pair. When present, `costUsdCents` is the price of the
+   * rung this adapter would offer first and `stockCount` is the sum of these
+   * rungs, so "in stock" means a rung really has numbers rather than the
+   * supplier's own headline figure saying so. Unranked: choosing among them
+   * (and what to try next when one runs dry) is src/lib/pool-ladder.ts.
+   */
+  pools?: ProviderPool[];
 }
 
 /**

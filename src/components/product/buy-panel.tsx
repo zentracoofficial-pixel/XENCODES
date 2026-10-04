@@ -479,6 +479,7 @@ export function BuyPanel({
           </span>
         ) : null}
         <span className="text-sm font-semibold tabular-nums">
+          <span className="mr-1 text-[11px] font-normal text-muted-foreground">from</span>
           {formatMoney(item.priceKobo, currency)}
         </span>
       </span>

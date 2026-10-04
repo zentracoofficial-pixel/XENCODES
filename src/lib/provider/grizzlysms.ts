@@ -11,6 +11,7 @@ import {
 } from "./types";
 import { resolveCountryMeta, slugify, assignVariantLabels } from "./country-meta";
 import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
+import { rankPools } from "@/lib/pool-ladder";
 
 /**
  * GrizzlySMS, the live number supplier.
@@ -583,6 +584,24 @@ export class GrizzlySmsProvider implements NumberProvider {
     const name = GrizzlySmsProvider.countryNamesCache?.get(countryId);
     if (!name) return null;
 
+    // getPrices' own figures (`entry`) describe only the CHEAPEST rung's
+    // price beside a stock count that is not that rung's, so they are no
+    // basis for "can this be bought and at what price". The real answer is
+    // the seller breakdown: see src/lib/pool-ladder.ts for the full story.
+    // A failed or absent breakdown (pools === null: a single-price pair, or
+    // getPricesV3 erroring) falls back to getPrices' figures, exactly as
+    // before this existed.
+    const pools = await this.fetchPools(code, countryId, serviceSlug, countrySlug);
+    const inStock = pools?.filter((pool) => pool.stockCount > 0) ?? null;
+
+    let costUsdCents = usdToCents(entry.cost);
+    let stockCount = entry.count;
+    if (inStock) {
+      stockCount = inStock.reduce((sum, pool) => sum + pool.stockCount, 0);
+      const first = rankPools(inStock)[0];
+      if (first) costUsdCents = first.costUsdCents;
+    }
+
     return {
       serviceSlug,
       // slug/name come from the resolved label, not resolveCountryMeta(name)
@@ -592,9 +611,10 @@ export class GrizzlySmsProvider implements NumberProvider {
       // purchase, the deliverability lookup, and what the customer sees all
       // referring to the exact same variant they picked.
       country: { ...resolveCountryMeta(name), slug: label.slug, name: label.name, providerCountryId: countryId },
-      costUsdCents: usdToCents(entry.cost),
-      stock: stockFromCount(entry.count),
-      stockCount: entry.count,
+      costUsdCents,
+      stock: stockFromCount(stockCount),
+      stockCount,
+      pools: inStock && inStock.length > 0 ? inStock : undefined,
     };
   }
 
@@ -621,7 +641,11 @@ export class GrizzlySmsProvider implements NumberProvider {
     // itself refuses the request rather than this purchase silently
     // costing more than the order it is about to be attached to.
     if (maxCostUsdCents !== undefined) {
-      const maxUsd = maxCostUsdCents / 100;
+      // Half a cent of headroom: costs cross this boundary rounded to whole
+      // cents (usdToCents), while GrizzlySMS prices go to four decimals. A
+      // rung priced $0.8640 is carried as 86 cents, and a ceiling of exactly
+      // $0.86 would refuse it as over-limit — a false NO_NUMBERS.
+      const maxUsd = (maxCostUsdCents + 0.5) / 100;
       params.maxPrice = maxUsd.toFixed(4);
     }
     // Targets one exact seller/pool (see ProviderPool) rather than
@@ -634,27 +658,14 @@ export class GrizzlySmsProvider implements NumberProvider {
       params.providerIds = providerOfferId;
     }
 
-    let text = await this.call(params);
-    let trimmed = text.trim();
-
-    // A specifically-targeted pool can sell the last of its own thin stock
-    // to someone else (GrizzlySMS resells the same pools to many clients,
-    // not only Xencodes) in the moments between quotePair() confirming it
-    // had stock and this exact call — real, observed in production: the
-    // country+service pair as a whole still had numbers, just not from the
-    // one pool this purchase insisted on. Retrying once, immediately, with
-    // the same price ceiling but GrizzlySMS's own default assignment
-    // instead, is what keeps a pool going briefly dry from making an
-    // otherwise-available pair falsely report as sold out entirely — the
-    // exact customer-facing bug this comment is guarding against. Never
-    // retried when no specific pool was targeted in the first place: that
-    // NO_NUMBERS already means the pair itself has nothing to sell.
-    if (trimmed === "NO_NUMBERS" && providerOfferId !== undefined) {
-      const fallbackParams = { ...params };
-      delete fallbackParams.providerIds;
-      text = await this.call(fallbackParams);
-      trimmed = text.trim();
-    }
+    // Strictly what was asked for: when a pool is targeted, NO_NUMBERS means
+    // THAT pool is empty, and the caller (purchaseNumberAction) moves down the
+    // price ladder to the next one itself. This used to silently retry
+    // untargeted here, which both hid which pool really fulfilled the order
+    // (so Xencodes recorded the wrong one, and quality evidence never
+    // accrued) and still could not cross the price ceiling.
+    const text = await this.call(params);
+    const trimmed = text.trim();
 
     // Read raw text rather than callJson(): a sold-out pair answers with the
     // plain error string "NO_NUMBERS", not JSON, and that specific outcome
@@ -778,10 +789,19 @@ export class GrizzlySmsProvider implements NumberProvider {
     if (!code) return null;
     const resolved = await this.resolveCountryId(code, countrySlug);
     if (!resolved) return null;
+    return this.fetchPools(code, resolved.id, serviceSlug, countrySlug);
+  }
 
+  /** The live getPricesV3 breakdown for one already-resolved pair. */
+  private async fetchPools(
+    code: string,
+    countryId: string,
+    serviceSlug: string,
+    countrySlug: string,
+  ): Promise<ProviderPool[] | null> {
     let text: string;
     try {
-      text = await this.call({ action: "getPricesV3", service: code, country: resolved.id });
+      text = await this.call({ action: "getPricesV3", service: code, country: countryId });
     } catch (error) {
       console.error(`[grizzlysms] getPricesV3 failed for "${serviceSlug}"/"${countrySlug}":`, error);
       return null;
@@ -795,7 +815,7 @@ export class GrizzlySmsProvider implements NumberProvider {
       return null;
     }
 
-    return parseProviderPools(data, resolved.id, code);
+    return parseProviderPools(data, countryId, code);
   }
 
   /**
