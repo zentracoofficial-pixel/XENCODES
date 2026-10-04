@@ -5,7 +5,7 @@ import { getResendEligibility } from "@/lib/verification";
 import { getUnreadNotificationCount, listRecentNotifications } from "@/lib/notifications";
 import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
 import { VerificationBanner } from "./verification-banner";
-import { AnnouncementBar } from "./announcement-bar";
+import { AnnouncementPopup } from "./announcement-popup";
 import { getAnnouncement } from "@/lib/announcement";
 
 // A customer's wallet, orders and account settings must never be treated
@@ -60,7 +60,7 @@ export default async function DashboardLayout({
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-9">
           <div className="mx-auto w-full max-w-4xl">
             {announcement?.enabled ? (
-              <AnnouncementBar
+              <AnnouncementPopup
                 title={announcement.title}
                 message={announcement.message}
                 version={announcement.version}

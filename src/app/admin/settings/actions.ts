@@ -156,7 +156,7 @@ export async function saveRecoverySettingsAction(
 }
 
 /**
- * The dashboard announcement bar. Plain text only: it is rendered as text by
+ * The dashboard announcement popup. Plain text only: it is rendered as text by
  * React, never as HTML, and the length is bounded so a pasted essay cannot
  * push the dashboard off the screen.
  */

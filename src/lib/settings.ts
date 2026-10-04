@@ -86,8 +86,8 @@ export const SETTING_KEYS = {
   noCodeRecoveryAutoEmailSubject: "no_code_recovery_auto_email_subject",
   noCodeRecoveryAutoEmailBody: "no_code_recovery_auto_email_body",
 
-  /** The announcement bar shown to every signed-in customer at the top of
-   *  the dashboard. See src/lib/announcement.ts, the only reader. On unless
+  /** The announcement popup shown to every signed-in customer when they
+   *  land on the dashboard. See src/lib/announcement.ts, the only reader. On unless
    *  an admin turns it off; the text is admin-editable. */
   announcementEnabled: "announcement_enabled",
   announcementTitle: "announcement_title",
