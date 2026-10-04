@@ -316,6 +316,19 @@ export interface NumberProvider {
    * reason debugPriceTiers is.
    */
   getProviderPools?(serviceSlug: string, countrySlug: string): Promise<ProviderPool[] | null>;
+
+  /**
+   * The in-stock price rungs (see ProviderPool) for EVERY country of one
+   * service, keyed by our country slug, in one request. Exists so a country
+   * list can show the price a customer will actually be quoted on picking a
+   * country, rather than the supplier's headline "from" price: a customer
+   * who compares the list with the quote and finds them different stops
+   * trusting either. A country mapped to an empty array has no rung with
+   * stock. A country absent from the map has no breakdown (single price):
+   * keep its own figures. Null when the supplier cannot answer at all.
+   * Optional, and best effort: callers fall back to getCountries() prices.
+   */
+  getServiceLadder?(serviceSlug: string): Promise<Map<string, ProviderPool[]> | null>;
 }
 
 /** Thrown when the supplier refuses a request, so callers can react. */

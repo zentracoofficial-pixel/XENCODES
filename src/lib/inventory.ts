@@ -31,6 +31,7 @@ import {
 } from "@/lib/deliverability";
 import {
   getGlobalPoolQuality,
+  getPoolQualityByCountryForService,
   getPoolQualityForPair,
   getPreferredPoolQualityForService,
 } from "@/lib/provider-pool-quality";
@@ -571,6 +572,57 @@ export async function getServiceCountries(
       }
     }
     offers = Array.from(cheapestByCountry.values());
+  }
+
+  // Price each country the way its live quote will be, not at the supplier's
+  // headline "from" price. The quote (quotePair) sells from the best in-stock
+  // rung of the pair's price ladder, which can sit above the cheapest rung;
+  // a list that shows the cheaper figure and then a dearer quote after the
+  // customer picks a country is exactly the inconsistency that costs trust,
+  // above all for someone who checks a price before funding their wallet.
+  // Best effort: a provider that cannot give the breakdown leaves its own
+  // figures in place, and a country with no breakdown keeps them too.
+  try {
+    const [providers, poolQualityByCountry, globalPoolQuality] = await Promise.all([
+      getEnabledProviders(),
+      getPoolQualityByCountryForService(serviceSlug),
+      getGlobalPoolQuality(),
+    ]);
+    const ladderCost = new Map<string, { costUsdCents: number; inStock: boolean }>();
+    for (const { provider } of providers) {
+      if (!provider.getServiceLadder) continue;
+      const ladders = await provider.getServiceLadder(serviceSlug).catch((error) => {
+        console.error(`[inventory] getServiceLadder failed for "${serviceSlug}":`, error);
+        return null;
+      });
+      if (!ladders) continue;
+      for (const [countrySlug, pools] of ladders) {
+        const quality = mergePoolQuality(
+          poolQualityByCountry.get(countrySlug) ?? new Map<string, QualityStat>(),
+          globalPoolQuality,
+        );
+        const first = rankPools(
+          pools.filter((pool) => isUsableUsdCost(pool.costUsdCents)),
+          quality,
+        )[0];
+        const existing = ladderCost.get(countrySlug);
+        // Cheapest provider wins, same rule as quotePair().
+        if (first && (!existing || !existing.inStock || first.costUsdCents < existing.costUsdCents)) {
+          ladderCost.set(countrySlug, { costUsdCents: first.costUsdCents, inStock: true });
+        } else if (!first && !existing) {
+          ladderCost.set(countrySlug, { costUsdCents: 0, inStock: false });
+        }
+      }
+    }
+    offers = offers.map((offer) => {
+      const live = ladderCost.get(offer.country.slug);
+      if (!live) return offer;
+      return live.inStock
+        ? { ...offer, costUsdCents: live.costUsdCents }
+        : { ...offer, stock: "out_of_stock" };
+    });
+  } catch (error) {
+    console.error(`[inventory] could not price "${serviceSlug}" countries from the price ladder:`, error);
   }
 
   const priced: InventoryCountry[] = offers
