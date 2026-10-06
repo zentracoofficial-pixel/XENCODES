@@ -39,28 +39,54 @@ export const ACCEPTABLE_RATE_POINTS = 60;
  *  provider-pool-quality.ts: a few points is noise). */
 const SAME_QUALITY_BAND_POINTS = 15;
 
+/** How far above the typical price a rung may sit and still lead. Beyond
+ *  this a rung is a luxury tier: tried after the sensible ones, not first, so
+ *  a customer is not quoted several times the going price on a guess. */
+export const PREMIUM_CAP_MULTIPLE = 2;
+
+/** The price at which half of a pair's in-stock numbers cost less: where the
+ *  bulk of the real supply sits, so a handful of numbers at one extreme
+ *  cannot drag it. */
+export function typicalPriceCents(pools: RankablePool[]): number {
+  const live = pools.filter((pool) => pool.stockCount > 0 && pool.costUsdCents > 0);
+  const total = live.reduce((sum, pool) => sum + pool.stockCount, 0);
+  if (total === 0) return 0;
+  let running = 0;
+  for (const pool of [...live].sort((a, b) => a.costUsdCents - b.costUsdCents)) {
+    running += pool.stockCount;
+    if (running >= total / 2) return pool.costUsdCents;
+  }
+  return 0;
+}
+
 /**
- * Every in-stock rung, best first.
+ * Every in-stock rung, best first. Cheapest-first is exactly what this does
+ * NOT do: the supplier's default (and the cheapest rung) is where bulk,
+ * heavily reused numbers tend to sit, and a code that never arrives costs far
+ * more than a dearer number that does.
  *
  *  1. Pools with a real, acceptable delivery record, best record first
  *     (only those within the same quality band as the best rated pool).
- *  2. Pools with no record yet and real depth: deepest first. Depth is the
- *     stability tiebreak (a deep rung does not run dry mid-purchase), then
- *     cheaper wins.
- *  3. Thin pools with no record, deepest first.
+ *     Proven delivery beats any assumption about price, in either direction.
+ *  2. Pools with no record yet and real depth, premium first: at or above the
+ *     typical price, dearest first up to PREMIUM_CAP_MULTIPLE times typical;
+ *     then the luxury tiers above that cap, cheapest of those first; then
+ *     pools priced below typical, closest to typical first, cheapest last.
+ *  3. Thin pools with no record, in the same premium-first order.
  *  4. Pools whose own record is poor or clearly worse than a rated
  *     alternative, last. Still offered as a final fallback: a poor number is
  *     better than a false "out of stock" when that really is all that is left.
  *
- * Price is deliberately not a ranking input except as a tiebreak: a pricier
- * pool is not assumed better, a cheaper one is not assumed worse, and what a
- * rung costs only decides the price the customer sees for the rung chosen.
+ * Premium-first is a rule of thumb for pools nothing is known about yet, not a
+ * measurement. It stops mattering the moment a pool has settled orders: the
+ * record in step 1 and the demotion in step 4 are what really decide.
  */
 export function rankPools<T extends RankablePool>(
   pools: T[],
   qualityByPool?: Map<string, QualityStat>,
 ): T[] {
   const available = pools.filter((pool) => pool.stockCount > 0 && pool.costUsdCents > 0);
+  const typical = typicalPriceCents(available);
 
   const rate = (pool: T) => qualityByPool?.get(pool.providerOfferId)?.successRatePercent;
   const bestRated = available.reduce<number | undefined>((best, pool) => {
@@ -85,12 +111,24 @@ export function rankPools<T extends RankablePool>(
   }
 
   const byRateDesc = (a: T, b: T) => (rate(b) ?? 0) - (rate(a) ?? 0) || a.costUsdCents - b.costUsdCents;
-  const byDepthThenPrice = (a: T, b: T) => b.stockCount - a.stockCount || a.costUsdCents - b.costUsdCents;
+
+  // 0: at or above typical and within the cap (dearest first); 1: luxury,
+  // above the cap (least extreme first); 2: below typical (nearest typical
+  // first, so the cheapest rung is always the very last of the unrated).
+  const band = (pool: T) =>
+    pool.costUsdCents < typical ? 2 : pool.costUsdCents > typical * PREMIUM_CAP_MULTIPLE ? 1 : 0;
+  const premiumFirst = (a: T, b: T) => {
+    const ba = band(a);
+    const bb = band(b);
+    if (ba !== bb) return ba === 0 ? -1 : bb === 0 ? 1 : ba === 1 ? -1 : 1;
+    if (ba === 0 || ba === 2) return b.costUsdCents - a.costUsdCents || b.stockCount - a.stockCount;
+    return a.costUsdCents - b.costUsdCents || b.stockCount - a.stockCount;
+  };
 
   return [
     ...preferred.sort(byRateDesc),
-    ...unratedDeep.sort(byDepthThenPrice),
-    ...unratedThin.sort(byDepthThenPrice),
+    ...unratedDeep.sort(premiumFirst),
+    ...unratedThin.sort(premiumFirst),
     ...demoted.sort(byRateDesc),
   ];
 }

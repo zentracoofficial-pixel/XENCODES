@@ -195,6 +195,13 @@ export async function getPoolQualityByCountryForService(
   return result;
 }
 
+/** A seller's overall record is acted on from fewer settled orders than a
+ *  pair's own (5, and 3 in the last fortnight, against 8 and 4): ranking is
+ *  where a seller that keeps failing is demoted, and every extra order it
+ *  takes to notice is a customer who paid and got no code. */
+const GLOBAL_POOL_MIN_SAMPLE = 5;
+const GLOBAL_POOL_MIN_RECENT_SAMPLE = 3;
+
 let globalPoolQualityCache: { value: Map<string, QualityStat>; fetchedAt: number } | undefined;
 const GLOBAL_POOL_QUALITY_TTL_MS = 60_000;
 
@@ -246,8 +253,8 @@ export async function getGlobalPoolQuality(): Promise<Map<string, QualityStat>> 
     const o = overallByPool.get(poolId);
     const r = recentByPool.get(poolId);
     const effective = pickEffectiveStat(
-      o ? toStat(o.received, o.settled, MIN_SAMPLE_SIZE) : null,
-      r ? toStat(r.received, r.settled, MIN_RECENT_SAMPLE_SIZE) : null,
+      o ? toStat(o.received, o.settled, GLOBAL_POOL_MIN_SAMPLE) : null,
+      r ? toStat(r.received, r.settled, GLOBAL_POOL_MIN_RECENT_SAMPLE) : null,
     );
     if (effective) result.set(poolId, effective);
   }
@@ -500,4 +507,66 @@ export async function getPreferredPoolQualityForService(
     }
   }
   return result;
+}
+
+export interface SellerDeliveryRow {
+  /** GrizzlySMS's own seller id, or null for orders placed before sellers
+   *  were recorded at all. */
+  providerOfferId: string | null;
+  /** Settled orders: a code arrived, or it expired/was cancelled/refunded
+   *  without one. A customer's own cancellation is not counted. */
+  settled: number;
+  received: number;
+  /** Still waiting for a code right now. */
+  waiting: number;
+  /** Average the customer paid, in the smallest unit of their currency. */
+  averagePriceKobo: number;
+}
+
+/**
+ * How every GrizzlySMS seller has actually delivered for Xencodes over the
+ * last 30 days, across all services and countries, with no minimum sample:
+ * the raw evidence behind the ranking, including sellers too new to rate yet.
+ * The null row is every order placed before sellers were recorded, which is
+ * what a seller's record can be compared against.
+ */
+export async function getSellerDeliveryReport(): Promise<SellerDeliveryRow[]> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const rows = await prisma.activation.groupBy({
+    by: ["providerOfferId", "status"],
+    where: { createdAt: { gte: since }, ...EXCLUDE_CUSTOMER_CANCELLED },
+    _count: { _all: true },
+    _avg: { priceKobo: true },
+  });
+
+  const bySeller = new Map<string, SellerDeliveryRow & { priceSum: number; priceCount: number }>();
+  for (const row of rows) {
+    const key = row.providerOfferId ?? "";
+    const entry = bySeller.get(key) ?? {
+      providerOfferId: row.providerOfferId,
+      settled: 0,
+      received: 0,
+      waiting: 0,
+      averagePriceKobo: 0,
+      priceSum: 0,
+      priceCount: 0,
+    };
+    const count = row._count._all;
+    if (row.status === "WAITING") entry.waiting += count;
+    else if (SETTLED_STATUSES.includes(row.status)) {
+      entry.settled += count;
+      if (row.status === "RECEIVED") entry.received += count;
+    }
+    entry.priceSum += (row._avg.priceKobo ?? 0) * count;
+    entry.priceCount += count;
+    bySeller.set(key, entry);
+  }
+
+  return [...bySeller.values()]
+    .map(({ priceSum, priceCount, ...entry }) => ({
+      ...entry,
+      averagePriceKobo: priceCount > 0 ? Math.round(priceSum / priceCount) : 0,
+    }))
+    .filter((entry) => entry.settled + entry.waiting > 0)
+    .sort((a, b) => b.settled + b.waiting - (a.settled + a.waiting));
 }

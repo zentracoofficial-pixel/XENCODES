@@ -1083,10 +1083,12 @@ function parsePurchaseResponse(data: unknown): PurchasedNumber | null {
 
   const formattedNumber = phoneNumber.startsWith("+") ? phoneNumber : `+${phoneNumber}`;
 
+  const cost = Number(record.activationCost);
   return {
     providerOrderId: String(providerOrderId),
     phoneNumber: formattedNumber,
     sessionSeconds,
+    costUsdCents: record.activationCost !== undefined && Number.isFinite(cost) && cost > 0 ? usdToCents(cost) : undefined,
   };
 }
 
