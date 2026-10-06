@@ -14,12 +14,19 @@ import {
  * supplier answers NO_NUMBERS although thousands remain one rung up, so an
  * empty rung means "try the next", never "out of stock". The pair is only
  * given up on once every rung within what the customer will pay has been
- * tried, a fresh quote has been tried once more, and one last unrestricted
- * request has been made.
+ * tried and a fresh quote has been tried once more. There is deliberately no
+ * final "anything at all" request: with a price ceiling and no seller named,
+ * the supplier hands over its CHEAPEST number under the ceiling, which is the
+ * very choice this exists to avoid.
  *
  * I/O-free apart from the two callbacks, so the whole sequence is testable
  * against a fake supplier.
  */
+
+/** How far below the requested seller's price a purchase may come back
+ *  before it counts as a different seller having served it. Wide enough for
+ *  rounding between the supplier's four-decimal prices and whole cents. */
+const TARGETING_TOLERANCE_CENTS = 5;
 
 export interface CascadeRung {
   providerOfferId?: string;
@@ -71,7 +78,6 @@ export async function runPurchaseCascade<Q extends CascadeQuote>(opts: {
   const { ceilingKobo, balanceKobo, requote, attempt } = opts;
   const outOfTime = opts.outOfTime ?? (() => false);
   let quoted = opts.initial;
-  const firstPrimary = quoted.ladder[0];
   let tried = new Set<string | undefined>();
   let attempts = 0;
   const canGo = () => attempts < MAX_PURCHASE_ATTEMPTS && !outOfTime();
@@ -99,36 +105,34 @@ export async function runPurchaseCascade<Q extends CascadeQuote>(opts: {
       tried.add(rung.providerOfferId);
       const assigned = await call(quoted, rung);
       if (assigned) {
+        // A request that names one seller must come back at that seller's
+        // price. When the supplier states what the number cost and it is
+        // well below what was asked for, it handed over something from a
+        // cheaper seller instead: say so loudly, and do not record the seller
+        // that was asked for as the one that served the order, or the
+        // delivery record that ranks sellers would be built on a falsehood.
+        const ignored =
+          rung.providerOfferId !== undefined &&
+          assigned.costUsdCents !== undefined &&
+          rung.costUsdCents - assigned.costUsdCents > TARGETING_TOLERANCE_CENTS;
+        if (ignored) {
+          console.error(
+            `[purchase] supplier IGNORED the requested seller ${rung.providerOfferId}: asked for a $${(rung.costUsdCents / 100).toFixed(2)} number, ` +
+              `was sold one costing $${((assigned.costUsdCents ?? 0) / 100).toFixed(2)}. Seller ranking cannot be trusted until this is understood.`,
+          );
+        }
         return {
-          success: { assigned, quoted, quote: rung.quote, providerOfferId: rung.providerOfferId },
+          success: {
+            assigned,
+            quoted,
+            quote: rung.quote,
+            providerOfferId: ignored ? undefined : rung.providerOfferId,
+          },
           dearerPriceKobo: null,
           quoted,
           attempts,
         };
       }
-    }
-  }
-
-  // Last resort, only when the supplier broke the pair down into sellers (so
-  // every attempt above named one): ask for anything at all at or below the
-  // price first quoted. Whatever it sells costs no more than that rung, so
-  // billing the first quote's price can only be at or above the margin that
-  // was promised. The seller is unknown, so none is recorded.
-  if (
-    firstPrimary?.providerOfferId !== undefined &&
-    firstPrimary.quote.customerPriceKobo <= ceilingKobo &&
-    firstPrimary.quote.customerPriceKobo <= balanceKobo &&
-    canGo()
-  ) {
-    const first = opts.initial;
-    const assigned = await call(first, { costUsdCents: firstPrimary.costUsdCents });
-    if (assigned) {
-      return {
-        success: { assigned, quoted: first, quote: firstPrimary.quote },
-        dearerPriceKobo: null,
-        quoted: first,
-        attempts,
-      };
     }
   }
 

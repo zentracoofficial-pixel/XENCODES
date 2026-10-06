@@ -147,6 +147,10 @@ export interface PurchasedNumber {
   phoneNumber: string;
   /** How long the number stays held for this customer. */
   sessionSeconds: number;
+  /** What the supplier says this number actually cost, in US cents, when its
+   *  response states one. Lets a caller notice a supplier ignoring which
+   *  seller was asked for. */
+  costUsdCents?: number;
 }
 
 /**

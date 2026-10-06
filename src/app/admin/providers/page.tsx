@@ -9,12 +9,13 @@ import {
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
-import { getPoolQualityReport } from "@/lib/provider-pool-quality";
+import { getPoolQualityReport, getSellerDeliveryReport } from "@/lib/provider-pool-quality";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
 import { QualityReportCard } from "./quality-report-card";
 import { PoolQualityReportCard } from "./pool-quality-report-card";
+import { SellerDeliveryCard } from "./seller-delivery-card";
 import { PriceTierDiagnosticCard } from "./price-tier-diagnostic-card";
 
 export const metadata: Metadata = { title: "Admin: Providers" };
@@ -44,12 +45,13 @@ export const maxDuration = 60;
 export default async function AdminProvidersPage() {
   await requireAdmin();
 
-  const [config, statuses, flagged, quality, poolQuality] = await Promise.all([
+  const [config, statuses, flagged, quality, poolQuality, sellerDelivery] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
     getQualityReport(),
     getPoolQualityReport(),
+    getSellerDeliveryReport(),
   ]);
   const configById = new Map(config.map((entry) => [entry.id, entry]));
 
@@ -159,6 +161,8 @@ export default async function AdminProvidersPage() {
           sampleSize: row.sampleSize,
         }))}
       />
+
+      <SellerDeliveryCard rows={sellerDelivery} />
 
       <PoolQualityReportCard rows={poolQuality} />
     </div>
