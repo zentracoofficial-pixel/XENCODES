@@ -150,6 +150,16 @@
     animation: xen-rise 0.28s ease-out both;
   }
 
+  /* The hero's faint engineering grid: two 1px line layers, faded out
+     toward the edges so it reads as texture, never as a pattern. */
+  .hero-grid {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 80% 70% at 60% 30%, #000 30%, transparent 100%);
+  }
+
   /* The announcement popup: a short rise and fade, and a backdrop that fades
      in with it. Nothing loops. */
   @keyframes xen-pop {
