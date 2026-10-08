@@ -158,7 +158,7 @@ export default function AboutPage() {
           </div>
         </Section>
 
-        <Section className="mt-10 py-0">
+        <Section id="contact" className="mt-10 scroll-mt-24 py-0">
           <SectionHeading as="h2" title="Contact" />
           <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-muted-foreground">
             <p>

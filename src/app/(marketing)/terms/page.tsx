@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
@@ -91,9 +92,9 @@ export default function TermsPage() {
           <LegalSection title="10. Contact">
             <p>
               Questions about these terms can be sent through our{" "}
-              <a href="/support" className="inline-block -my-2.5 py-2.5 text-forest hover:underline">
+              <Link href="/dashboard/support" className="inline-block -my-2.5 py-2.5 text-forest hover:underline">
                 Support
-              </a>{" "}
+              </Link>{" "}
               page.
             </p>
           </LegalSection>

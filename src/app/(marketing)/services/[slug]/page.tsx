@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
@@ -13,6 +13,26 @@ import { SITE_URL } from "@/lib/site";
 import { SERVICE_PAGES, getServicePageContent } from "@/data/service-pages";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Services that had their own page here before the 12 September 2026 rebuild
+ * replaced per-service pages with the live catalog. Search engines indexed
+ * them, and each one has a genuine replacement: the buy page with that
+ * service already chosen. They redirect there permanently, whatever the
+ * catalog says right now, so an old link never lands on a 404 merely because
+ * a service is out of stock today.
+ */
+const PRE_REBUILD_SERVICE_SLUGS = new Set([
+  "instagram",
+  "tiktok",
+  "google",
+  "fiverr",
+  "upwork",
+  "discord",
+  "paypal",
+  "amazon",
+  "linkedin",
+]);
 
 /** Only these slugs get an individual page — a small, curated list with
  *  real service-specific content, never generated in bulk from the catalog.
@@ -48,7 +68,15 @@ export default async function ServiceDetailPage({
   // small set of services with real editorial content, per the standing
   // instruction against generating pages in bulk. Everything else is still
   // reachable and purchasable from the live catalog at /services.
-  if (!content) notFound();
+  if (!content) {
+    // An old per-service URL, or any service the live catalog really sells:
+    // the buy page with it preselected is where that visitor was going.
+    // Anything else was never a service here, and gets an honest 404.
+    if (PRE_REBUILD_SERVICE_SLUGS.has(slug)) permanentRedirect(`/buy?service=${slug}`);
+    const listed = await getServiceMeta(slug).catch(() => null);
+    if (listed) permanentRedirect(`/buy?service=${slug}`);
+    notFound();
+  }
 
   const currency = await getVisitorCurrency();
   const [meta, countries, status] = await Promise.all([
@@ -141,8 +169,8 @@ export default async function ServiceDetailPage({
         <section className="mt-8">
           <h2 className="text-lg font-semibold tracking-tight">Pricing</h2>
           <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-            {content.name} numbers are priced per country, in Nigerian
-            Naira, from your Xencodes wallet balance — see{" "}
+            {content.name} numbers are priced per country and paid from
+            your Xencodes wallet balance. See{" "}
             <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
               how pricing works
             </Link>{" "}

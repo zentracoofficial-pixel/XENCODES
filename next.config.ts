@@ -18,6 +18,17 @@ const nextConfig: NextConfig = {
         destination: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.xencodes.com"}/:path*`,
         permanent: true,
       },
+      // Public pages removed in the 12 September 2026 rebuild that have a
+      // genuine replacement today. Only those: a removed page with no
+      // equivalent (the blog, the status page, the country pages, the
+      // developer/API pages) is left to answer 404, which is the truthful
+      // answer, rather than being pointed at a page that is not about it.
+      // The old per-service pages are handled in services/[slug]/page.tsx,
+      // since whether a service still exists depends on the live catalog.
+      { source: "/support", destination: "/dashboard/support", permanent: true },
+      { source: "/contact", destination: "/about#contact", permanent: true },
+      { source: "/acceptable-use", destination: "/terms", permanent: true },
+      { source: "/numbers", destination: "/services", permanent: true },
     ];
   },
 };

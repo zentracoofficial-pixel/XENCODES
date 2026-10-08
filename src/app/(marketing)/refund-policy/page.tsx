@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
@@ -57,9 +58,9 @@ export default function RefundPolicyPage() {
           <LegalSection title="Questions about a specific activation">
             <p>
               If you believe an activation was charged incorrectly, contact{" "}
-              <a href="/support" className="inline-block -my-2.5 py-2.5 text-forest hover:underline">
+              <Link href="/dashboard/support" className="inline-block -my-2.5 py-2.5 text-forest hover:underline">
                 Support
-              </a>{" "}
+              </Link>{" "}
               with the phone number or approximate purchase time.
             </p>
           </LegalSection>

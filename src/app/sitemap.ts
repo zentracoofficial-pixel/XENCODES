@@ -25,11 +25,12 @@ const routes: { path: string; priority: number; changeFrequency: "daily" | "week
   { path: "/privacy", priority: 0.3, changeFrequency: "monthly" },
 ];
 
+// No <lastmod>: stamping every URL with "now" on each request claimed every
+// page had just changed, which it had not, and a lastmod search engines learn
+// is unreliable gets ignored. Better none than a false one.
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
   return routes.map(({ path, priority, changeFrequency }) => ({
     url: `${SITE_URL}${path}`,
-    lastModified,
     changeFrequency,
     priority,
   }));

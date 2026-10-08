@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Loader2, Sparkles, Star, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Loader2, Sparkles, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
@@ -70,6 +70,9 @@ interface CountryOption {
    *  a provider-reported rate, which this app has never actually seen);
    *  drives the low-quality warning below. */
   qualityTier?: "high" | "medium" | "low";
+  /** How many completed Xencodes orders successRate is measured from. Set
+   *  only alongside a Xencodes-measured rate. */
+  sampleSize?: number;
   /** True for the one variant of a broad country (e.g. "USA" vs "USA (2)")
    *  Xencodes' own real delivery history and current stock say is the
    *  better pick — see src/lib/country-recommendation.ts. Guidance only:
@@ -700,6 +703,22 @@ export function BuyPanel({
             <p className="mt-2 text-xs text-muted-foreground">{country.recommendationReason}</p>
           ) : null}
 
+          {/* A delivery rate only when Xencodes has measured one itself, from
+              enough of its own completed orders (see MIN_SAMPLE_SIZE in
+              src/lib/deliverability.ts), and always said so: GrizzlySMS
+              reports no delivery figure of its own, so there is nothing
+              else to show and nothing is estimated. */}
+          {country.successRate !== undefined && country.qualityTier && country.sampleSize ? (
+            <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+              <BarChart3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest" aria-hidden />
+              <span>
+                <span className="font-medium text-foreground">{country.successRate}% received a code</span>{" "}
+                across {country.sampleSize} recent completed Xencodes orders for {service.name} in{" "}
+                {country.name}.
+              </span>
+            </p>
+          ) : null}
+
           {/* No percentage shown: see the countryOptions hint above for why.
               The qualitative caution stays, since it is a genuine,
               sufficiently-sampled Xencodes finding worth a customer knowing
@@ -709,9 +728,9 @@ export function BuyPanel({
             <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-danger-soft px-3.5 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <p className="text-sm text-danger">
-                This country has had a low delivery rate recently. You can
-                still buy it, but consider another country if one is
-                available.
+                This country has had a low delivery rate on recent Xencodes
+                orders. You can still buy it, but consider another country
+                if one is available.
               </p>
             </div>
           ) : null}

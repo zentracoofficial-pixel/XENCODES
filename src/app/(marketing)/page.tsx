@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
@@ -19,15 +19,13 @@ import {
 import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
 import { SITE_NAME, SITE_URL, SITE_LOGO_URL, SUPPORT_EMAIL } from "@/lib/site";
-import { formatMoney } from "@/lib/currency";
-import { getDefaultCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Virtual Numbers for SMS Verification, Worldwide",
   description:
-    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go in NGN, refunded automatically when no code arrives.",
+    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and get a virtual number that receives your SMS verification code in seconds. Pay as you go, refunded automatically when no code arrives.",
   keywords: [
     "virtual number for SMS verification",
     "SMS verification number",
@@ -38,6 +36,12 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+const HERO_PROOF = [
+  "No code, no charge: failed activations are refunded to your wallet automatically",
+  "The exact price is shown before you pay",
+  "Numbers are routed to the suppliers that actually deliver",
+];
+
 const STEPS = [
   { n: "01", title: "Search", body: "Find the service you need a number for." },
   { n: "02", title: "Choose", body: "Pick an available country and see the exact price." },
@@ -45,12 +49,11 @@ const STEPS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, highlights, defaultCurrency] = await Promise.all([
+  const [status, services, serviceCount, highlights] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
     countServices().catch(() => 0),
     getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
-    getDefaultCurrency(),
   ]);
 
   return (
@@ -122,23 +125,18 @@ export default async function HomePage() {
               </p>
 
               {/* Only figures that are true right now. With nothing on sale
-                  there is no service count, no starting price and no
-                  location count, so each is left out rather than shown as
-                  zero. */}
+                  there is no service count and no location count, so each
+                  is left out rather than shown as zero. There is no
+                  "starting at" price: the catalog only knows each pair's
+                  cheapest supplier tier, while a real quote comes from the
+                  tier Xencodes actually buys from (see pool-ladder.ts), so
+                  a "from" figure here would understate what customers pay. */}
               <dl className="mt-7 flex flex-wrap gap-x-9 gap-y-4">
                 {serviceCount > 0 ? (
                   <div>
                     <dt className="text-xs text-muted-foreground">Services</dt>
                     <dd className="mt-0.5 text-xl font-semibold tabular-nums">
                       {serviceCount.toLocaleString("en-US")}
-                    </dd>
-                  </div>
-                ) : null}
-                {highlights.startingPriceKobo !== null ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Starting at</dt>
-                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {formatMoney(highlights.startingPriceKobo, defaultCurrency.code)}
                     </dd>
                   </div>
                 ) : null}
@@ -152,13 +150,27 @@ export default async function HomePage() {
                 ) : null}
               </dl>
 
-              <div className="mt-7 flex max-w-sm items-start gap-2.5 rounded-lg bg-mint-soft px-3.5 py-3">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-forest" />
-                <p className="text-sm leading-relaxed text-forest">
-                  No code arrives, no charge. Every failed activation is
-                  refunded to your wallet automatically.
-                </p>
-              </div>
+              {/* What a first-time visitor needs to know before trusting a
+                  number site with money, each a real mechanism (see
+                  TrustSection's own comment for where each one lives). */}
+              <ul className="mt-7 space-y-2.5">
+                {HERO_PROOF.map((line) => (
+                  <li key={line} className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-mint-soft text-forest">
+                      <Check className="h-3 w-3" strokeWidth={3} aria-hidden />
+                    </span>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+
+              <Link
+                href="/services"
+                className="mt-7 inline-flex items-center gap-1.5 py-2 text-sm font-medium text-forest hover:underline"
+              >
+                Browse every supported service
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
             </div>
 
             <div>
