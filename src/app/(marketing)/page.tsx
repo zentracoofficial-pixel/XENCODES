@@ -1,6 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Check } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  Globe2,
+  MessageSquareText,
+  RotateCcw,
+  Route,
+  Search,
+  Wallet,
+  Banknote,
+} from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { Button } from "@/components/ui/button";
@@ -36,16 +46,37 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+/** What a first-time visitor needs to know before trusting a number site
+ *  with money. Each is a real mechanism; see TrustSection's own comment for
+ *  where each one lives in the code. */
 const HERO_PROOF = [
-  "No code, no charge: failed activations are refunded to your wallet automatically",
-  "The exact price is shown before you pay",
-  "Numbers are routed to the suppliers that actually deliver",
+  { icon: RotateCcw, title: "No code, no charge", body: "Refunded to your wallet automatically" },
+  { icon: Eye, title: "Exact price upfront", body: "Shown before you pay, every time" },
+  { icon: Route, title: "Delivery first", body: "Routed to sellers that actually deliver" },
 ];
 
 const STEPS = [
-  { n: "01", title: "Search", body: "Find the service you need a number for." },
-  { n: "02", title: "Choose", body: "Pick an available country and see the exact price." },
-  { n: "03", title: "Receive", body: "Your SMS verification code appears on its own." },
+  { icon: Search, title: "Search", body: "Find the service you need a number for in the live catalog." },
+  { icon: Globe2, title: "Choose", body: "Pick an available country and see the exact price before you pay." },
+  { icon: MessageSquareText, title: "Receive", body: "Your verification code appears on the activation page on its own." },
+];
+
+const PRICING_POINTS = [
+  {
+    icon: Wallet,
+    title: "No plans",
+    body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
+  },
+  {
+    icon: Banknote,
+    title: "Priced in Naira",
+    body: "Xencodes currently operates in NGN, with nothing added at checkout beyond KoraPay's own processing fee.",
+  },
+  {
+    icon: RotateCcw,
+    title: "No code, no charge",
+    body: "If no code arrives before the session ends, the full amount returns to your wallet.",
+  },
 ];
 
 export default async function HomePage() {
@@ -55,6 +86,9 @@ export default async function HomePage() {
     countServices().catch(() => 0),
     getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
   ]);
+
+  // "Numbers on sale now" and the live counts only when that is true.
+  const live = status.connected && serviceCount > 0;
 
   return (
     <>
@@ -108,77 +142,121 @@ export default async function HomePage() {
         }}
       />
 
-      {/* Hero. The product itself is the visual. */}
-      <section className="border-b border-border bg-surface">
-        <Container className="pb-12 pt-12 sm:pb-14 sm:pt-16">
-          <div className="grid items-start gap-9 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)] lg:gap-12">
-            <div className="lg:pt-4">
-              <h1 className="text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.03em] text-balance sm:text-5xl">
-                Find a number.
-                <br />
-                Get your code.
-              </h1>
-              <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted-foreground text-pretty">
-                Xencodes is a virtual SMS verification platform: rent a
-                virtual phone number for the exact service and country you
-                need, and receive the code straight to your activation page.
+      {/* Hero. Deep brand green, so the one thing to do here (search for
+          a service, or press Get a number) is the brightest thing on the
+          screen. Everything stated is true right now: the "on sale" line
+          and the counts only appear when numbers really are on sale. */}
+      <section className="relative isolate overflow-hidden bg-forest text-white">
+        <div aria-hidden className="hero-grid pointer-events-none absolute inset-0 -z-10" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-32 -top-40 -z-10 h-[34rem] w-[34rem] rounded-full bg-mint/20 blur-[120px]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-56 -left-40 -z-10 h-[28rem] w-[28rem] rounded-full bg-mint/10 blur-[110px]"
+        />
+
+        <Container className="pb-14 pt-12 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20">
+          {/* Three grid items, so a phone gets headline, then the search,
+              then the proof points (the search is the fastest way in),
+              while a desktop keeps the search beside both. */}
+          <div className="grid items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
+            <div className="lg:col-start-1 lg:row-start-1">
+              <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white/85">
+                {live ? (
+                  <>
+                    <span className="h-1.5 w-1.5 animate-live rounded-full bg-mint" aria-hidden />
+                    Numbers on sale now
+                  </>
+                ) : (
+                  "Virtual numbers for SMS verification"
+                )}
               </p>
 
-              {/* Only figures that are true right now. With nothing on sale
-                  there is no service count and no location count, so each
-                  is left out rather than shown as zero. There is no
-                  "starting at" price: the catalog only knows each pair's
-                  cheapest supplier tier, while a real quote comes from the
-                  tier Xencodes actually buys from (see pool-ladder.ts), so
-                  a "from" figure here would understate what customers pay. */}
-              <dl className="mt-7 flex flex-wrap gap-x-9 gap-y-4">
-                {serviceCount > 0 ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Services</dt>
-                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
+              <h1 className="mt-5 text-[2.6rem] font-semibold leading-[1.02] tracking-[-0.035em] text-balance sm:text-6xl lg:text-[4.1rem]">
+                Find a number.
+                <br />
+                <span className="text-mint">Get your code.</span>
+              </h1>
+
+              <p className="mt-5 max-w-lg text-[17px] leading-relaxed text-white/75 text-pretty sm:text-lg">
+                Virtual phone numbers for SMS verification. Pick the service and
+                country you need, and your code arrives on your activation page
+                in real time.
+              </p>
+
+              <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <Button href="/buy" variant="accent" size="lg" className="shadow-[0_10px_30px_-10px_rgba(11,217,154,0.65)]">
+                  Get a number
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+                <Link
+                  href="#how-it-works"
+                  className="inline-flex items-center gap-1.5 py-2 text-sm font-medium text-white/80 transition-colors hover:text-white"
+                >
+                  See how it works
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+              </div>
+
+            </div>
+
+            <div className="relative lg:col-start-2 lg:row-span-2 lg:row-start-1">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-mint">
+                Start here
+              </p>
+              {/* text-foreground: the panel is a light card, and must not
+                  inherit the hero's white text. */}
+              <div className="rounded-[1.35rem] bg-white/[0.06] p-1.5 text-foreground ring-1 ring-inset ring-white/10 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.55)]">
+                <ServicePicker
+                  initialServices={services}
+                  unavailableMessage={status.connected ? undefined : status.message}
+                />
+              </div>
+
+              {/* Only figures that are true right now, and only while numbers
+                  are on sale. No "starting at" price: the catalog only knows
+                  each pair's cheapest supplier tier, while a real quote comes
+                  from the tier Xencodes actually buys from (see
+                  pool-ladder.ts), so a "from" figure would understate it. */}
+              {live ? (
+                <dl className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/65">
+                  <div className="flex items-baseline gap-1.5">
+                    <dd className="font-semibold tabular-nums text-white">
                       {serviceCount.toLocaleString("en-US")}
                     </dd>
+                    <dt>services</dt>
                   </div>
-                ) : null}
-                {highlights.countryCount !== null && highlights.countryCount > 0 ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Locations</dt>
-                    <dd className="mt-0.5 text-xl font-semibold tabular-nums">
-                      {highlights.countryCount.toLocaleString("en-US")}
-                    </dd>
+                  {highlights.countryCount !== null && highlights.countryCount > 0 ? (
+                    <div className="flex items-baseline gap-1.5">
+                      <dd className="font-semibold tabular-nums text-white">
+                        {highlights.countryCount.toLocaleString("en-US")}
+                      </dd>
+                      <dt>countries</dt>
+                    </div>
+                  ) : null}
+                  <div className="flex items-baseline gap-1.5">
+                    <dt className="sr-only">Pricing</dt>
+                    <dd>Pay per number</dd>
                   </div>
-                ) : null}
-              </dl>
-
-              {/* What a first-time visitor needs to know before trusting a
-                  number site with money, each a real mechanism (see
-                  TrustSection's own comment for where each one lives). */}
-              <ul className="mt-7 space-y-2.5">
-                {HERO_PROOF.map((line) => (
-                  <li key={line} className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground">
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-mint-soft text-forest">
-                      <Check className="h-3 w-3" strokeWidth={3} aria-hidden />
-                    </span>
-                    {line}
-                  </li>
-                ))}
-              </ul>
-
-              <Link
-                href="/services"
-                className="mt-7 inline-flex items-center gap-1.5 py-2 text-sm font-medium text-forest hover:underline"
-              >
-                Browse every supported service
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </Link>
+                </dl>
+              ) : null}
             </div>
 
-            <div>
-              <ServicePicker
-                initialServices={services}
-                unavailableMessage={status.connected ? undefined : status.message}
-              />
-            </div>
+            <ul className="grid gap-4 border-t border-white/10 pt-7 sm:grid-cols-3 sm:gap-5 lg:col-start-1 lg:row-start-2 lg:self-start">
+              {HERO_PROOF.map((item) => (
+                <li key={item.title} className="flex items-start gap-3 sm:block">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-mint ring-1 ring-inset ring-white/10">
+                    <item.icon className="h-[18px] w-[18px]" aria-hidden />
+                  </span>
+                  <div className="sm:mt-3">
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-white/60">{item.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         </Container>
       </section>
@@ -188,11 +266,12 @@ export default async function HomePage() {
           right now, and it never claims a brand shown here is on sale.
           See data/homepage-showcase.ts for why the list is fixed and the
           logos are not links. */}
-      <Section className="py-12 sm:py-14">
+      <Section className="py-14 sm:py-16">
         <Container>
           <SectionHeading
+            eyebrow="Services"
             title="Built for the services people verify most"
-            description="A sample of what people commonly need a number for. Search above, or browse the live catalog, to see exactly what's available and priced right now."
+            description="A sample of what people commonly need a number for. Browse the live catalog to see exactly what is available and priced right now."
             action={
               <Link
                 href="/services"
@@ -205,31 +284,36 @@ export default async function HomePage() {
           />
         </Container>
 
-        <div className="mt-6">
+        <div className="mt-8">
           <ServiceMarquee rows={[...HOMEPAGE_SHOWCASE_ROWS]} />
         </div>
       </Section>
 
       {/* How it works, next to a preview of the interface itself. */}
-      <section className="border-y border-border bg-surface">
-        <Container className="py-14 sm:py-16">
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] lg:gap-16">
+      <section id="how-it-works" className="scroll-mt-20 border-y border-border bg-surface">
+        <Container className="py-14 sm:py-20">
+          <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)] lg:gap-16">
             <div>
               <SectionHeading
-                title="How it works"
-                description="Three steps from landing here to pasting your code."
+                eyebrow="How it works"
+                title="From search to code in three steps"
+                description="No app to install and nothing to configure. Everything happens on one page."
               />
-              <ol className="mt-8 space-y-6">
-                {STEPS.map((step) => (
-                  <li key={step.n} className="flex gap-4">
-                    <span className="font-mono text-sm font-medium text-mint">
-                      {step.n}
+              <ol className="mt-8 space-y-3">
+                {STEPS.map((step, index) => (
+                  <li
+                    key={step.title}
+                    className="flex gap-4 rounded-xl border border-border bg-background/60 p-4"
+                  >
+                    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-forest text-mint">
+                      <step.icon className="h-5 w-5" aria-hidden />
+                      <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-mint font-mono text-[10px] font-bold text-forest-dark">
+                        {index + 1}
+                      </span>
                     </span>
                     <div>
-                      <p className="font-medium">{step.title}</p>
-                      <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
-                        {step.body}
-                      </p>
+                      <p className="font-semibold">{step.title}</p>
+                      <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
                     </div>
                   </li>
                 ))}
@@ -251,9 +335,10 @@ export default async function HomePage() {
       {/* Pricing. Described, never quoted: a number's price depends on the
           service and the country, and the only figure worth showing is the
           live one on the buy page. */}
-      <Section className="py-12 sm:py-14">
-        <Container>
+      <section className="border-y border-border bg-surface">
+        <Container className="py-14 sm:py-16">
           <SectionHeading
+            eyebrow="Pricing"
             title="Simple pay as you go pricing"
             description="You pay per number. The price depends on the service and the country, and you see the exact figure before you buy."
             action={
@@ -267,40 +352,26 @@ export default async function HomePage() {
             }
           />
 
-          <ul className="mt-6 grid gap-2.5 sm:grid-cols-3">
-            {[
-              {
-                title: "No plans",
-                body: "No subscription and no minimum. Add funds to your wallet and spend them a number at a time.",
-              },
-              {
-                title: "Priced in Naira",
-                body: "Xencodes currently operates in NGN, with nothing added at checkout beyond KoraPay's own processing fee.",
-              },
-              {
-                title: "No code, no charge",
-                body: "If no code arrives before the session ends, the full amount returns to your wallet.",
-              },
-            ].map((item) => (
-              <li
-                key={item.title}
-                className="rounded-xl border border-border bg-surface px-4 py-4"
-              >
-                <p className="text-sm font-medium">{item.title}</p>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  {item.body}
-                </p>
+          <ul className="mt-8 grid gap-3 sm:grid-cols-3">
+            {PRICING_POINTS.map((item) => (
+              <li key={item.title} className="rounded-xl border border-border bg-background/60 p-5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-mint-soft text-forest">
+                  <item.icon className="h-5 w-5" aria-hidden />
+                </span>
+                <p className="mt-4 text-[15px] font-semibold">{item.title}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
               </li>
             ))}
           </ul>
         </Container>
-      </Section>
+      </section>
 
       {/* FAQ. */}
-      <Section className="pb-12 pt-2 sm:pb-14 sm:pt-2">
+      <Section className="py-14 sm:py-16">
         <Container>
           <SectionHeading
-            title="Questions"
+            eyebrow="FAQ"
+            title="Questions, answered"
             action={
               <Link
                 href="/faq"
@@ -311,28 +382,37 @@ export default async function HomePage() {
               </Link>
             }
           />
-          <div className="mt-6">
+          <div className="mt-8">
             <FaqAccordion items={faqs.slice(0, 5)} />
           </div>
         </Container>
       </Section>
 
       {/* Closing action. */}
-      <Section className="pb-16 pt-0 sm:pb-20 sm:pt-0">
+      <Section className="pb-16 pt-0 sm:pb-24 sm:pt-0">
         <Container>
-          <div className="flex flex-wrap items-center justify-between gap-6 rounded-2xl bg-forest px-6 py-8 sm:px-10">
-            <div>
-              <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                Ready for your number?
-              </h2>
-              <p className="mt-1.5 text-sm text-white/70">
-                Search for your service and get started.
-              </p>
+          <div className="relative isolate overflow-hidden rounded-3xl bg-forest px-6 py-12 text-center sm:px-12 sm:py-16">
+            <div aria-hidden className="hero-grid pointer-events-none absolute inset-0 -z-10" />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-mint/20 blur-[100px]"
+            />
+            <h2 className="mx-auto max-w-xl text-2xl font-semibold tracking-tight text-white text-balance sm:text-4xl">
+              Your verification code is one search away
+            </h2>
+            <p className="mx-auto mt-3 max-w-md text-[15px] leading-relaxed text-white/70">
+              Create a free account, add funds, and get the number you need.
+              No code, no charge.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              <Button href="/buy" variant="accent" size="lg">
+                Get a number
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button href="/register" variant="onDark" size="lg">
+                Create a free account
+              </Button>
             </div>
-            <Button href="/buy" variant="accent" size="lg">
-              Get a Number
-              <ArrowRight className="h-4 w-4" />
-            </Button>
           </div>
         </Container>
       </Section>
