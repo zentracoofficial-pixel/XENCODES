@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/ui/container";
-import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { PageHero } from "@/components/marketing/page-hero";
 
 export const metadata: Metadata = {
   title: "Refund Policy",
@@ -14,11 +13,10 @@ export const metadata: Metadata = {
 
 export default function RefundPolicyPage() {
   return (
-    <Section>
-      <Container>
-        <Breadcrumbs items={[{ label: "Refund Policy" }]} />
-        <SectionHeading as="h1" eyebrow="Legal" title="Refund Policy" description="Last updated September 2026." />
-        <div className="mx-auto mt-10 max-w-2xl space-y-8">
+    <>
+      <PageHero crumbs={[{ label: "Refund Policy" }]} eyebrow="Legal" title="Refund Policy" description="Last updated September 2026." />
+      <Container className="py-12 sm:py-16">
+        <div className="mx-auto max-w-3xl space-y-8 rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-subtle)] sm:p-10">
           <LegalSection title="No code, no charge">
             <p>
               If your purchased number does not receive a valid verification
@@ -65,7 +63,18 @@ export default function RefundPolicyPage() {
             </p>
           </LegalSection>
         </div>
+        <p className="mx-auto mt-6 max-w-3xl text-sm text-muted-foreground">
+          Questions? See the{" "}
+          <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
+            FAQ
+          </Link>{" "}
+          or{" "}
+          <Link href="/about#contact" className="text-forest underline-offset-4 hover:underline">
+            contact us
+          </Link>
+          .
+        </p>
       </Container>
-    </Section>
+    </>
   );
 }

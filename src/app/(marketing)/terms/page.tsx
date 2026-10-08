@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/ui/container";
-import { Section, SectionHeading } from "@/components/ui/section";
 import { LegalSection } from "@/components/marketing/legal-section";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { PageHero } from "@/components/marketing/page-hero";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
@@ -14,11 +13,10 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <Section>
-      <Container>
-        <Breadcrumbs items={[{ label: "Terms of Service" }]} />
-        <SectionHeading as="h1" eyebrow="Legal" title="Terms of Service" description="Last updated September 2026." />
-        <div className="mx-auto mt-10 max-w-2xl space-y-8">
+    <>
+      <PageHero crumbs={[{ label: "Terms of Service" }]} eyebrow="Legal" title="Terms of Service" description="Last updated September 2026." />
+      <Container className="py-12 sm:py-16">
+        <div className="mx-auto max-w-3xl space-y-8 rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-subtle)] sm:p-10">
           <LegalSection title="1. Acceptance of terms">
             <p>
               By creating an account or using Xencodes, you agree to these
@@ -47,8 +45,7 @@ export default function TermsPage() {
               Xencodes is for receiving legitimate SMS verification codes
               only. Use of the service for fraud, impersonation,
               unauthorized account access, or circumventing a platform&apos;s
-              bans or security controls is strictly prohibited. See our
-              Acceptable Use Policy for details.
+              bans or security controls is strictly prohibited.
             </p>
           </LegalSection>
           <LegalSection title="5. Wallet, pricing, and payment">
@@ -79,7 +76,8 @@ export default function TermsPage() {
           <LegalSection title="8. Termination">
             <p>
               We may suspend or terminate accounts that violate these
-              terms or our Acceptable Use Policy, with or without notice.
+              terms, including the acceptable use rules in section 4, with or
+              without notice.
             </p>
           </LegalSection>
           <LegalSection title="9. Changes to these terms">
@@ -99,7 +97,18 @@ export default function TermsPage() {
             </p>
           </LegalSection>
         </div>
+        <p className="mx-auto mt-6 max-w-3xl text-sm text-muted-foreground">
+          Questions? See the{" "}
+          <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
+            FAQ
+          </Link>{" "}
+          or{" "}
+          <Link href="/about#contact" className="text-forest underline-offset-4 hover:underline">
+            contact us
+          </Link>
+          .
+        </p>
       </Container>
-    </Section>
+    </>
   );
 }

@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { Container } from "@/components/ui/container";
 import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { PageHero } from "@/components/marketing/page-hero";
 import { getVisitorCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Buy a Number",
   description:
-    "Search any service, pick a country, and get a virtual number that receives your verification code in seconds.",
+    "Search any service, pick a country, see the exact price, and get a virtual number for your SMS verification code. No code, no charge.",
   alternates: { canonical: "/buy" },
 };
 
@@ -54,18 +54,29 @@ export default async function BuyPage({
   }
 
   return (
-    <Container className="py-10 sm:py-14">
-      <Breadcrumbs items={[{ label: "Buy a Number" }]} />
-      {/* Only reached when signed out, so there is no wallet to show and
-          the panel's own prompts point at logging in. */}
-      <BuyPanel
-        initialServices={services}
-        initialServiceSlug={serviceSlug}
-        signedIn={false}
-        walletBalanceKobo={0}
-        currency={visitorCurrency.code}
-        unavailableMessage={status.connected ? undefined : status.message}
+    <>
+      <PageHero
+        crumbs={[{ label: "Buy a Number" }]}
+        eyebrow="Live prices"
+        title="Buy a number"
+        description="Search any service, pick a country, and see the exact price before you buy. If no code arrives, the number is cancelled and refunded automatically."
+        overlap
       />
-    </Container>
+      <Container className="relative -mt-16 pb-14 sm:-mt-20 sm:pb-20">
+        {/* Only reached when signed out, so there is no wallet to show and
+            the panel's own prompts point at logging in. */}
+        <div className="mx-auto max-w-xl rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-panel)] sm:p-8 [&>div>*:first-child]:mt-0">
+          <BuyPanel
+            initialServices={services}
+            initialServiceSlug={serviceSlug}
+            signedIn={false}
+            walletBalanceKobo={0}
+            currency={visitorCurrency.code}
+            unavailableMessage={status.connected ? undefined : status.message}
+            showHeading={false}
+          />
+        </div>
+      </Container>
+    </>
   );
 }

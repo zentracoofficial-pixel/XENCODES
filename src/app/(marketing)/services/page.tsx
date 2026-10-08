@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { searchServices, getInventoryStatus } from "@/lib/inventory";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { PageHero } from "@/components/marketing/page-hero";
+import { ArrowRight } from "lucide-react";
 import { ServicesList } from "./services-list";
 import { SERVICE_PAGES } from "@/data/service-pages";
 
@@ -37,50 +38,58 @@ export default async function ServicesPage() {
   ).sort();
 
   return (
-    <Container className="py-10 sm:py-14">
-      <Breadcrumbs items={[{ label: "Services" }]} />
-      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-        Find your service
-      </h1>
-      <p className="mt-1.5 text-sm text-muted-foreground">
-        {services.length > 0
-          ? `${services.length.toLocaleString("en-US")} services available right now. Pick one to choose a country and see its price.`
-          : "Services appear here as soon as numbers are back on sale."}
-      </p>
+    <>
+      <PageHero
+        crumbs={[{ label: "Services" }]}
+        eyebrow="Services"
+        title="Find your service"
+        description={
+          services.length > 0
+            ? `${services.length.toLocaleString("en-US")} services available right now. Pick one to choose a country and see its price.`
+            : "Services appear here as soon as numbers are back on sale."
+        }
+        overlap
+      />
 
-      {status.connected ? null : (
-        <UnavailableNotice message={status.message} className="mt-4 max-w-xl" />
-      )}
+      <Container className="relative -mt-16 pb-14 sm:-mt-20 sm:pb-20">
+        <div className="rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-panel)] sm:p-6">
+          {status.connected ? null : (
+            <UnavailableNotice message={status.message} className="max-w-xl" />
+          )}
 
-      {services.length > 0 ? (
-        <div className="mt-6">
-          <ServicesList services={services} categories={categories} />
+          {services.length > 0 ? (
+            <ServicesList services={services} categories={categories} />
+          ) : null}
         </div>
-      ) : null}
 
-      <p className="mt-10 text-sm text-muted-foreground">
-        Prices depend on the service and country you pick. See{" "}
-        <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
-          how pricing works
-        </Link>
-        , or check{" "}
-        <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
-          common questions
-        </Link>{" "}
-        before you buy.
-      </p>
+        <div className="mt-10 grid gap-3 sm:grid-cols-3">
+          {SERVICE_PAGES.map((page) => (
+            <Link
+              key={page.slug}
+              href={`/services/${page.slug}`}
+              className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 transition-colors hover:border-mint/50 hover:bg-mint-soft/40"
+            >
+              <span>
+                <span className="block text-sm font-semibold">{page.name} verification guide</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">How it works, pricing and limits</span>
+              </span>
+              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-forest" aria-hidden />
+            </Link>
+          ))}
+        </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
-        {SERVICE_PAGES.map((page) => (
-          <Link
-            key={page.slug}
-            href={`/services/${page.slug}`}
-            className="text-forest underline-offset-4 hover:underline"
-          >
-            {page.name} verification guide
+        <p className="mt-6 text-sm text-muted-foreground">
+          Prices depend on the service and country you pick. See{" "}
+          <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
+            how pricing works
           </Link>
-        ))}
-      </div>
-    </Container>
+          , or check{" "}
+          <Link href="/faq" className="text-forest underline-offset-4 hover:underline">
+            common questions
+          </Link>{" "}
+          before you buy.
+        </p>
+      </Container>
+    </>
   );
 }

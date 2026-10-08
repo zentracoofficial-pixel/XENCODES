@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { ArrowRight, RotateCcw } from "lucide-react";
+import { PageHero } from "@/components/marketing/page-hero";
+import { CtaBand } from "@/components/marketing/cta-band";
 import { JsonLd } from "@/components/seo/json-ld";
 import { SITE_URL } from "@/lib/site";
 
@@ -20,11 +22,11 @@ const STEPS = [
   },
   {
     title: "Fund your wallet",
-    body: "Add funds in NGN through KoraPay — card, bank transfer or USSD. Nothing is spent until you buy a number.",
+    body: "Add funds in NGN through KoraPay by card, bank transfer or USSD. Nothing is spent until you buy a number.",
   },
   {
     title: "Choose a service",
-    body: "Search for the platform you need to verify — WhatsApp, Telegram, a marketplace account, or any other supported service.",
+    body: "Search for the platform you need to verify: WhatsApp, Telegram, a marketplace account, or any other supported service.",
   },
   {
     title: "Choose a country",
@@ -40,7 +42,7 @@ const STEPS = [
   },
   {
     title: "Receive the SMS code",
-    body: "The code appears on your Xencodes activation page as soon as the service sends it — most arrive within seconds.",
+    body: "The code appears on your Xencodes activation page as soon as the service sends it. You don't need to refresh.",
   },
   {
     title: "Complete your verification",
@@ -50,7 +52,7 @@ const STEPS = [
 
 export default function HowItWorksPage() {
   return (
-    <Container className="py-10 sm:py-14">
+    <>
       <JsonLd
         data={{
           "@context": "https://schema.org",
@@ -75,61 +77,62 @@ export default function HowItWorksPage() {
         }}
       />
 
-      <Breadcrumbs items={[{ label: "How It Works" }]} />
+      <PageHero
+        crumbs={[{ label: "How It Works" }]}
+        eyebrow="How it works"
+        title="From sign-up to verified, step by step"
+        description="Eight steps from creating an account to completing a verification with your virtual number. No app to install."
+      >
+        <Button href="/buy" variant="accent" size="lg">
+          Get a number
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </PageHero>
 
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          How Xencodes works
-        </h1>
-        <p className="mt-3 text-[17px] leading-relaxed text-muted-foreground">
-          Eight steps from creating an account to completing a verification
-          with your virtual number.
-        </p>
-
-        <ol className="mt-8 space-y-6">
+      <Container className="py-12 sm:py-16">
+        <ol className="grid gap-3 sm:grid-cols-2">
           {STEPS.map((step, index) => (
-            <li key={step.title} className="flex gap-4">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mint-soft font-mono text-sm font-medium text-forest">
-                {index + 1}
+            <li
+              key={step.title}
+              className="flex gap-4 rounded-xl border border-border bg-surface p-5 shadow-[var(--shadow-subtle)]"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-forest font-mono text-sm font-semibold text-mint">
+                {String(index + 1).padStart(2, "0")}
               </span>
               <div>
-                <p className="font-medium">{step.title}</p>
-                <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
-                  {step.body}
-                </p>
+                <p className="font-semibold">{step.title}</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
               </div>
             </li>
           ))}
         </ol>
 
-        <div className="mt-10 rounded-xl border border-border bg-surface p-5">
-          <p className="text-sm font-medium">If no code arrives</p>
-          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            If your session ends without a valid code, the full amount is
-            refunded to your Xencodes wallet automatically — you don&apos;t
-            need to ask. You can also cancel an activation yourself before it
-            expires for the same result. A number that does successfully
-            receive a code has done its job and isn&apos;t eligible for a
-            refund. See the full{" "}
-            <Link href="/refund-policy" className="text-forest underline-offset-4 hover:underline">
-              Refund Policy
-            </Link>{" "}
-            for every case.
-          </p>
-        </div>
-
-        <div className="mt-8 flex flex-wrap items-center gap-3 rounded-2xl bg-forest px-6 py-6">
-          <div className="flex-1">
-            <p className="text-base font-semibold text-white">Try it yourself</p>
-            <p className="mt-1 text-sm text-white/70">
-              Search for your service and see live prices before you buy.
+        <div className="mt-6 flex gap-4 rounded-xl border border-mint/40 bg-mint-soft/60 p-5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface text-forest">
+            <RotateCcw className="h-5 w-5" aria-hidden />
+          </span>
+          <div>
+            <p className="font-semibold">If no code arrives</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              If your session ends without a valid code, the full amount is
+              refunded to your Xencodes wallet automatically. You don&apos;t
+              need to ask. You can also cancel an activation yourself before it
+              expires for the same result. A number that does successfully
+              receive a code has done its job and isn&apos;t eligible for a
+              refund. See the full{" "}
+              <Link href="/refund-policy" className="text-forest underline-offset-4 hover:underline">
+                Refund Policy
+              </Link>{" "}
+              for every case.
             </p>
           </div>
-          <Button href="/buy" variant="accent">
-            Get a Number
-          </Button>
         </div>
-      </div>
-    </Container>
+
+        <CtaBand
+          title="Try it yourself"
+          body="Search for your service and see live prices before you buy."
+        />
+      </Container>
+    </>
   );
 }

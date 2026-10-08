@@ -112,6 +112,7 @@ export function BuyPanel({
   unavailableMessage,
   basePath = "/buy",
   walletHref = "/dashboard/wallet",
+  showHeading = true,
 }: {
   initialServices: ServiceOption[];
   initialServiceSlug?: string;
@@ -140,6 +141,9 @@ export function BuyPanel({
    *  customer inside its own shell, the public route does not. */
   basePath?: string;
   walletHref?: string;
+  /** False when the page around the panel already carries the "Buy a
+   *  number" h1 (the public /buy page header), so there is only ever one. */
+  showHeading?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -526,13 +530,17 @@ export function BuyPanel({
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-        Buy a number
-      </h1>
-      <p className="mt-1.5 text-sm text-muted-foreground">
-        Search any service, pick a country, and see the exact price before you
-        buy.
-      </p>
+      {showHeading ? (
+        <>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Buy a number
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Search any service, pick a country, and see the exact price before you
+            buy.
+          </p>
+        </>
+      ) : null}
 
       {unavailableMessage ? (
         <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-warning-soft px-4 py-3.5">
