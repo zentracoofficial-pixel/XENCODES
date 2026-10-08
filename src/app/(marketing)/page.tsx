@@ -142,19 +142,19 @@ export default async function HomePage() {
         }}
       />
 
-      {/* Hero. Deep brand green, so the one thing to do here (search for
-          a service, or press Get a number) is the brightest thing on the
-          screen. Everything stated is true right now: the "on sale" line
+      {/* Hero. Light, with the brand green carried by the type, the grid and
+          the buttons, so the one thing to do here (search for a service, or
+          press Get a number) stands out. Everything stated is true right now: the "on sale" line
           and the counts only appear when numbers really are on sale. */}
-      <section className="relative isolate overflow-hidden bg-forest text-white">
-        <div aria-hidden className="hero-grid pointer-events-none absolute inset-0 -z-10" />
+      <section className="relative isolate overflow-hidden border-b border-border bg-background text-foreground">
+        <div aria-hidden className="hero-grid-light pointer-events-none absolute inset-0 -z-10" />
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-32 -top-40 -z-10 h-[34rem] w-[34rem] rounded-full bg-mint/20 blur-[120px]"
+          className="pointer-events-none absolute -right-32 -top-40 -z-10 h-[34rem] w-[34rem] rounded-full bg-mint/25 blur-[120px]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-56 -left-40 -z-10 h-[28rem] w-[28rem] rounded-full bg-mint/10 blur-[110px]"
+          className="pointer-events-none absolute -bottom-56 -left-40 -z-10 h-[28rem] w-[28rem] rounded-full bg-mint/15 blur-[110px]"
         />
 
         <Container className="pb-14 pt-12 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20">
@@ -163,7 +163,7 @@ export default async function HomePage() {
               while a desktop keeps the search beside both. */}
           <div className="grid items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
             <div className="lg:col-start-1 lg:row-start-1">
-              <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white/85">
+              <p className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-forest shadow-[var(--shadow-subtle)]">
                 {live ? (
                   <>
                     <span className="h-1.5 w-1.5 animate-live rounded-full bg-mint" aria-hidden />
@@ -177,10 +177,10 @@ export default async function HomePage() {
               <h1 className="mt-5 text-[2.6rem] font-semibold leading-[1.02] tracking-[-0.035em] text-balance sm:text-6xl lg:text-[4.1rem]">
                 Find a number.
                 <br />
-                <span className="text-mint">Get your code.</span>
+                <span className="text-forest">Get your code.</span>
               </h1>
 
-              <p className="mt-5 max-w-lg text-[17px] leading-relaxed text-white/75 text-pretty sm:text-lg">
+              <p className="mt-5 max-w-lg text-[17px] leading-relaxed text-muted-foreground text-pretty sm:text-lg">
                 Virtual phone numbers for SMS verification. Pick the service and
                 country you need, and your code arrives on your activation page
                 in real time.
@@ -193,7 +193,7 @@ export default async function HomePage() {
                 </Button>
                 <Link
                   href="#how-it-works"
-                  className="inline-flex items-center gap-1.5 py-2 text-sm font-medium text-white/80 transition-colors hover:text-white"
+                  className="inline-flex items-center gap-1.5 py-2 text-sm font-medium text-forest transition-colors hover:text-forest-dark"
                 >
                   See how it works
                   <ArrowRight className="h-4 w-4" aria-hidden />
@@ -203,12 +203,10 @@ export default async function HomePage() {
             </div>
 
             <div className="relative lg:col-start-2 lg:row-span-2 lg:row-start-1">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-mint">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-forest">
                 Start here
               </p>
-              {/* text-foreground: the panel is a light card, and must not
-                  inherit the hero's white text. */}
-              <div className="rounded-[1.35rem] bg-white/[0.06] p-1.5 text-foreground ring-1 ring-inset ring-white/10 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.55)]">
+              <div className="rounded-[1.35rem] bg-surface p-1.5 ring-1 ring-inset ring-border shadow-[var(--shadow-panel)]">
                 <ServicePicker
                   initialServices={services}
                   unavailableMessage={status.connected ? undefined : status.message}
@@ -221,16 +219,16 @@ export default async function HomePage() {
                   from the tier Xencodes actually buys from (see
                   pool-ladder.ts), so a "from" figure would understate it. */}
               {live ? (
-                <dl className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/65">
+                <dl className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
                   <div className="flex items-baseline gap-1.5">
-                    <dd className="font-semibold tabular-nums text-white">
+                    <dd className="font-semibold tabular-nums text-foreground">
                       {serviceCount.toLocaleString("en-US")}
                     </dd>
                     <dt>services</dt>
                   </div>
                   {highlights.countryCount !== null && highlights.countryCount > 0 ? (
                     <div className="flex items-baseline gap-1.5">
-                      <dd className="font-semibold tabular-nums text-white">
+                      <dd className="font-semibold tabular-nums text-foreground">
                         {highlights.countryCount.toLocaleString("en-US")}
                       </dd>
                       <dt>countries</dt>
@@ -244,15 +242,15 @@ export default async function HomePage() {
               ) : null}
             </div>
 
-            <ul className="grid gap-4 border-t border-white/10 pt-7 sm:grid-cols-3 sm:gap-5 lg:col-start-1 lg:row-start-2 lg:self-start">
+            <ul className="grid gap-4 border-t border-border pt-7 sm:grid-cols-3 sm:gap-5 lg:col-start-1 lg:row-start-2 lg:self-start">
               {HERO_PROOF.map((item) => (
                 <li key={item.title} className="flex items-start gap-3 sm:block">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-mint ring-1 ring-inset ring-white/10">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-mint-soft text-forest ring-1 ring-inset ring-border">
                     <item.icon className="h-[18px] w-[18px]" aria-hidden />
                   </span>
                   <div className="sm:mt-3">
                     <p className="text-sm font-semibold">{item.title}</p>
-                    <p className="mt-0.5 text-[13px] leading-relaxed text-white/60">{item.body}</p>
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{item.body}</p>
                   </div>
                 </li>
               ))}

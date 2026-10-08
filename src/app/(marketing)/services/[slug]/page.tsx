@@ -121,7 +121,7 @@ export default async function ServiceDetailPage({
             Buy a {content.name} number
             <ArrowRight className="h-4 w-4" />
           </Button>
-          <Link href="/how-it-works" className="text-sm font-medium text-white/80 hover:text-white hover:underline">
+          <Link href="/how-it-works" className="text-sm font-medium text-forest hover:underline">
             How it works
           </Link>
         </div>
