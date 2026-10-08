@@ -44,6 +44,18 @@ countries.registerLocale(enLocale);
  */
 const ALIASES: Record<string, string> = {
   burma: "Myanmar",
+  syria: "Syrian Arab Republic",
+  // Supplier spellings that are plainly misspelt or shortened. Only the flag
+  // and dial code come from this; the name shown and the slug are untouched.
+  nambia: "Namibia",
+  argentinas: "Argentina",
+  "papua new gvineya": "Papua New Guinea",
+  salvador: "El Salvador",
+  czech: "Czechia",
+  lao: "Lao People's Democratic Republic",
+  "saint vincent": "Saint Vincent and the Grenadines",
+  turkiye: "Turkey",
+  "falkland islands": "Falkland Islands (Malvinas)",
   "dr congo": "Democratic Republic of the Congo",
   "d.r. congo": "Democratic Republic of the Congo",
   "democratic republic of congo": "Democratic Republic of the Congo",
@@ -103,7 +115,10 @@ function flagFromIso2(iso2: string): string {
 }
 
 function resolveIso2(name: string): string | null {
-  const key = name.trim().toLowerCase();
+  // A "(2)", "(3)" suffix is the label Xencodes itself adds when a supplier
+  // lists one country as several separately priced pools; the country is the
+  // same one, so its flag and dial code come from the name without it.
+  const key = name.trim().toLowerCase().replace(/\s*\(\d+\)$/, "");
   if (!key) return null;
 
   const direct = NAME_TO_ISO2.get(key);
