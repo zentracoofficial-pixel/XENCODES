@@ -16,7 +16,7 @@ const DIRECTORY_LIMIT = 5000;
 export const metadata: Metadata = {
   title: "Supported Services",
   description:
-    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, priced in Nigerian Naira.",
+    "Every service you can verify with a Xencodes virtual number. Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr and more, with live availability by country.",
   keywords: [
     "WhatsApp verification number",
     "Telegram virtual number",

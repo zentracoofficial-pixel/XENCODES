@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Plus, Star } from "lucide-react";
+import { ArrowRight, Plus, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -99,6 +99,64 @@ export default async function DashboardPage() {
         </Button>
       </div>
 
+      {/* A number waiting for its code is the most urgent thing on this
+          page, so it leads whenever there is one. */}
+      {current ? (
+        <section>
+          <h2 className="text-sm font-semibold">Current activation</h2>
+          <Link
+            href={`/dashboard/buy?activation=${current.id}`}
+            className="mt-3 flex items-center gap-3.5 rounded-xl border border-mint bg-mint-soft px-4 py-3.5 transition-colors hover:bg-mint-soft/70"
+          >
+            <ActivationLogo
+              serviceSlug={current.serviceSlug}
+              serviceName={current.serviceName}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{current.serviceName}</p>
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {formatPhoneNumber(current.phoneNumber)}
+              </p>
+            </div>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="h-1.5 w-1.5 animate-live rounded-full bg-mint" />
+              <span className="text-xs font-medium text-forest">
+                Waiting for SMS
+              </span>
+            </span>
+            <ArrowRight className="h-4 w-4 shrink-0 text-forest" />
+          </Link>
+        </section>
+      ) : null}
+
+      {/* Balance: a compact bar rather than the page's hero element (the
+          activity figures below are the headline, by design), but up here
+          beside the Buy Number action it pays for, so a customer never has
+          to scroll to find out whether they can afford a number. */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-5 py-3.5 shadow-[var(--shadow-subtle)]">
+        <div className="flex items-center gap-3.5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-mint-soft text-forest">
+            <Wallet className="h-5 w-5" aria-hidden />
+          </span>
+          <div>
+          <p className="text-xs text-muted-foreground">Wallet balance</p>
+          <p className="mt-0.5 text-lg font-semibold tabular-nums">
+            {formatMoney(user.walletBalanceKobo, user.currency)}
+          </p>
+          {/* An empty wallet is stated plainly here rather than left for
+              the customer to discover at the moment they try to buy. */}
+          {user.walletBalanceKobo <= 0 ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Add funds to purchase a number.
+            </p>
+          ) : null}
+          </div>
+        </div>
+        <Button href="/dashboard/wallet" variant="outline" size="sm">
+          Add funds
+        </Button>
+      </div>
+
       <OnboardingChecklist
         emailVerified={Boolean(user.emailVerified)}
         fundedWallet={fundedCount > 0}
@@ -131,27 +189,6 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Balance: present, but a compact bar rather than the page's hero
-          element. */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-5 py-3.5">
-        <div>
-          <p className="text-xs text-muted-foreground">Wallet balance</p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums">
-            {formatMoney(user.walletBalanceKobo, user.currency)}
-          </p>
-          {/* An empty wallet is stated plainly here rather than left for
-              the customer to discover at the moment they try to buy. */}
-          {user.walletBalanceKobo <= 0 ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Add funds to purchase a number.
-            </p>
-          ) : null}
-        </div>
-        <Button href="/dashboard/wallet" variant="outline" size="sm">
-          Add funds
-        </Button>
-      </div>
-
       {/* Favorites. Only shown once a customer has actually starred
           something — an empty "no favorites yet" box here would be exactly
           the clutter a compact dashboard is supposed to avoid. */}
@@ -174,33 +211,9 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      {/* Current activation. */}
-      <section>
-        <h2 className="text-sm font-semibold">Current activation</h2>
-        {current ? (
-          <Link
-            href={`/dashboard/buy?activation=${current.id}`}
-            className="mt-3 flex items-center gap-3.5 rounded-xl border border-mint bg-mint-soft px-4 py-3.5 transition-colors hover:bg-mint-soft/70"
-          >
-            <ActivationLogo
-              serviceSlug={current.serviceSlug}
-              serviceName={current.serviceName}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{current.serviceName}</p>
-              <p className="truncate font-mono text-xs text-muted-foreground">
-                {formatPhoneNumber(current.phoneNumber)}
-              </p>
-            </div>
-            <span className="flex shrink-0 items-center gap-2">
-              <span className="h-1.5 w-1.5 animate-live rounded-full bg-mint" />
-              <span className="text-xs font-medium text-forest">
-                Waiting for SMS
-              </span>
-            </span>
-            <ArrowRight className="h-4 w-4 shrink-0 text-forest" />
-          </Link>
-        ) : (
+      {current ? null : (
+        <section>
+          <h2 className="text-sm font-semibold">Current activation</h2>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-surface px-4 py-5">
             <p className="text-sm text-muted-foreground">
               No number is active. Buy one to receive a code.
@@ -209,8 +222,8 @@ export default async function DashboardPage() {
               Get a Number
             </Button>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* Recent activity: purchases, completed SMS, wallet funding,
           refunds and support activity, merged into one compact feed rather

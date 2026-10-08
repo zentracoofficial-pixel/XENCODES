@@ -24,13 +24,15 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_NAME}`,
   },
   description:
-    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and receive your SMS verification code in real time. Pay as you go in NGN, with an automatic refund when no code arrives.",
+    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and receive your SMS verification code in real time. Pay as you go, with an automatic refund when no code arrives.",
   applicationName: SITE_NAME,
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
     locale: "en_US",
-    url: SITE_URL,
+    // No site-wide og:url: inherited by every page, it told link previews
+    // that each subpage was the homepage. Without it, a preview falls back
+    // to the page's own canonical URL, which is the right answer per page.
   },
   twitter: { card: "summary_large_image" },
   robots: {

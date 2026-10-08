@@ -17,12 +17,43 @@ import { NotificationBell, type NotificationItem } from "@/components/notificati
 import { logoutAction } from "./actions";
 
 const links = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/buy", label: "Buy Number", icon: Plus },
-  { href: "/dashboard/history", label: "History", icon: Clock3 },
-  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet },
-  { href: "/dashboard/support", label: "Support", icon: LifeBuoy },
+  { href: "/dashboard", label: "Dashboard", short: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/buy", label: "Buy Number", short: "Buy", icon: Plus },
+  { href: "/dashboard/history", label: "History", short: "History", icon: Clock3 },
+  { href: "/dashboard/wallet", label: "Wallet", short: "Wallet", icon: Wallet },
+  { href: "/dashboard/support", label: "Support", short: "Support", icon: LifeBuoy },
 ];
+
+/**
+ * The phone navigation: all five sections at once, icon over a short label,
+ * instead of a sideways-scrolling strip that cut off at "Wallet" and hid
+ * "Support" entirely on a 390px screen with no sign there was more.
+ */
+function TabItems() {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {links.map((link) => {
+        const active = pathname === link.href;
+        return (
+          <Link
+            key={link.href}
+            href={link.href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors",
+              active ? "bg-mint-soft text-forest" : "text-muted-foreground hover:bg-mint-soft hover:text-forest",
+            )}
+          >
+            <link.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
+            {link.short}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -36,6 +67,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
             key={link.href}
             href={link.href}
             onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "flex shrink-0 items-center gap-2.5 min-h-10 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               active
@@ -136,8 +168,8 @@ export function DashboardTopBar({
           </form>
         </div>
       </div>
-      <nav className="flex gap-1 overflow-x-auto px-3 pb-2">
-        <NavItems />
+      <nav aria-label="Dashboard" className="grid grid-cols-5 gap-1 px-2 pb-2">
+        <TabItems />
       </nav>
     </header>
   );
