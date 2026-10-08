@@ -24,7 +24,7 @@ export const SERVICE_PAGES: ServicePageContent[] = [
     slug: "whatsapp",
     name: "WhatsApp",
     useCase:
-      "WhatsApp requires a working phone number to create an account, and texts a one-time code to that number to verify it. A Xencodes virtual number lets you complete that step without registering with your personal number — useful for a second WhatsApp Business line, testing, or keeping a work account separate.",
+      "WhatsApp requires a working phone number to create an account, and texts a one-time code to that number to verify it. A Xencodes virtual number lets you complete that step without registering with your personal number. It is useful for a second WhatsApp Business line, testing, or keeping a work account separate.",
     howItWorks:
       "Choose WhatsApp, pick an available country, and buy a number. Enter it in the WhatsApp app when it asks for a phone number, request the code, and it will appear on your Xencodes activation page.",
     limitations: [

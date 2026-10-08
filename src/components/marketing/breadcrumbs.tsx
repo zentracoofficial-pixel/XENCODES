@@ -15,7 +15,15 @@ export interface BreadcrumbItem {
  * Every page that uses this actually sits under Home in the site's normal
  * navigation — this is not a hierarchy invented for search engines.
  */
-export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
+export function Breadcrumbs({
+  items,
+  tone = "light",
+}: {
+  items: BreadcrumbItem[];
+  /** "dark" for use on the brand-green page header (see PageHero). */
+  tone?: "light" | "dark";
+}) {
+  const dark = tone === "dark";
   const full: BreadcrumbItem[] = [{ label: "Home", href: "/" }, ...items];
 
   return (
@@ -32,7 +40,7 @@ export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
           })),
         }}
       />
-      <nav aria-label="Breadcrumb" className="mb-4 text-sm text-muted-foreground">
+      <nav aria-label="Breadcrumb" className={dark ? "text-sm text-white/60" : "mb-4 text-sm text-muted-foreground"}>
         <ol className="flex flex-wrap items-center gap-1.5">
           {full.map((item, index) => {
             const isLast = index === full.length - 1;
@@ -42,11 +50,11 @@ export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
                   <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
                 ) : null}
                 {isLast || !item.href ? (
-                  <span aria-current={isLast ? "page" : undefined} className="font-medium text-foreground">
+                  <span aria-current={isLast ? "page" : undefined} className={dark ? "font-medium text-white" : "font-medium text-foreground"}>
                     {item.label}
                   </span>
                 ) : (
-                  <Link href={item.href} className="hover:text-foreground hover:underline">
+                  <Link href={item.href} className={dark ? "hover:text-white hover:underline" : "hover:text-foreground hover:underline"}>
                     {item.label}
                   </Link>
                 )}

@@ -22,7 +22,7 @@ export const faqs: FaqItem[] = [
   {
     question: "What currency does Xencodes use?",
     answer:
-      "Xencodes currently operates in Nigerian Naira (NGN) only. You fund your wallet by card, bank transfer or USSD through KoraPay, and every number is priced in NGN. This is separate from which countries you can buy a virtual number for — you can still verify accounts for services in the US, UK and elsewhere, paid for from your NGN wallet.",
+      "Xencodes currently operates in Nigerian Naira (NGN) only. You fund your wallet by card, bank transfer or USSD through KoraPay, and every number is priced in NGN. This is separate from which countries you can buy a virtual number for. You can still verify accounts for services in the US, UK and elsewhere, paid for from your NGN wallet.",
   },
   {
     question: "How long does it take to receive an SMS?",
