@@ -160,6 +160,15 @@
     mask-image: radial-gradient(ellipse 80% 70% at 60% 30%, #000 30%, transparent 100%);
   }
 
+  /* The same grid for light sections: brand-green lines, kept faint. */
+  .hero-grid-light {
+    background-image:
+      linear-gradient(to right, rgb(6 59 45 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(6 59 45 / 0.06) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 80% 70% at 60% 30%, #000 30%, transparent 100%);
+  }
+
   /* The announcement popup: a short rise and fade, and a backdrop that fades
      in with it. Nothing loops. */
   @keyframes xen-pop {
