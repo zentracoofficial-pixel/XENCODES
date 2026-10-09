@@ -310,11 +310,13 @@ export function quoteForCurrency(
   const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
   const standard = quoteFor(rules, costMinor, serviceSlug);
 
-  // Only the standard margin tapers: an exclusive tier or a margin an admin
-  // set for one service is a deliberate choice, and stays exactly as set.
-  // And only above the knee: a number costing the supplier that much or
-  // less is priced exactly as it always was.
-  if (standard.rule !== "default" || usdCents <= TAPER_KNEE_USD_CENTS) return standard;
+  // The exclusive tier (Fiverr) is a deliberately thin margin on cheap
+  // numbers and is left alone. A margin an admin set for one service is
+  // tapered too: it is that service's margin on ordinary numbers, and the
+  // taper only softens it on the dear ones. And only above the knee: a
+  // number costing the supplier that much or less is priced exactly as it
+  // always was.
+  if (standard.rule === "exclusive" || usdCents <= TAPER_KNEE_USD_CENTS) return standard;
 
   // Above the knee the price holds at what a knee-priced number costs, until
   // the cost climbs far enough that a thin markup on it is higher, then it
@@ -334,7 +336,7 @@ export function quoteForCurrency(
     grossProfitKobo: tapered - costMinor,
     targetMarginPercent: realised,
     realisedMarginPercent: realised,
-    ruleLabel: "Standard margin, tapered on high-cost numbers",
+    ruleLabel: `${standard.ruleLabel}, tapered on high-cost numbers`,
   };
 }
 
