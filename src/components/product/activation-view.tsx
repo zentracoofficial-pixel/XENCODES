@@ -106,6 +106,12 @@ export function ActivationView({
     <div className="mx-auto max-w-lg">
       <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">{subheading}</p>
+      {activation.status === "WAITING" && activation.serviceSlug === "fiverr" ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          If Fiverr says &ldquo;This phone number can&apos;t be used,&rdquo; press Cancel and
+          refund below. You get your money back at once and can try again.
+        </p>
+      ) : null}
 
       <div className="mt-6">
         <ActivationPanel
