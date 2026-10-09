@@ -661,15 +661,25 @@ export async function getServiceCountries(
       ];
     });
 
+  // A flat-priced service sells nearly every country at one standard price,
+  // and the few priced far below it are the supplier's cheapest tier: the
+  // bulk numbers that most often fail to deliver, and (being cheapest) the
+  // ones sorted to the top of the list, so customers click them first. Not
+  // offered at all. Evidence so far: Fiverr's one country with a record at
+  // that tier (Germany) has a low delivery rate. Scoped to the services in
+  // FLAT_PRICED_SERVICES, because for most services a lower price is a
+  // legitimate country difference.
+  const offered = FLAT_PRICED_SERVICES.has(serviceSlug) ? withoutCheapestTier(priced) : priced;
+
   // Recommending which variant of a broad country ("USA" vs "USA (2)") to
   // point a customer toward, purely from each one's real delivery record
   // and current stock — never from price or the "(N)" suffix itself. See
   // src/lib/country-recommendation.ts's own header for the full rule.
   const { bySlug, order } = getCountryRecommendation(
     { slug: serviceSlug, name: serviceName },
-    priced,
+    offered,
   );
-  const annotated = priced.map((row) => {
+  const annotated = offered.map((row) => {
     const recommendation = bySlug.get(row.slug);
     return {
       ...row,
@@ -692,6 +702,25 @@ export async function getServiceCountries(
   const reliable = annotated.filter((row) => row.qualityTier !== "low").sort(bySortOrder);
   const poor = annotated.filter((row) => row.qualityTier === "low").sort(bySortOrder);
   return [...reliable, ...poor];
+}
+
+/** Services whose countries almost all share one standard price. */
+const FLAT_PRICED_SERVICES = new Set(["fiverr"]);
+
+/** A price under this share of the service's median is the cheapest tier. */
+const CHEAPEST_TIER_SHARE = 0.5;
+
+/**
+ * Drops countries priced under half the service's median price. With fewer
+ * than ten countries the median says too little to act on, so nothing is
+ * dropped. Never empties the list: if every country would go, all stay.
+ */
+function withoutCheapestTier<T extends { priceKobo: number }>(rows: T[]): T[] {
+  if (rows.length < 10) return rows;
+  const sorted = rows.map((row) => row.priceKobo).sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const kept = rows.filter((row) => row.priceKobo >= median * CHEAPEST_TIER_SHARE);
+  return kept.length > 0 ? kept : rows;
 }
 
 /** "whatsapp-quality-test" -> "Whatsapp Quality Test". Cosmetic only — see
