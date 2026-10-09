@@ -308,8 +308,45 @@ export function quoteForCurrency(
   currency: CurrencyConfigEntry,
 ): PriceQuote {
   const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
-  return quoteFor(rules, costMinor, serviceSlug);
+  const standard = quoteFor(rules, costMinor, serviceSlug);
+
+  // Only the standard margin tapers: an exclusive tier or a margin an admin
+  // set for one service is a deliberate choice, and stays exactly as set.
+  // And only above the knee: a number costing the supplier that much or
+  // less is priced exactly as it always was.
+  if (standard.rule !== "default" || usdCents <= TAPER_KNEE_USD_CENTS) return standard;
+
+  // Above the knee the price holds at what a knee-priced number costs, until
+  // the cost climbs far enough that a thin markup on it is higher, then it
+  // follows that markup. Never below cost, never above the standard price,
+  // and never falling as the cost rises, so a dearer number can not be
+  // cheaper than a cheaper one.
+  const kneeCostMinor = convertUsdCentsToCurrencyMinor(TAPER_KNEE_USD_CENTS, currency);
+  const priceAtKnee = quotePrice(kneeCostMinor, standard.targetMarginPercent).customerPriceKobo;
+  const thinMarkup = Math.ceil((costMinor * (1 + TAPER_FLOOR_MARKUP)) / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+  const tapered = Math.max(priceAtKnee, thinMarkup, costMinor);
+  if (tapered >= standard.customerPriceKobo) return standard;
+
+  const realised = realisedMargin(tapered, costMinor);
+  return {
+    ...standard,
+    customerPriceKobo: tapered,
+    grossProfitKobo: tapered - costMinor,
+    targetMarginPercent: realised,
+    realisedMarginPercent: realised,
+    ruleLabel: "Standard margin, tapered on high-cost numbers",
+  };
 }
+
+/**
+ * Where the standard margin starts to taper: a number costing the supplier
+ * more than this (US cents) is no longer priced at the full margin on its
+ * whole cost. $2.00, around the typical price of a popular service.
+ */
+export const TAPER_KNEE_USD_CENTS = 200;
+
+/** The thinnest markup on cost a tapered number is sold at (15%). */
+export const TAPER_FLOOR_MARKUP = 0.15;
 
 /** Margin actually earned on a stored order, from the two exact figures
  *  recorded at purchase. Used by the admin rather than a stored duplicate,
