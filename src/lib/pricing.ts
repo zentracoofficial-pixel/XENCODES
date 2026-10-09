@@ -310,45 +310,49 @@ export function quoteForCurrency(
   const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
   const standard = quoteFor(rules, costMinor, serviceSlug);
 
-  // The exclusive tier (Fiverr) is a deliberately thin margin on cheap
-  // numbers and is left alone. A margin an admin set for one service is
-  // tapered too: it is that service's margin on ordinary numbers, and the
-  // taper only softens it on the dear ones. And only above the knee: a
-  // number costing the supplier that much or less is priced exactly as it
-  // always was.
-  if (standard.rule === "exclusive" || usdCents <= TAPER_KNEE_USD_CENTS) return standard;
+  // Naira only: the band below is an amount of money, not a percentage.
+  // The exclusive tier (Fiverr) is a deliberately thin margin and is left
+  // alone. A number whose standard profit is already within the band is
+  // priced exactly as it always was.
+  const margin = standard.targetMarginPercent / 100;
+  if (
+    currency.code !== "NGN" ||
+    standard.rule === "exclusive" ||
+    margin <= 0 ||
+    margin >= 1 ||
+    standard.grossProfitKobo <= MAX_PROFIT_KOBO
+  ) {
+    return standard;
+  }
 
-  // Above the knee the price holds at what a knee-priced number costs, until
-  // the cost climbs far enough that a thin markup on it is higher, then it
-  // follows that markup. Never below cost, never above the standard price,
-  // and never falling as the cost rises, so a dearer number can not be
-  // cheaper than a cheaper one.
-  const kneeCostMinor = convertUsdCentsToCurrencyMinor(TAPER_KNEE_USD_CENTS, currency);
-  const priceAtKnee = quotePrice(kneeCostMinor, standard.targetMarginPercent).customerPriceKobo;
-  const thinMarkup = Math.ceil((costMinor * (1 + TAPER_FLOOR_MARKUP)) / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
-  const tapered = Math.max(priceAtKnee, thinMarkup, costMinor);
-  if (tapered >= standard.customerPriceKobo) return standard;
+  // An expensive number: profit is held to PROFIT_BAND instead of the full
+  // margin on a large cost. The price stays where it was for the dearest
+  // number still at the top of the band, until cost + TARGET_PROFIT_KOBO is
+  // higher, then follows that. So a dearer number is never cheaper than a
+  // cheaper one, never below cost, and never above the standard price.
+  const capCostMinor = Math.floor((MAX_PROFIT_KOBO * (1 - margin)) / margin);
+  const priceAtCap = quotePrice(capCostMinor, standard.targetMarginPercent).customerPriceKobo;
+  const targetPrice = Math.ceil((costMinor + TARGET_PROFIT_KOBO) / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+  const banded = Math.max(priceAtCap, targetPrice, costMinor);
+  if (banded >= standard.customerPriceKobo) return standard;
 
-  const realised = realisedMargin(tapered, costMinor);
   return {
     ...standard,
-    customerPriceKobo: tapered,
-    grossProfitKobo: tapered - costMinor,
-    targetMarginPercent: realised,
-    realisedMarginPercent: realised,
-    ruleLabel: `${standard.ruleLabel}, tapered on high-cost numbers`,
+    customerPriceKobo: banded,
+    grossProfitKobo: banded - costMinor,
+    targetMarginPercent: realisedMargin(banded, costMinor),
+    realisedMarginPercent: realisedMargin(banded, costMinor),
+    ruleLabel: `${standard.ruleLabel}, profit held to the band on expensive numbers`,
   };
 }
 
-/**
- * Where the standard margin starts to taper: a number costing the supplier
- * more than this (US cents) is no longer priced at the full margin on its
- * whole cost. $2.00, around the typical price of a popular service.
- */
-export const TAPER_KNEE_USD_CENTS = 200;
+/** Profit on an expensive number is held to NGN 3,000 to 4,000: the most
+ *  (in kobo) before the standard margin starts to be reduced. */
+export const MAX_PROFIT_KOBO = 400_000;
 
-/** The thinnest markup on cost a tapered number is sold at (15%). */
-export const TAPER_FLOOR_MARKUP = 0.15;
+/** Where in that band an expensive number's profit lands once past the top:
+ *  NGN 3,500, the middle of it. */
+export const TARGET_PROFIT_KOBO = 350_000;
 
 /** Margin actually earned on a stored order, from the two exact figures
  *  recorded at purchase. Used by the admin rather than a stored duplicate,
