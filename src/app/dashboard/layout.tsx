@@ -3,7 +3,7 @@ import { requireActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getResendEligibility } from "@/lib/verification";
 import { getUnreadNotificationCount, listRecentNotifications } from "@/lib/notifications";
-import { DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
+import { DashboardBottomNav, DashboardSidebar, DashboardTopBar } from "./dashboard-nav";
 import { VerificationBanner } from "./verification-banner";
 import { AnnouncementPopup } from "./announcement-popup";
 import { getAnnouncement } from "@/lib/announcement";
@@ -57,7 +57,7 @@ export default async function DashboardLayout({
       <DashboardSidebar notifications={notificationItems} unreadCount={unreadCount} />
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardTopBar notifications={notificationItems} unreadCount={unreadCount} />
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-9">
+        <main className="flex-1 px-4 pb-28 pt-6 sm:px-8 sm:pt-9 lg:pb-9">
           <div className="mx-auto w-full max-w-4xl">
             {announcement?.enabled ? (
               <AnnouncementPopup
@@ -84,6 +84,7 @@ export default async function DashboardLayout({
           </div>
         </main>
       </div>
+      <DashboardBottomNav />
     </div>
   );
 }

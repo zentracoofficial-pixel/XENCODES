@@ -14,6 +14,7 @@ import { checkProviderBalance, getProviderBalanceStatus } from "@/lib/provider-b
 import { Metric, MetricGrid } from "./metric";
 import { SystemHealthCard } from "./system-health-card";
 import { ProviderBalanceCard } from "./provider-balance-card";
+import { getRecentActivity } from "@/lib/admin-activity";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
@@ -23,7 +24,6 @@ export const metadata: Metadata = { title: "Admin: Dashboard" };
 export const dynamic = "force-dynamic";
 
 const ACTIVITY_LIMIT = 15;
-const PER_SOURCE_LIMIT = 10;
 
 export default async function AdminDashboardPage() {
   await requireAdmin();
@@ -45,13 +45,7 @@ export default async function AdminDashboardPage() {
     fundingAgg,
     deliveredAgg,
     balancesAgg,
-    newUserRows,
-    fundedRows,
-    purchaseRows,
-    completedRows,
-    failedRows,
-    ticketRows,
-    campaignRows,
+    activity,
     resolved,
   ] = await Promise.all([
     prisma.user.count({ where: { deletedAt: null } }),
@@ -93,48 +87,7 @@ export default async function AdminDashboardPage() {
       _sum: { priceKobo: true, providerCostKobo: true, grossProfitKobo: true },
     }),
     prisma.user.groupBy({ by: ["currency"], _sum: { walletBalanceKobo: true } }),
-    // The seven kinds of event a "recent activity" feed is meant to show,
-    // fetched separately (each table has its own shape and timestamp) and
-    // merged below rather than forced into one query.
-    prisma.user.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      select: { id: true, email: true, createdAt: true },
-    }),
-    prisma.walletTransaction.findMany({
-      where: { type: "TOPUP", status: "SUCCESSFUL" },
-      orderBy: { createdAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.activation.findMany({
-      orderBy: { createdAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.activation.findMany({
-      where: { status: "RECEIVED" },
-      orderBy: { receivedAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.activation.findMany({
-      where: { status: { in: ["EXPIRED", "CANCELLED", "REFUNDED"] } },
-      orderBy: { updatedAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.supportTicket.findMany({
-      orderBy: { createdAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-      include: { user: { select: { email: true } } },
-    }),
-    prisma.emailCampaign.findMany({
-      where: { status: { in: ["SENT", "FAILED"] } },
-      orderBy: { createdAt: "desc" },
-      take: PER_SOURCE_LIMIT,
-    }),
+    getRecentActivity({ limit: ACTIVITY_LIMIT }),
     getNumberProvider(),
   ]);
 
@@ -190,70 +143,6 @@ export default async function AdminDashboardPage() {
   const providerBalanceStatus = primaryProvider ? await getProviderBalanceStatus(primaryProvider.id) : null;
 
   const health = await getSystemHealth();
-
-  const activity: ActivityRow[] = [
-    ...newUserRows.map((user) => ({
-      key: `user-${user.id}`,
-      href: `/admin/users/${user.id}`,
-      title: "New user registration",
-      subtitle: user.email,
-      at: user.createdAt,
-      badge: { label: "New user", variant: "neutral" as const },
-    })),
-    ...fundedRows.map((tx) => ({
-      key: `funded-${tx.id}`,
-      href: `/admin/wallet/${tx.id}`,
-      title: "Wallet funding",
-      subtitle: `${tx.user.email} · ${formatMoney(tx.amountKobo, tx.currency)}`,
-      at: tx.completedAt ?? tx.createdAt,
-      badge: { label: "Funded", variant: "success" as const },
-    })),
-    ...purchaseRows.map((order) => ({
-      key: `purchase-${order.id}`,
-      href: `/admin/orders/${order.id}`,
-      title: "Number purchase",
-      subtitle: `${order.user.email} · ${order.serviceName}`,
-      at: order.createdAt,
-      badge: { label: "Purchase", variant: "neutral" as const },
-    })),
-    ...completedRows.map((order) => ({
-      key: `completed-${order.id}`,
-      href: `/admin/orders/${order.id}`,
-      title: "Completed activation",
-      subtitle: `${order.user.email} · ${order.serviceName}`,
-      at: order.receivedAt ?? order.updatedAt,
-      badge: { label: "Completed", variant: "success" as const },
-    })),
-    ...failedRows.map((order) => ({
-      key: `failed-${order.id}`,
-      href: `/admin/orders/${order.id}`,
-      title: "Failed activation",
-      subtitle: `${order.user.email} · ${order.serviceName}`,
-      at: order.updatedAt,
-      badge: { label: "Failed", variant: "danger" as const },
-    })),
-    ...ticketRows.map((ticket) => ({
-      key: `ticket-${ticket.id}`,
-      href: `/admin/support/${ticket.id}`,
-      title: "Support ticket",
-      subtitle: `${ticket.user.email} · ${ticket.subject}`,
-      at: ticket.createdAt,
-      badge: { label: ticket.status, variant: "warning" as const },
-    })),
-    ...campaignRows.map((campaign) => ({
-      key: `campaign-${campaign.id}`,
-      href: "/admin/email?tab=history",
-      title: "Admin email campaign",
-      subtitle: `${campaign.subject} · ${campaign.recipientCount} recipients`,
-      at: campaign.sentAt ?? campaign.createdAt,
-      badge: {
-        label: campaign.status,
-        variant: campaign.status === "SENT" ? ("success" as const) : ("danger" as const),
-      },
-    })),
-  ]
-    .sort((a, b) => b.at.getTime() - a.at.getTime())
-    .slice(0, ACTIVITY_LIMIT);
 
   return (
     <div className="space-y-6">
@@ -401,12 +290,21 @@ export default async function AdminDashboardPage() {
       <SystemHealthCard signals={health} />
 
       <Card className="overflow-hidden">
-        <div className="border-b border-border px-5 py-3.5">
-          <h2 className="text-sm font-semibold">Recent activity</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            New users, funding, purchases, activations, support and email
-            campaigns, together in one timeline.
-          </p>
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
+          <div>
+            <h2 className="text-sm font-semibold">Recent activity</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              New users, funding, purchases, activations, support and email
+              campaigns, together in one timeline.
+            </p>
+          </div>
+          <Link
+            href="/admin/activity"
+            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-forest underline-offset-4 hover:underline"
+          >
+            View all
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
         {activity.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
@@ -443,13 +341,4 @@ export default async function AdminDashboardPage() {
       </Card>
     </div>
   );
-}
-
-interface ActivityRow {
-  key: string;
-  href: string;
-  title: string;
-  subtitle: string;
-  at: Date;
-  badge: { label: string; variant: "success" | "warning" | "danger" | "neutral" };
 }
