@@ -24,34 +24,45 @@ const links = [
   { href: "/dashboard/support", label: "Support", short: "Support", icon: LifeBuoy },
 ];
 
+/** A section is active on its own page and on any page nested under it. */
+function isActive(pathname: string, href: string) {
+  return href === "/dashboard" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+}
+
 /**
  * The phone navigation: all five sections at once, icon over a short label,
- * instead of a sideways-scrolling strip that cut off at "Wallet" and hid
- * "Support" entirely on a 390px screen with no sign there was more.
+ * pinned to the bottom of the screen where a thumb reaches it. Hidden from
+ * the large-screen layout, which has the sidebar instead. The extra bottom
+ * padding keeps it clear of a phone's home bar.
  */
-function TabItems() {
+export function DashboardBottomNav() {
   const pathname = usePathname();
 
   return (
-    <>
-      {links.map((link) => {
-        const active = pathname === link.href;
-        return (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors",
-              active ? "bg-mint-soft text-forest" : "text-muted-foreground hover:bg-mint-soft hover:text-forest",
-            )}
-          >
-            <link.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-            {link.short}
-          </Link>
-        );
-      })}
-    </>
+    <nav
+      aria-label="Dashboard"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-16px_rgba(6,59,45,0.25)] backdrop-blur lg:hidden"
+    >
+      <div className="mx-auto grid max-w-lg grid-cols-5 gap-1 px-2 py-1.5">
+        {links.map((link) => {
+          const active = isActive(pathname, link.href);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors",
+                active ? "bg-mint-soft text-forest" : "text-muted-foreground hover:bg-mint-soft hover:text-forest",
+              )}
+            >
+              <link.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
+              {link.short}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -61,7 +72,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       {links.map((link) => {
-        const active = pathname === link.href;
+        const active = isActive(pathname, link.href);
         return (
           <Link
             key={link.href}
@@ -168,9 +179,6 @@ export function DashboardTopBar({
           </form>
         </div>
       </div>
-      <nav aria-label="Dashboard" className="grid grid-cols-5 gap-1 px-2 pb-2">
-        <TabItems />
-      </nav>
     </header>
   );
 }

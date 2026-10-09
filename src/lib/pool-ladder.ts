@@ -41,8 +41,8 @@ const SAME_QUALITY_BAND_POINTS = 15;
 
 /** How far above the typical price a rung may sit and still lead. Beyond
  *  this a rung is a luxury tier: tried after the sensible ones, not first, so
- *  a customer is not quoted several times the going price on a guess. */
-export const PREMIUM_CAP_MULTIPLE = 2;
+ *  a customer is not quoted well above the going price on a guess. */
+export const PREMIUM_CAP_MULTIPLE = 1.25;
 
 /** The price at which half of a pair's in-stock numbers cost less: where the
  *  bulk of the real supply sits, so a handful of numbers at one extreme
@@ -68,18 +68,22 @@ export function typicalPriceCents(pools: RankablePool[]): number {
  *  1. Pools with a real, acceptable delivery record, best record first
  *     (only those within the same quality band as the best rated pool).
  *     Proven delivery beats any assumption about price, in either direction.
- *  2. Pools with no record yet and real depth, premium first: at or above the
- *     typical price, dearest first up to PREMIUM_CAP_MULTIPLE times typical;
- *     then the luxury tiers above that cap, cheapest of those first; then
- *     pools priced below typical, closest to typical first, cheapest last.
- *  3. Thin pools with no record, in the same premium-first order.
+ *  2. Pools with no record yet and real depth, ordered by closeness to the
+ *     typical price: at or just above typical (up to PREMIUM_CAP_MULTIPLE
+ *     times it), nearest typical first; then the luxury tiers above that
+ *     cap, cheapest of those first; then pools priced below typical, closest
+ *     to typical first, cheapest last. Neither the cheapest rung (bulk,
+ *     heavily reused numbers) nor the dearest (a high price is not evidence
+ *     of a better number, and customers pay it) leads on a guess.
+ *  3. Thin pools with no record, in the same order.
  *  4. Pools whose own record is poor or clearly worse than a rated
  *     alternative, last. Still offered as a final fallback: a poor number is
  *     better than a false "out of stock" when that really is all that is left.
  *
- * Premium-first is a rule of thumb for pools nothing is known about yet, not a
- * measurement. It stops mattering the moment a pool has settled orders: the
- * record in step 1 and the demotion in step 4 are what really decide.
+ * Closeness to typical is a rule of thumb for pools nothing is known about
+ * yet, not a measurement. It stops mattering the moment a pool has settled
+ * orders: the record in step 1 and the demotion in step 4 are what really
+ * decide.
  */
 export function rankPools<T extends RankablePool>(
   pools: T[],
@@ -112,23 +116,26 @@ export function rankPools<T extends RankablePool>(
 
   const byRateDesc = (a: T, b: T) => (rate(b) ?? 0) - (rate(a) ?? 0) || a.costUsdCents - b.costUsdCents;
 
-  // 0: at or above typical and within the cap (dearest first); 1: luxury,
-  // above the cap (least extreme first); 2: below typical (nearest typical
-  // first, so the cheapest rung is always the very last of the unrated).
+  // 0: at or above typical and within the cap (nearest typical first); 1:
+  // luxury, above the cap (least extreme first); 2: below typical (nearest
+  // typical first, so the cheapest rung is always the very last of the
+  // unrated).
   const band = (pool: T) =>
     pool.costUsdCents < typical ? 2 : pool.costUsdCents > typical * PREMIUM_CAP_MULTIPLE ? 1 : 0;
-  const premiumFirst = (a: T, b: T) => {
+  const nearestTypicalFirst = (a: T, b: T) => {
     const ba = band(a);
     const bb = band(b);
     if (ba !== bb) return ba === 0 ? -1 : bb === 0 ? 1 : ba === 1 ? -1 : 1;
-    if (ba === 0 || ba === 2) return b.costUsdCents - a.costUsdCents || b.stockCount - a.stockCount;
+    // Below typical: nearest typical (dearest of them) first. At or above it,
+    // within the cap or beyond: nearest typical (cheapest of them) first.
+    if (ba === 2) return b.costUsdCents - a.costUsdCents || b.stockCount - a.stockCount;
     return a.costUsdCents - b.costUsdCents || b.stockCount - a.stockCount;
   };
 
   return [
     ...preferred.sort(byRateDesc),
-    ...unratedDeep.sort(premiumFirst),
-    ...unratedThin.sort(premiumFirst),
+    ...unratedDeep.sort(nearestTypicalFirst),
+    ...unratedThin.sort(nearestTypicalFirst),
     ...demoted.sort(byRateDesc),
   ];
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   Coins,
   HeartPulse,
   History,
@@ -36,6 +37,7 @@ import { logoutAction } from "@/app/dashboard/actions";
  */
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { href: "/admin/activity", label: "Recent activity", icon: Activity },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/services", label: "Services", icon: Package },
