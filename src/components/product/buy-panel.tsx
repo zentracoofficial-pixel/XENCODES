@@ -745,18 +745,6 @@ export function BuyPanel({
         </div>
       ) : null}
 
-      {service?.slug === "fiverr" ? (
-        <div className="mt-4 flex items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          <p className="text-sm text-warning">
-            Fiverr says virtual numbers are not supported for phone verification,
-            so it may reject a number with &ldquo;This phone number can&apos;t be
-            used.&rdquo; Xencodes cannot change that. If it happens, press Cancel and
-            refund on the number&apos;s page and you get your money back at once.
-          </p>
-        </div>
-      ) : null}
-
       {signedIn && priceKobo !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
