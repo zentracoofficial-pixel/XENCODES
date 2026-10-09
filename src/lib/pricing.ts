@@ -307,6 +307,37 @@ export function quoteForCurrency(
   serviceSlug: string,
   currency: CurrencyConfigEntry,
 ): PriceQuote {
+  return withMinimumPrice(quoteBeforeMinimum(rules, usdCents, serviceSlug, currency), currency);
+}
+
+/**
+ * Naira only: nothing is sold for less than MIN_PRICE_KOBO. A number whose
+ * price comes out lower is sold at the minimum, so the profit on it is the
+ * minimum less its cost. Prices already at or above it are returned as they
+ * are. Applies to every service, the exclusive tier included.
+ */
+function withMinimumPrice(quote: PriceQuote, currency: CurrencyConfigEntry): PriceQuote {
+  if (currency.code !== "NGN" || quote.customerPriceKobo >= MIN_PRICE_KOBO) return quote;
+  const margin = realisedMargin(MIN_PRICE_KOBO, quote.providerCostKobo);
+  return {
+    ...quote,
+    customerPriceKobo: MIN_PRICE_KOBO,
+    grossProfitKobo: MIN_PRICE_KOBO - quote.providerCostKobo,
+    targetMarginPercent: margin,
+    realisedMarginPercent: margin,
+    ruleLabel: `${quote.ruleLabel}, minimum price`,
+  };
+}
+
+/** The lowest price anything is sold for (NGN 500), in kobo. */
+export const MIN_PRICE_KOBO = 50_000;
+
+function quoteBeforeMinimum(
+  rules: MarginRules,
+  usdCents: number,
+  serviceSlug: string,
+  currency: CurrencyConfigEntry,
+): PriceQuote {
   const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
   const standard = quoteFor(rules, costMinor, serviceSlug);
 
