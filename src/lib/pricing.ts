@@ -310,10 +310,10 @@ export function quoteForCurrency(
   const costMinor = convertUsdCentsToCurrencyMinor(usdCents, currency);
   const standard = quoteFor(rules, costMinor, serviceSlug);
 
-  // Naira only: the band below is an amount of money, not a percentage.
+  // Naira only: the cap below is an amount of money, not a percentage.
   // The exclusive tier (Fiverr) is a deliberately thin margin and is left
-  // alone. A number whose standard profit is already within the band is
-  // priced exactly as it always was.
+  // alone. A number whose standard profit is already at or under the cap
+  // is priced exactly as it always was.
   const margin = standard.targetMarginPercent / 100;
   if (
     currency.code !== "NGN" ||
@@ -325,10 +325,9 @@ export function quoteForCurrency(
     return standard;
   }
 
-  // An expensive number: profit is held to PROFIT_BAND instead of the full
-  // margin on a large cost. The price stays where it was for the dearest
-  // number still at the top of the band, until cost + TARGET_PROFIT_KOBO is
-  // higher, then follows that. So a dearer number is never cheaper than a
+  // An expensive number: profit is held down instead of the full margin on a
+  // large cost. The price stays where it was for the dearest number still at
+  // the cap, until cost + TARGET_PROFIT_KOBO is higher, then follows that. So a dearer number is never cheaper than a
   // cheaper one, never below cost, and never above the standard price.
   const capCostMinor = Math.floor((MAX_PROFIT_KOBO * (1 - margin)) / margin);
   const priceAtCap = quotePrice(capCostMinor, standard.targetMarginPercent).customerPriceKobo;
@@ -342,16 +341,17 @@ export function quoteForCurrency(
     grossProfitKobo: banded - costMinor,
     targetMarginPercent: realisedMargin(banded, costMinor),
     realisedMarginPercent: realisedMargin(banded, costMinor),
-    ruleLabel: `${standard.ruleLabel}, profit held to the band on expensive numbers`,
+    ruleLabel: `${standard.ruleLabel}, profit held down on expensive numbers`,
   };
 }
 
-/** Profit on an expensive number is held to NGN 3,000 to 4,000: the most
- *  (in kobo) before the standard margin starts to be reduced. */
-export const MAX_PROFIT_KOBO = 400_000;
+/** The most profit (in kobo, NGN 5,000) a number earns at the standard
+ *  margin before it counts as expensive. A number whose standard profit is
+ *  at or under this is priced exactly as it always was. */
+export const MAX_PROFIT_KOBO = 500_000;
 
-/** Where in that band an expensive number's profit lands once past the top:
- *  NGN 3,500, the middle of it. */
+/** Once a number is expensive, its profit is held down toward this
+ *  (NGN 3,500) instead of the full margin on a large cost. */
 export const TARGET_PROFIT_KOBO = 350_000;
 
 /** Margin actually earned on a stored order, from the two exact figures
