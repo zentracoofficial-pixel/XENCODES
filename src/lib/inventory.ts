@@ -640,6 +640,12 @@ export async function getServiceCountries(
       // otherwise Xencodes' own blended measured rate for this exact pair,
       // when there is enough settled history to trust it.
       const measured = preferredPoolQuality.get(offer.country.slug) ?? historicalQuality.get(offer.country.slug);
+      // A pair whose measured record is 0%: enough settled orders to rate it
+      // at all (see toStat() in deliverability.ts) and not one of them
+      // delivered. Not offered. It comes back by itself: with no new orders
+      // the recent window empties, and the older record ages out of its
+      // 90-day window, so the pair is tried again rather than hidden for good.
+      if (offer.successRate === undefined && measured?.successRatePercent === 0) return [];
       const successRate = offer.successRate ?? measured?.successRatePercent;
       const qualityTier = offer.successRate === undefined ? measured?.tier : undefined;
       return [
