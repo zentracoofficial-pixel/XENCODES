@@ -707,11 +707,11 @@ export async function getServiceCountries(
 /** Services whose countries almost all share one standard price. */
 const FLAT_PRICED_SERVICES = new Set(["fiverr"]);
 
-/** A price under this share of the service's median is the cheapest tier. */
-const CHEAPEST_TIER_SHARE = 0.5;
+/** A price under this share of the service's median is a cheaper tier than the standard price. */
+const CHEAPEST_TIER_SHARE = 0.75;
 
 /**
- * Drops countries priced under half the service's median price. With fewer
+ * Drops countries priced under three quarters of the service's median price. With fewer
  * than ten countries the median says too little to act on, so nothing is
  * dropped. Never empties the list: if every country would go, all stay.
  */
