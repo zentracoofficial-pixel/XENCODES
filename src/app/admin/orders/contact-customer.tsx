@@ -34,7 +34,7 @@ export function ContactCustomer({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Write to <span className="font-medium text-foreground">{customerEmail}</span> about this order.
-          They see it in their dashboard and get an email, and they reply there.
+          They see it in their dashboard, and the first message also goes by email. Later messages show up when they next sign in.
         </p>
         {openTicketId ? (
           <Link
@@ -59,7 +59,11 @@ export function ContactCustomer({
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
       {state.success ? (
         <p className="text-sm text-success">
-          Sent. {state.emailed ? "They have been emailed too." : "The email could not be sent, but it is in their dashboard."}{" "}
+          Sent. {state.emailSkipped
+            ? "They were already emailed in this conversation, so they will see this when they sign in."
+            : state.emailed
+              ? "They have been emailed too."
+              : "The email could not be sent, but it is in their dashboard."}{" "}
           {state.ticketId ? (
             <Link
               href={`/admin/support/${state.ticketId}`}

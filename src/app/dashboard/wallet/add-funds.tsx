@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
 import { calculateTopupFeeKobo } from "@/lib/funding-limits";
 import { startTopUpAction, checkTopUpStatusAction } from "./actions";
+import { ExactAmount } from "./exact-amount";
 
 /**
  * Add funds: the customer names their own amount.
@@ -60,6 +61,11 @@ export function AddFunds({
     feeKobo: number;
     totalChargedKobo: number;
   } | null>(null);
+  const [checkout, setCheckout] = useState<{
+    url: string;
+    amountKobo: number;
+    totalChargedKobo: number;
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const returningReference = searchParams.get("reference");
@@ -109,7 +115,13 @@ export function AddFunds({
         return;
       }
       if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
+        // Stop here instead of redirecting at once, so the customer can
+        // copy the exact total before they leave for the payment page.
+        setCheckout({
+          url: result.checkoutUrl,
+          amountKobo: result.amountKobo ?? amountKobo,
+          totalChargedKobo: result.totalChargedKobo ?? result.amountKobo ?? amountKobo,
+        });
         return;
       }
       if (result.reference && result.amountKobo !== undefined) {
@@ -180,6 +192,35 @@ export function AddFunds({
         >
           Back to wallet
         </Button>
+      </section>
+    );
+  }
+
+  if (checkout) {
+    return (
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold">Ready to pay</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Copy the exact amount, then continue to KoraPay and pay it.
+        </p>
+        <ExactAmount
+          totalMinor={checkout.totalChargedKobo}
+          creditedMinor={checkout.amountKobo}
+          currency={currency}
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            onClick={() => {
+              window.location.href = checkout.url;
+            }}
+          >
+            Continue to KoraPay
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={() => setCheckout(null)}>
+            Change amount
+          </Button>
+        </div>
       </section>
     );
   }
@@ -276,14 +317,12 @@ export function AddFunds({
         ))}
       </div>
 
-      {valid && hasFee ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Plus a {formatMoney(previewFeeKobo, currency)} processing fee. Total to pay:{" "}
-          <span className="font-medium text-foreground">
-            {formatMoney(amountKobo + previewFeeKobo, currency)}
-          </span>
-          . Your wallet is credited {formatMoney(amountKobo, currency)}.
-        </p>
+      {valid ? (
+        <ExactAmount
+          totalMinor={amountKobo + previewFeeKobo}
+          creditedMinor={amountKobo}
+          currency={currency}
+        />
       ) : null}
 
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}

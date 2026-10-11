@@ -86,15 +86,19 @@ export interface ContactCustomerResult {
   success?: boolean;
   ticketId?: string;
   emailed?: boolean;
+  /** True when no email was attempted because the customer was already emailed in this conversation. */
+  emailSkipped?: boolean;
 }
 
 /**
  * Starts (or continues) a conversation with the customer who placed an
  * order, from that order's page. It is the ordinary support thread, tied to
  * the order, so the customer replies in their dashboard and it lands in the
- * admin support inbox like any other ticket. The customer is told in two
- * ways: the in-dashboard bell, and a short email (best effort: the thread is
- * the record, so a failed email does not fail the message).
+ * admin support inbox like any other ticket. Every message rings the
+ * in-dashboard bell. Only the first message of a conversation is also
+ * emailed, to save email quota: after that the customer sees new messages
+ * when they next sign in. The email is best effort, because the thread is
+ * the record and a failed email does not fail the message.
  *
  * If a ticket for this same order is still open, the message is added to it
  * instead of opening a second one.
@@ -133,6 +137,9 @@ export async function contactCustomerAboutOrderAction(
       },
     }));
 
+  const alreadyMessaged =
+    (await prisma.supportMessage.count({ where: { ticketId: ticket.id, author: "ADMIN" } })) > 0;
+
   await prisma.$transaction([
     prisma.supportMessage.create({
       data: { ticketId: ticket.id, author: "ADMIN", adminEmail: admin.email, body },
@@ -143,24 +150,26 @@ export async function contactCustomerAboutOrderAction(
 
   await notifyUserOfSupportReply(ticket, body);
 
-  const emailed = await sendEmailSafe({
-    to: order.user.email,
-    ...renderEmail(
-      supportMessageToCustomerEmail({ ticketId: ticket.id, subject: ticket.subject, body }),
-    ),
-  });
+  const emailed = alreadyMessaged
+    ? false
+    : await sendEmailSafe({
+        to: order.user.email,
+        ...renderEmail(
+          supportMessageToCustomerEmail({ ticketId: ticket.id, subject: ticket.subject, body }),
+        ),
+      });
 
   await recordAudit({
     actor: admin,
     action: "order.contact_customer",
     targetType: "activation",
     targetId: order.id,
-    metadata: { ticketId: ticket.id, reusedTicket: Boolean(existing), emailed },
+    metadata: { ticketId: ticket.id, reusedTicket: Boolean(existing), emailed, emailSkipped: alreadyMessaged },
   });
 
   revalidatePath(`/admin/orders/${order.id}`);
   revalidatePath(`/admin/support/${ticket.id}`);
   revalidatePath("/admin/support");
-  return { success: true, ticketId: ticket.id, emailed };
+  return { success: true, ticketId: ticket.id, emailed, emailSkipped: alreadyMessaged };
 }
 
