@@ -354,3 +354,31 @@ export function numberPurchaseSaleEmail(input: NumberPurchaseSaleInput): EmailMe
     ],
   };
 }
+
+/** Sent to a customer when an admin starts or continues a conversation with
+ *  them from the admin panel (for example about an order that failed). The
+ *  conversation itself lives in the support thread; this only makes sure they
+ *  notice it, and the button opens it. */
+export function supportMessageToCustomerEmail(input: {
+  ticketId: string;
+  subject: string;
+  body: string;
+}): EmailMessage {
+  const url = `${SITE_URL}/dashboard/support/${input.ticketId}`;
+  return {
+    subject: `${input.subject} (${SITE_NAME} support)`,
+    title: "A message from Xencodes support",
+    previewText: "Our support team has written to you about your order.",
+    blocks: [
+      { type: "text", text: "Our support team has sent you a message:" },
+      { type: "quote", text: input.body },
+      { type: "button", text: "Open the conversation and reply", url },
+      { type: "fallbackLink", url },
+      {
+        type: "note",
+        text: "You can reply from your dashboard. Please do not share your password or any verification codes with anyone.",
+      },
+    ],
+  };
+}
+
