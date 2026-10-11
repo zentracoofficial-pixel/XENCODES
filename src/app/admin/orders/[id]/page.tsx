@@ -16,6 +16,7 @@ import {
 } from "@/lib/activation-status";
 import { reconcileActivation, REFUND_REASON_LABEL } from "@/lib/activation-lifecycle";
 import { RefundButton } from "../refund-button";
+import { ContactCustomer } from "../contact-customer";
 
 export const metadata: Metadata = { title: "Admin: Order" };
 
@@ -73,6 +74,19 @@ export default async function AdminOrderDetailPage({
     where: { activationId: order.id },
     orderBy: { createdAt: "asc" },
   });
+
+  const openTicket = await prisma.supportTicket.findFirst({
+    where: { userId: order.user.id, relatedActivationId: order.id, status: { not: "RESOLVED" } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  const wasRefunded = movements.some((m) => m.type === "REFUND");
+  const suggestedMessage =
+    order.status === "WAITING"
+      ? `Hi, this is Xencodes support. We noticed your ${order.serviceName} number is still waiting for a code. What do you see on ${order.serviceName}'s side? If it is not working, press Cancel and refund on the number's page and your money comes straight back.`
+      : order.status === "RECEIVED"
+        ? `Hi, this is Xencodes support. We saw your ${order.serviceName} order came through. Did the code work for you, or did you run into a problem?`
+        : `Hi, this is Xencodes support. We saw that your ${order.serviceName} number (${order.countryName}) did not get a code${wasRefunded ? ", and the money has been returned to your wallet" : ""}. Could you tell us what happened on your side? For example, did ${order.serviceName} show an error such as "This phone number can't be used"? That helps us fix it quickly.`;
 
   const priced = order.providerCostKobo > 0;
   const margin = realisedMargin(order.priceKobo, order.providerCostKobo);
@@ -144,6 +158,20 @@ export default async function AdminOrderDetailPage({
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
+          <Card className="overflow-hidden">
+            <div className="border-b border-border px-5 py-3">
+              <h2 className="text-sm font-semibold">Message the customer</h2>
+            </div>
+            <div className="px-5 py-4">
+              <ContactCustomer
+                activationId={order.id}
+                customerEmail={order.user.email}
+                suggestedMessage={suggestedMessage}
+                openTicketId={openTicket?.id ?? null}
+              />
+            </div>
+          </Card>
+
           <Card className="overflow-hidden">
             <div className="border-b border-border px-5 py-3">
               <h2 className="text-sm font-semibold">Economics</h2>
