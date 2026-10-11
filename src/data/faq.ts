@@ -40,6 +40,11 @@ export const faqs: FaqItem[] = [
       "Refunds go back to your Xencodes wallet immediately, not to your card, so you can try another country or service right away. Every refund is listed in your wallet history.",
   },
   {
+    question: "What if I send less than the amount shown when funding my wallet?",
+    answer:
+      "Pay the exact total shown on the funding screen, which includes the processing fee. Use the Copy amount button to avoid typing mistakes. If you send less, the payment does not complete and the money is returned to you automatically, and your wallet is not credited. Just fund again with the full amount.",
+  },
+  {
     question: "Which services are supported?",
     answer:
       "Instagram, Facebook, WhatsApp, Telegram, TikTok, Google, Fiverr, Upwork and many more. The Services page lists everything currently available with live prices.",
