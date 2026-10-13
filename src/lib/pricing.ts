@@ -329,6 +329,43 @@ function withMinimumPrice(quote: PriceQuote, currency: CurrencyConfigEntry): Pri
   };
 }
 
+/**
+ * A repeat listing of a country ("USA (2)", "Canada (2)") sells for this
+ * percent of the plain listing's price for the same service. Those listings
+ * are separate seller pools of the same country and deliver less reliably,
+ * so they are priced below the main one.
+ */
+export const VARIANT_PRICE_PERCENT = 80;
+
+/** What a repeat listing may cost, given the plain listing's price. */
+export function variantPriceCapKobo(basePriceKobo: number): number {
+  return Math.round((basePriceKobo * VARIANT_PRICE_PERCENT) / 100 / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+}
+
+/**
+ * Brings a quote down to a price cap, never up, and never below what the
+ * supplier bills or the NGN 500 minimum. A quote already at or under the cap
+ * is returned untouched, so a cheap number is never made dearer.
+ */
+export function capQuoteToPrice(
+  quote: PriceQuote,
+  capKobo: number,
+  currency: CurrencyConfigEntry,
+): PriceQuote {
+  const floor = Math.max(quote.providerCostKobo, currency.code === "NGN" ? MIN_PRICE_KOBO : 0);
+  const price = Math.max(capKobo, floor);
+  if (price >= quote.customerPriceKobo) return quote;
+  const margin = realisedMargin(price, quote.providerCostKobo);
+  return {
+    ...quote,
+    customerPriceKobo: price,
+    grossProfitKobo: price - quote.providerCostKobo,
+    targetMarginPercent: margin,
+    realisedMarginPercent: margin,
+    ruleLabel: `${quote.ruleLabel}, repeat listing price`,
+  };
+}
+
 /** The lowest price anything is sold for (NGN 500), in kobo. */
 export const MIN_PRICE_KOBO = 50_000;
 
