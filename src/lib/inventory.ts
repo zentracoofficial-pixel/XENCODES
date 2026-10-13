@@ -628,19 +628,19 @@ export async function getServiceCountries(
     console.error(`[inventory] could not price "${serviceSlug}" countries from the price ladder:`, error);
   }
 
-  // A repeat listing of a country ("USA (2)") sells for 80% of the plain
-  // listing's price for this service, up or down (see VARIANT_PRICE_PERCENT
-  // in pricing.ts), so the plain listing's price is worked out first. A
-  // repeat listing whose plain listing is not on sale has nothing to be 80%
-  // of and keeps its own price. quotePair() applies the same rule at
-  // purchase time.
+  // A repeat listing of a country ("USA (2)") is priced from the plain
+  // listing's price for this service, within a fixed band (see
+  // variantPriceKobo() in pricing.ts), so the plain listing's price is
+  // worked out first. A repeat listing whose plain listing is not on sale has
+  // nothing to be priced from and keeps its own price. quotePair() applies the
+  // same rule at purchase time.
   const basePriceByCountry = new Map<string, number>();
   for (const offer of offers) {
     if (offer.stock === "out_of_stock" || !isUsableUsdCost(offer.costUsdCents)) continue;
     const variant = parseCountryVariant(offer.country.name);
     if (variant.variant !== 1) continue;
     // Same test as the 0% record filter below: a plain listing that is not
-    // on sale is not a price to take 80% of, and quotePair() reads the base
+    // on sale is not a price to work from, and quotePair() reads the base
     // price from this list, so both must agree on what is on it.
     const baseMeasured =
       preferredPoolQuality.get(offer.country.slug) ?? historicalQuality.get(offer.country.slug);
@@ -658,7 +658,7 @@ export async function getServiceCountries(
       let quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
       const variant = parseCountryVariant(offer.country.name);
       const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
-      if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice), currency);
+      if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice, currency), currency);
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
       // the specific pool's own rate when Xencodes has real evidence to
@@ -864,7 +864,7 @@ export async function quotePair(
   const primary = rungs[0];
   const chosenProviderOfferId = primary.providerOfferId;
   const chosenPoolQuality = chosenProviderOfferId ? qualityByPool.get(chosenProviderOfferId) : undefined;
-  // A repeat listing of a country ("USA (2)") sells at 80% of the plain
+  // A repeat listing of a country ("USA (2)") is priced from the plain
   // listing's price, the same figure the country list shows (see
   // getServiceCountries()). The plain listing's price is read from that same
   // list so the two cannot disagree. If it cannot be found the repeat
@@ -878,7 +878,7 @@ export async function quotePair(
         const parsed = parseCountryVariant(row.name);
         return parsed.variant === 1 && parsed.baseSlug === variantInfo.baseSlug;
       });
-      if (base) variantTargetKobo = variantPriceKobo(base.priceKobo);
+      if (base) variantTargetKobo = variantPriceKobo(base.priceKobo, currency);
     } catch (error) {
       console.error(`[inventory] could not price the plain listing for "${winner.offer.country.name}":`, error);
     }
