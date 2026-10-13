@@ -133,26 +133,35 @@ export default async function DashboardPage() {
           activity figures below are the headline, by design), but up here
           beside the Buy Number action it pays for, so a customer never has
           to scroll to find out whether they can afford a number. */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-5 py-3.5 shadow-[var(--shadow-subtle)]">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-forest px-5 py-4 text-white shadow-[var(--shadow-subtle)]">
         <div className="flex items-center gap-3.5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-mint-soft text-forest">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/10 text-mint">
             <Wallet className="h-5 w-5" aria-hidden />
           </span>
           <div>
-          <p className="text-xs text-muted-foreground">Wallet balance</p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums">
-            {formatMoney(user.walletBalanceKobo, user.currency)}
-          </p>
-          {/* An empty wallet is stated plainly here rather than left for
-              the customer to discover at the moment they try to buy. */}
-          {user.walletBalanceKobo <= 0 ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Add funds to purchase a number.
+            <p className="text-xs text-white/70">Wallet balance</p>
+            <p className="mt-0.5 text-xl font-semibold tabular-nums">
+              {formatMoney(user.walletBalanceKobo, user.currency)}
             </p>
-          ) : null}
+            {/* An empty wallet is stated plainly here rather than left for
+                the customer to discover at the moment they try to buy. */}
+            {user.walletBalanceKobo <= 0 ? (
+              <p className="mt-0.5 text-xs text-white/70">
+                Add funds to purchase a number.
+              </p>
+            ) : null}
           </div>
         </div>
-        <Button href="/dashboard/wallet" variant="outline" size="sm">
+        {/* The one way money gets in, so it is the loudest button here: a
+            large mint button, full width on a phone. Customers kept asking
+            how to fund when the old outlined button was already on screen. */}
+        <Button
+          href="/dashboard/wallet"
+          variant="accent"
+          size="lg"
+          className="w-full sm:w-auto"
+        >
+          <Plus className="h-5 w-5" />
           Add funds
         </Button>
       </div>
