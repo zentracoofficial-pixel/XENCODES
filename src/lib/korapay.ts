@@ -236,13 +236,22 @@ export function verifyKorapayWebhookSignature(
 ): boolean {
   if (!signatureHeader) return false;
 
-  const expected = createHmac("sha256", encryptionKey())
-    .update(JSON.stringify(data))
-    .digest("hex");
-
-  const expectedBuffer = Buffer.from(expected, "utf8");
+  const payload = JSON.stringify(data);
   const actualBuffer = Buffer.from(signatureHeader, "utf8");
-  if (expectedBuffer.length !== actualBuffer.length) return false;
 
-  return timingSafeEqual(expectedBuffer, actualBuffer);
+  // The encryption key is the one expected to sign webhooks (see
+  // encryptionKey() above). KoraPay's own docs have also been read as
+  // saying the secret key, so a signature made with either of our two
+  // private keys is accepted: only KoraPay and this server hold them, so
+  // this does not let an outsider forge anything. encryptionKey() still
+  // throws when it is missing, which the route reports as a
+  // misconfiguration rather than a bad signature.
+  const keys = [encryptionKey()];
+  const secret = process.env.KORAPAY_SECRET_KEY;
+  if (secret && secret !== keys[0]) keys.push(secret);
+
+  return keys.some((key) => {
+    const expectedBuffer = Buffer.from(createHmac("sha256", key).update(payload).digest("hex"), "utf8");
+    return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
+  });
 }

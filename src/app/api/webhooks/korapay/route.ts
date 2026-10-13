@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyKorapayWebhookSignature, KorapayError } from "@/lib/korapay";
 import { reconcileTopUp } from "@/lib/funding";
+import { prisma } from "@/lib/prisma";
 
 /**
  * KoraPay's webhook: told a reference changed status, then asked directly
@@ -22,7 +23,9 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   let body: { event?: string; data?: { reference?: string } };
   try {
-    body = await request.json();
+    const parsed: unknown = await request.json();
+    if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
+    body = parsed;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
@@ -48,7 +51,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Webhook verification is misconfigured." }, { status: 500 });
   }
   if (!signatureValid) {
-    console.error("[korapay-webhook] rejected: invalid or missing signature.");
+    // Enough detail to tell a real KoraPay delivery that we failed to
+    // verify (the reference belongs to one of our top-ups) from random
+    // internet noise (it does not), and who sent it. No secret or signature
+    // value is logged.
+    const reference = body.data?.reference;
+    const knownTopUp =
+      typeof reference === "string"
+        ? Boolean(
+            await prisma.walletTransaction.findFirst({
+              where: { providerReference: reference },
+              select: { id: true },
+            }),
+          )
+        : false;
+    console.error(
+      `[korapay-webhook] rejected: invalid or missing signature. ${JSON.stringify({
+        event: typeof body.event === "string" ? body.event.slice(0, 40) : null,
+        referenceKnown: knownTopUp,
+        reference: knownTopUp ? reference : null,
+        signatureHeaderPresent: Boolean(signature),
+        signatureLength: signature?.length ?? 0,
+        userAgent: (request.headers.get("user-agent") ?? "").slice(0, 80),
+        ip: (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim(),
+      })}`,
+    );
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
 
