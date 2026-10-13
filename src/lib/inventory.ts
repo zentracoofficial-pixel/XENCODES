@@ -14,6 +14,7 @@ import {
   isUsableUsdCost,
   variantPriceKobo,
   setQuoteToPrice,
+  pairPriceOverrideKobo,
   type PriceQuote,
 } from "@/lib/pricing";
 import { parseCountryVariant } from "@/lib/country-variant";
@@ -659,6 +660,9 @@ export async function getServiceCountries(
       const variant = parseCountryVariant(offer.country.name);
       const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
       if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice, currency), currency);
+      // A fixed price for this exact pair wins over every rule above.
+      const fixedPrice = pairPriceOverrideKobo(serviceSlug, offer.country.slug, currency);
+      if (fixedPrice !== undefined) quote = setQuoteToPrice(quote, fixedPrice, currency);
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
       // the specific pool's own rate when Xencodes has real evidence to
@@ -884,12 +888,16 @@ export async function quotePair(
     }
   }
 
+  // A fixed price for this exact pair wins over every rule above.
+  const fixedPriceKobo = pairPriceOverrideKobo(serviceSlug, winner.offer.country.slug, currency);
+  const targetKobo = fixedPriceKobo ?? variantTargetKobo;
+
   const ladder = rungs.map((rung) => {
     const own = quoteForCurrency(rules, rung.costUsdCents, serviceSlug, currency);
     return {
       providerOfferId: rung.providerOfferId,
       costUsdCents: rung.costUsdCents,
-      quote: variantTargetKobo === null ? own : setQuoteToPrice(own, variantTargetKobo, currency),
+      quote: targetKobo === null ? own : setQuoteToPrice(own, targetKobo, currency),
     };
   });
 

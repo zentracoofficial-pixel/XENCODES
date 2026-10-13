@@ -355,6 +355,28 @@ export function variantPriceKobo(basePriceKobo: number, currency: CurrencyConfig
 }
 
 /**
+ * Fixed customer prices for specific service and country pairs, in kobo,
+ * keyed "serviceSlug:countrySlug". A pair listed here sells at exactly this
+ * price (NGN accounts only) instead of the margin or repeat-listing rule,
+ * except that it is never set below what the supplier bills. Remove a line
+ * to put the pair back on the normal rules.
+ */
+export const PAIR_PRICE_OVERRIDES_KOBO: Readonly<Record<string, number>> = {
+  // WhatsApp USA (2), set by the owner.
+  "whatsapp:usa-2": 245_000,
+};
+
+/** The fixed price for this pair, if it has one for this currency. */
+export function pairPriceOverrideKobo(
+  serviceSlug: string,
+  countrySlug: string,
+  currency: CurrencyConfigEntry,
+): number | undefined {
+  if (currency.code !== "NGN") return undefined;
+  return PAIR_PRICE_OVERRIDES_KOBO[`${serviceSlug}:${countrySlug}`];
+}
+
+/**
  * Sets a quote to a fixed price, up or down. The supplier's own price for
  * the number (and the NGN 500 minimum) is still respected: the price is
  * never set below what the supplier bills, so a repeat listing whose own
