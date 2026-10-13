@@ -444,6 +444,24 @@ export function BuyPanel({
     });
   }
 
+  // Re-picking the service already selected must not throw away the
+  // country the customer already chose for it.
+  function chooseService(slug: string) {
+    if (slug === service?.slug) {
+      setError(null);
+      return;
+    }
+    const next = services.find((s) => s.slug === slug);
+    if (next) {
+      setService(next);
+      setCountry(null);
+      setCountryQuery("");
+      setError(null);
+    }
+  }
+
+  const popularServices = services.filter((item) => item.popular).slice(0, 12);
+
   // The server returns popular services first, so grouping is a matter of
   // labelling the run rather than reordering anything here.
   const serviceOptions: ComboboxOption[] = services.map((item) => ({
@@ -605,22 +623,31 @@ export function BuyPanel({
           disabled={unavailable}
           disabledMessage="No numbers on sale right now"
           onQueryChange={searchServices}
-          onChange={(option) => {
-            // Re-picking the service already selected must not throw away
-            // the country the customer already chose for it.
-            if (option.value === service?.slug) {
-              setError(null);
-              return;
-            }
-            const next = services.find((s) => s.slug === option.value);
-            if (next) {
-              setService(next);
-              setCountry(null);
-              setCountryQuery("");
-              setError(null);
-            }
-          }}
+          onChange={(option) => chooseService(option.value)}
         />
+
+        {/* The popular services sit in plain view instead of inside the
+            search list, so the page opens without focusing the search box
+            (which would pop the keyboard up on a phone) and a customer can
+            still pick one with a single tap. */}
+        {!service && !unavailable && popularServices.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Popular services</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {popularServices.map((item) => (
+                <button
+                  key={item.slug}
+                  type="button"
+                  onClick={() => chooseService(item.slug)}
+                  className="flex min-h-12 items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm font-medium transition-colors hover:border-mint hover:bg-mint-soft"
+                >
+                  <ServiceLogo slug={item.slug} name={item.name} color={item.color} size="sm" />
+                  <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {service && signedIn ? (
           <button
