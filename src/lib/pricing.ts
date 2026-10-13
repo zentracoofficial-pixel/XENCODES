@@ -330,18 +330,28 @@ function withMinimumPrice(quote: PriceQuote, currency: CurrencyConfigEntry): Pri
 }
 
 /**
- * A repeat listing of a country ("USA (2)", "Canada (2)") sells for this
- * percent of the plain listing's price for the same service, whether that
- * lands above or below what the repeat listing would otherwise cost. Those
- * listings are separate seller pools of the same country, and they are kept
- * in a fixed relation to the main one instead of floating with the
- * supplier's price for them.
+ * A repeat listing of a country ("USA (2)", "Canada (2)") is priced from the
+ * plain listing's price for the same service: half of it, but never below
+ * NGN 1,800 or above NGN 3,500, and never more than the plain listing itself.
+ * So the dearer the real number is, the more its repeat listing costs, inside
+ * that band. Those listings are separate seller pools of the same country
+ * and are kept in a fixed relation to the main one instead of floating with
+ * the supplier's price for them.
  */
-export const VARIANT_PRICE_PERCENT = 80;
+export const VARIANT_PRICE_SHARE_PERCENT = 50;
+export const VARIANT_MIN_PRICE_KOBO = 180_000;
+export const VARIANT_MAX_PRICE_KOBO = 350_000;
 
 /** What a repeat listing sells for, given the plain listing's price. */
-export function variantPriceKobo(basePriceKobo: number): number {
-  return Math.round((basePriceKobo * VARIANT_PRICE_PERCENT) / 100 / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+export function variantPriceKobo(basePriceKobo: number, currency: CurrencyConfigEntry): number {
+  const share = Math.round((basePriceKobo * VARIANT_PRICE_SHARE_PERCENT) / 100 / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+  // The band is an amount of Naira; another currency just takes the share.
+  const banded =
+    currency.code === "NGN"
+      ? Math.min(Math.max(share, VARIANT_MIN_PRICE_KOBO), VARIANT_MAX_PRICE_KOBO)
+      : share;
+  // A repeat listing is never dearer than the plain one.
+  return Math.min(banded, basePriceKobo);
 }
 
 /**
