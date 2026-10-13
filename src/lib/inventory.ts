@@ -12,8 +12,11 @@ import {
   loadMarginRules,
   quoteForCurrency,
   isUsableUsdCost,
+  variantPriceCapKobo,
+  capQuoteToPrice,
   type PriceQuote,
 } from "@/lib/pricing";
+import { parseCountryVariant } from "@/lib/country-variant";
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 import { expandServiceQuery } from "@/lib/search-aliases";
@@ -625,11 +628,36 @@ export async function getServiceCountries(
     console.error(`[inventory] could not price "${serviceSlug}" countries from the price ladder:`, error);
   }
 
+  // A repeat listing of a country ("USA (2)") sells for 80% of the plain
+  // listing's price for this service (see VARIANT_PRICE_PERCENT in
+  // pricing.ts), so the plain listing's price is worked out first. A repeat
+  // listing whose plain listing is not on sale has nothing to be 80% of and
+  // keeps its own price. quotePair() applies the same cap at purchase time.
+  const basePriceByCountry = new Map<string, number>();
+  for (const offer of offers) {
+    if (offer.stock === "out_of_stock" || !isUsableUsdCost(offer.costUsdCents)) continue;
+    const variant = parseCountryVariant(offer.country.name);
+    if (variant.variant !== 1) continue;
+    // Same test as the 0% record filter below: a plain listing that is not
+    // on sale is not a price to take 80% of, and quotePair() reads the base
+    // price from this list, so both must agree on what is on it.
+    const baseMeasured =
+      preferredPoolQuality.get(offer.country.slug) ?? historicalQuality.get(offer.country.slug);
+    if (offer.successRate === undefined && baseMeasured?.successRatePercent === 0) continue;
+    basePriceByCountry.set(
+      variant.baseSlug,
+      quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency).customerPriceKobo,
+    );
+  }
+
   const priced: InventoryCountry[] = offers
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
-      const quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
+      let quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
+      const variant = parseCountryVariant(offer.country.name);
+      const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
+      if (basePrice !== undefined) quote = capQuoteToPrice(quote, variantPriceCapKobo(basePrice), currency);
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
       // the specific pool's own rate when Xencodes has real evidence to
@@ -835,11 +863,34 @@ export async function quotePair(
   const primary = rungs[0];
   const chosenProviderOfferId = primary.providerOfferId;
   const chosenPoolQuality = chosenProviderOfferId ? qualityByPool.get(chosenProviderOfferId) : undefined;
-  const ladder = rungs.map((rung) => ({
-    providerOfferId: rung.providerOfferId,
-    costUsdCents: rung.costUsdCents,
-    quote: quoteForCurrency(rules, rung.costUsdCents, serviceSlug, currency),
-  }));
+  // A repeat listing of a country ("USA (2)") is capped at 80% of the plain
+  // listing's price, the same figure the country list shows (see
+  // getServiceCountries()). The plain listing's price is read from that same
+  // list so the two cannot disagree. If it cannot be found the repeat
+  // listing keeps its own price.
+  const variantInfo = parseCountryVariant(winner.offer.country.name);
+  let variantCapKobo: number | null = null;
+  if (variantInfo.variant > 1) {
+    try {
+      const listed = await getServiceCountries(serviceSlug, currency);
+      const base = listed.find((row) => {
+        const parsed = parseCountryVariant(row.name);
+        return parsed.variant === 1 && parsed.baseSlug === variantInfo.baseSlug;
+      });
+      if (base) variantCapKobo = variantPriceCapKobo(base.priceKobo);
+    } catch (error) {
+      console.error(`[inventory] could not price the plain listing for "${winner.offer.country.name}":`, error);
+    }
+  }
+
+  const ladder = rungs.map((rung) => {
+    const own = quoteForCurrency(rules, rung.costUsdCents, serviceSlug, currency);
+    return {
+      providerOfferId: rung.providerOfferId,
+      costUsdCents: rung.costUsdCents,
+      quote: variantCapKobo === null ? own : capQuoteToPrice(own, variantCapKobo, currency),
+    };
+  });
 
   const quote = ladder[0].quote;
 

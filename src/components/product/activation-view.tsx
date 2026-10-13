@@ -63,6 +63,18 @@ export function ActivationView({
   const remaining = useCountdown(activation.expiresAt, waiting);
   const inFlight = useRef(false);
 
+  // How long this order has been waiting, from the length of its session and
+  // what is left of it (no clock read during render). Once a minute has gone
+  // by with no code the refund option is made hard to miss; before that it
+  // stays a quiet link, so nobody cancels a number whose code is a few
+  // seconds away. `remaining` is 0 until the countdown has started, which is
+  // not a long wait.
+  const sessionSeconds = Math.max(
+    0,
+    Math.floor((new Date(activation.expiresAt).getTime() - new Date(activation.createdAt).getTime()) / 1000),
+  );
+  const waitedLong = waiting && remaining > 0 && sessionSeconds - remaining >= 60;
+
   useEffect(() => {
     if (!waiting) return;
 
@@ -136,14 +148,16 @@ export function ActivationView({
                     : `Refunded ${formatMoney(activation.priceKobo, activation.currency)}`}
               </span>
               {activation.status === "WAITING" ? (
-                <button
-                  type="button"
-                  onClick={cancel}
-                  disabled={pending}
-                  className="-my-2 py-2 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-danger hover:underline disabled:opacity-50"
-                >
-                  Cancel and refund
-                </button>
+                waitedLong ? null : (
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    disabled={pending}
+                    className="-my-2 py-2 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-danger hover:underline disabled:opacity-50"
+                  >
+                    Cancel and refund
+                  </button>
+                )
               ) : (
                 <Link
                   href={backHref}
@@ -156,6 +170,27 @@ export function ActivationView({
           }
         />
       </div>
+
+      {waitedLong ? (
+        <div className="mt-4 rounded-2xl border border-warning/30 bg-warning-soft p-4">
+          <p className="text-sm font-semibold text-warning">No code yet?</p>
+          <p className="mt-1 text-sm text-warning">
+            Don&apos;t wait it out. Get your {formatMoney(activation.priceKobo, activation.currency)}{" "}
+            back to your wallet at once and try another number.
+          </p>
+          <Button
+            type="button"
+            size="lg"
+            className="mt-3 w-full"
+            onClick={cancel}
+            disabled={pending}
+          >
+            {pending
+              ? "Refunding"
+              : `Refund my ${formatMoney(activation.priceKobo, activation.currency)}`}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button href="/dashboard/history" variant="outline" size="sm">
