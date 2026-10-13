@@ -12,8 +12,8 @@ import {
   loadMarginRules,
   quoteForCurrency,
   isUsableUsdCost,
-  variantPriceCapKobo,
-  capQuoteToPrice,
+  variantPriceKobo,
+  setQuoteToPrice,
   type PriceQuote,
 } from "@/lib/pricing";
 import { parseCountryVariant } from "@/lib/country-variant";
@@ -629,10 +629,11 @@ export async function getServiceCountries(
   }
 
   // A repeat listing of a country ("USA (2)") sells for 80% of the plain
-  // listing's price for this service (see VARIANT_PRICE_PERCENT in
-  // pricing.ts), so the plain listing's price is worked out first. A repeat
-  // listing whose plain listing is not on sale has nothing to be 80% of and
-  // keeps its own price. quotePair() applies the same cap at purchase time.
+  // listing's price for this service, up or down (see VARIANT_PRICE_PERCENT
+  // in pricing.ts), so the plain listing's price is worked out first. A
+  // repeat listing whose plain listing is not on sale has nothing to be 80%
+  // of and keeps its own price. quotePair() applies the same rule at
+  // purchase time.
   const basePriceByCountry = new Map<string, number>();
   for (const offer of offers) {
     if (offer.stock === "out_of_stock" || !isUsableUsdCost(offer.costUsdCents)) continue;
@@ -657,7 +658,7 @@ export async function getServiceCountries(
       let quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
       const variant = parseCountryVariant(offer.country.name);
       const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
-      if (basePrice !== undefined) quote = capQuoteToPrice(quote, variantPriceCapKobo(basePrice), currency);
+      if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice), currency);
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
       // the specific pool's own rate when Xencodes has real evidence to
@@ -863,13 +864,13 @@ export async function quotePair(
   const primary = rungs[0];
   const chosenProviderOfferId = primary.providerOfferId;
   const chosenPoolQuality = chosenProviderOfferId ? qualityByPool.get(chosenProviderOfferId) : undefined;
-  // A repeat listing of a country ("USA (2)") is capped at 80% of the plain
+  // A repeat listing of a country ("USA (2)") sells at 80% of the plain
   // listing's price, the same figure the country list shows (see
   // getServiceCountries()). The plain listing's price is read from that same
   // list so the two cannot disagree. If it cannot be found the repeat
   // listing keeps its own price.
   const variantInfo = parseCountryVariant(winner.offer.country.name);
-  let variantCapKobo: number | null = null;
+  let variantTargetKobo: number | null = null;
   if (variantInfo.variant > 1) {
     try {
       const listed = await getServiceCountries(serviceSlug, currency);
@@ -877,7 +878,7 @@ export async function quotePair(
         const parsed = parseCountryVariant(row.name);
         return parsed.variant === 1 && parsed.baseSlug === variantInfo.baseSlug;
       });
-      if (base) variantCapKobo = variantPriceCapKobo(base.priceKobo);
+      if (base) variantTargetKobo = variantPriceKobo(base.priceKobo);
     } catch (error) {
       console.error(`[inventory] could not price the plain listing for "${winner.offer.country.name}":`, error);
     }
@@ -888,7 +889,7 @@ export async function quotePair(
     return {
       providerOfferId: rung.providerOfferId,
       costUsdCents: rung.costUsdCents,
-      quote: variantCapKobo === null ? own : capQuoteToPrice(own, variantCapKobo, currency),
+      quote: variantTargetKobo === null ? own : setQuoteToPrice(own, variantTargetKobo, currency),
     };
   });
 
