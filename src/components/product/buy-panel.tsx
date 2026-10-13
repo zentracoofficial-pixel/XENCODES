@@ -604,7 +604,6 @@ export function BuyPanel({
           loading={servicesLoading}
           disabled={unavailable}
           disabledMessage="No numbers on sale right now"
-          autoFocus={!initialServiceSlug && !unavailable}
           onQueryChange={searchServices}
           onChange={(option) => {
             // Re-picking the service already selected must not throw away
