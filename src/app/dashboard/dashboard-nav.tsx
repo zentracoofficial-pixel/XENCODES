@@ -154,7 +154,7 @@ export function DashboardTopBar({
   unreadCount: number;
 }) {
   return (
-    <header className="border-b border-border bg-surface lg:hidden">
+    <header className="relative border-b border-border bg-surface lg:hidden">
       <div className="flex h-14 items-center justify-between px-4">
         <Link href="/" aria-label="Xencodes home">
           <Wordmark className="text-base" />
@@ -169,7 +169,7 @@ export function DashboardTopBar({
           <Link
             href="/dashboard/settings"
             aria-label="Account settings"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
+            className="flex h-10 w-9 max-[340px]:w-8 sm:w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
           >
             <Settings className="h-4 w-4" />
           </Link>
@@ -177,7 +177,7 @@ export function DashboardTopBar({
             <button
               type="submit"
               aria-label="Log out"
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
+              className="flex h-10 w-9 max-[340px]:w-8 sm:w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-mint-soft"
             >
               <LogOut className="h-4 w-4" />
             </button>
