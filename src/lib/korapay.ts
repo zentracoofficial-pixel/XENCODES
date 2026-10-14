@@ -191,6 +191,16 @@ export interface ChargeStatusResult {
    */
   amountKobo?: number;
   currency?: string;
+  /**
+   * What KoraPay says was charged, in the minor unit of the currency it
+   * reports, parsed from either a number or a numeric string. Separate from
+   * amountKobo on purpose: the Naira path keeps its original, number-only
+   * behaviour untouched, and only local-currency funding (which refuses to
+   * credit on anything it cannot confirm) reads this one.
+   */
+  paidAmountMinor?: number;
+  /** How the customer paid, as KoraPay reports it, for the ledger. */
+  paymentMethod?: string;
 }
 
 /**
@@ -205,8 +215,9 @@ export async function verifyKorapayCharge(reference: string): Promise<ChargeStat
   const result = await call<{
     reference: string;
     status: string;
-    amount?: number;
+    amount?: number | string;
     currency?: string;
+    payment_method?: string;
   }>("GET", `/charges/${encodeURIComponent(reference)}`);
 
   const status = result.data.status as KorapayChargeStatus;
@@ -217,7 +228,23 @@ export async function verifyKorapayCharge(reference: string): Promise<ChargeStat
     amountKobo:
       typeof result.data.amount === "number" ? Math.round(result.data.amount * divisor) : undefined,
     currency: result.data.currency,
+    paidAmountMinor: parseMinorAmount(result.data.amount, divisor),
+    paymentMethod:
+      typeof result.data.payment_method === "string" && result.data.payment_method
+        ? result.data.payment_method.slice(0, 40)
+        : undefined,
   };
+}
+
+/** A KoraPay amount (number or numeric string, major units) as a whole
+ *  number of minor units, or undefined when it is missing or not a clean
+ *  amount. */
+export function parseMinorAmount(value: unknown, divisor: number): number | undefined {
+  const major =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  if (!Number.isFinite(major) || major < 0) return undefined;
+  const minor = Math.round(major * divisor);
+  return Math.abs(minor - major * divisor) < 1e-6 ? minor : undefined;
 }
 
 /**

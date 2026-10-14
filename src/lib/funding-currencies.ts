@@ -1,0 +1,280 @@
+/**
+ * Local-currency wallet funding: which currencies exist, which countries each
+ * one is for, and the arithmetic that turns a local payment into a wallet
+ * credit. Pure and client-safe (no database, no secrets), so the same rules
+ * run in the browser's preview and on the server's real check.
+ *
+ * The wallet stays in Naira (see src/lib/currency-config.ts). A customer in
+ * Ghana pays Cedi through KoraPay and the verified payment is credited to
+ * their wallet as Naira, at a rate fixed when the payment was requested.
+ *
+ * Exactly six local currencies, no others. KoraPay's own developer overview
+ * lists mobile money pay-ins in Kenya (KES), Ghana (GHS), Cameroon (XAF),
+ * Ivory Coast (XOF), Egypt (EGP) and Tanzania (TZS), which is where each
+ * currency's country list below comes from. A currency is only ever offered
+ * when an admin has switched it on after confirming it is enabled on the
+ * Xencodes KoraPay account (see src/lib/funding-config.ts); being in this
+ * file does not make it available.
+ */
+import { minorUnitDivisor } from "@/lib/currency";
+
+export const FUNDING_CURRENCY_CODES = ["GHS", "KES", "XAF", "XOF", "EGP", "TZS"] as const;
+export type FundingCurrencyCode = (typeof FUNDING_CURRENCY_CODES)[number];
+
+export function isFundingCurrencyCode(value: unknown): value is FundingCurrencyCode {
+  return typeof value === "string" && (FUNDING_CURRENCY_CODES as readonly string[]).includes(value);
+}
+
+export interface FundingCountry {
+  iso2: string;
+  name: string;
+}
+
+export interface FundingCurrencyMeta {
+  code: FundingCurrencyCode;
+  name: string;
+  /** What the customer sees beside amounts, for example "GH₵". */
+  symbol: string;
+  /** The countries this currency is for. A currency is never offered to a
+   *  customer whose country is known and not on this list. */
+  countries: FundingCountry[];
+  /** How customers pay, as far as KoraPay's own documentation says. Shown on
+   *  the funding card; never a claim beyond what is documented. */
+  methods: string[];
+  /** KoraPay's own published limits where it publishes them, in major units,
+   *  otherwise a cautious starting range. Only a starting point: an admin
+   *  confirms and saves the real limits before the currency can be enabled. */
+  defaultMinMajor: number;
+  defaultMaxMajor: number;
+  /** The payment total is rounded up to a multiple of this many major units,
+   *  for currencies where KoraPay works in coarse steps (5 for the CFA
+   *  francs). 0.01 means no rounding beyond the currency's smallest unit. */
+  roundingStepMajor: number;
+}
+
+export const FUNDING_CURRENCIES: Record<FundingCurrencyCode, FundingCurrencyMeta> = {
+  GHS: {
+    code: "GHS",
+    name: "Cedi",
+    symbol: "GH₵",
+    countries: [{ iso2: "GH", name: "Ghana" }],
+    methods: ["MTN Mobile Money", "AirtelTigo Money", "Telecel Cash"],
+    defaultMinMajor: 10,
+    defaultMaxMajor: 10_000,
+    roundingStepMajor: 0.01,
+  },
+  KES: {
+    code: "KES",
+    name: "Shilling",
+    symbol: "KSh",
+    countries: [{ iso2: "KE", name: "Kenya" }],
+    methods: ["M-Pesa", "Airtel Money"],
+    defaultMinMajor: 10,
+    defaultMaxMajor: 250_000,
+    roundingStepMajor: 0.01,
+  },
+  XAF: {
+    code: "XAF",
+    name: "CFA",
+    symbol: "FCFA",
+    countries: [{ iso2: "CM", name: "Cameroon" }],
+    methods: ["Mobile money"],
+    defaultMinMajor: 500,
+    defaultMaxMajor: 1_000_000,
+    roundingStepMajor: 5,
+  },
+  XOF: {
+    code: "XOF",
+    name: "CFA",
+    symbol: "CFA",
+    countries: [{ iso2: "CI", name: "Côte d'Ivoire" }],
+    methods: ["Mobile money"],
+    defaultMinMajor: 500,
+    defaultMaxMajor: 1_000_000,
+    roundingStepMajor: 5,
+  },
+  EGP: {
+    code: "EGP",
+    name: "Pound",
+    symbol: "E£",
+    countries: [{ iso2: "EG", name: "Egypt" }],
+    methods: ["Mobile money"],
+    defaultMinMajor: 20,
+    defaultMaxMajor: 50_000,
+    roundingStepMajor: 0.01,
+  },
+  TZS: {
+    code: "TZS",
+    name: "Shilling",
+    symbol: "TSh",
+    countries: [{ iso2: "TZ", name: "Tanzania" }],
+    methods: ["Mobile money"],
+    defaultMinMajor: 1_000,
+    defaultMaxMajor: 5_000_000,
+    roundingStepMajor: 0.01,
+  },
+};
+
+/** Nigeria keeps the existing Naira funding; listed so the country picker
+ *  can offer it, but it is not one of the six local currencies. */
+export const NIGERIA: FundingCountry = { iso2: "NG", name: "Nigeria" };
+
+/** Every country the picker offers, Nigeria first, in a stable order. */
+export function pickerCountries(): FundingCountry[] {
+  const seen = new Set<string>([NIGERIA.iso2]);
+  const list: FundingCountry[] = [NIGERIA];
+  for (const code of FUNDING_CURRENCY_CODES) {
+    for (const country of FUNDING_CURRENCIES[code].countries) {
+      if (!seen.has(country.iso2)) {
+        seen.add(country.iso2);
+        list.push(country);
+      }
+    }
+  }
+  return list;
+}
+
+export function normalizeCountry(value: string | null | undefined): string | null {
+  const upper = value?.trim().toUpperCase();
+  return upper && /^[A-Z]{2}$/.test(upper) ? upper : null;
+}
+
+/** The local currency for a country, or null (Nigeria and every country
+ *  without one). */
+export function fundingCurrencyForCountry(iso2: string | null | undefined): FundingCurrencyCode | null {
+  const country = normalizeCountry(iso2);
+  if (!country) return null;
+  return (
+    FUNDING_CURRENCY_CODES.find((code) =>
+      FUNDING_CURRENCIES[code].countries.some((c) => c.iso2 === country),
+    ) ?? null
+  );
+}
+
+/** Whether a currency is meant for a country at all. */
+export function currencySupportsCountry(code: FundingCurrencyCode, iso2: string | null | undefined): boolean {
+  const country = normalizeCountry(iso2);
+  return Boolean(country && FUNDING_CURRENCIES[code].countries.some((c) => c.iso2 === country));
+}
+
+export interface FundingQuoteInput {
+  currency: FundingCurrencyCode;
+  /** What the customer wants to add, in the local currency's minor unit,
+   *  before the processing fee. */
+  amountMinor: number;
+  /** Local units per 1 USD, and Naira per 1 USD (the wallet's own rate). */
+  currencyUsdRate: number;
+  ngnUsdRate: number;
+  /** Processing fee as a percent of the amount, added on top. */
+  feePercent: number;
+}
+
+export interface FundingQuote {
+  currency: FundingCurrencyCode;
+  /** The amount being added, local minor units. */
+  amountMinor: number;
+  /** The processing fee on top, local minor units. */
+  feeMinor: number;
+  /** What the customer pays in total, local minor units (amount + fee). */
+  totalMinor: number;
+  /** Naira per 1 unit of the local currency. */
+  ngnPerUnit: number;
+  /** What the wallet is credited, in kobo. Based on the amount alone: the
+   *  fee is the cost of paying and is never credited. */
+  creditKobo: number;
+}
+
+/**
+ * The one calculation behind the preview a customer sees and the amounts the
+ * server records and later verifies against. Returns null when the inputs
+ * cannot produce a sensible quote (missing or non-positive rates).
+ */
+export function computeFundingQuote(input: FundingQuoteInput): FundingQuote | null {
+  const { currency, amountMinor, currencyUsdRate, ngnUsdRate, feePercent } = input;
+  if (!Number.isInteger(amountMinor) || amountMinor <= 0) return null;
+  if (!(currencyUsdRate > 0) || !(ngnUsdRate > 0) || !(feePercent >= 0) || feePercent > 50) return null;
+
+  const meta = FUNDING_CURRENCIES[currency];
+  const divisor = minorUnitDivisor(currency);
+  const stepMinor = Math.max(1, Math.round(meta.roundingStepMajor * divisor));
+
+  // Fee rounded up to a whole minor unit, then the total rounded up to the
+  // currency's step, so the customer never pays less than amount + fee. The
+  // rounding goes into the fee, never into the credited amount.
+  const rawFee = Math.ceil((amountMinor * feePercent) / 100 - 1e-9);
+  const totalMinor = Math.ceil((amountMinor + rawFee) / stepMinor) * stepMinor;
+  const feeMinor = totalMinor - amountMinor;
+
+  const ngnPerUnit = ngnUsdRate / currencyUsdRate;
+  const creditKobo = Math.floor((amountMinor / divisor) * ngnPerUnit * 100 + 1e-9);
+  if (creditKobo <= 0) return null;
+
+  return { currency, amountMinor, feeMinor, totalMinor, ngnPerUnit, creditKobo };
+}
+
+export type LocalAmountError = "amount_invalid" | "amount_too_low" | "amount_too_high";
+
+export function validateLocalAmount(
+  amountMinor: number,
+  minMinor: number,
+  maxMinor: number,
+): LocalAmountError | null {
+  if (!Number.isInteger(amountMinor) || amountMinor <= 0) return "amount_invalid";
+  if (amountMinor < minMinor) return "amount_too_low";
+  if (amountMinor > maxMinor) return "amount_too_high";
+  return null;
+}
+
+export type LocalFundingErrorCode =
+  | "not_connected"
+  | "unsupported_currency"
+  | "currency_unavailable"
+  | "country_required"
+  | "unsupported_country"
+  | LocalAmountError
+  | "rate_unavailable"
+  | "wallet_currency";
+
+/** Customer-facing wording for every way a local funding request can be
+ *  refused, so the preview and the real request say the same thing. */
+export function localFundingErrorCopy(
+  error: LocalFundingErrorCode,
+  currency: FundingCurrencyCode | null,
+  limits?: { minMinor: number; maxMinor: number },
+): string {
+  const money = (minor: number) =>
+    currency ? formatFundingAmount(minor, currency) : String(minor);
+  switch (error) {
+    case "amount_invalid":
+      return "Enter a valid amount.";
+    case "amount_too_low":
+      return limits ? `The smallest top up is ${money(limits.minMinor)}.` : "That amount is too low.";
+    case "amount_too_high":
+      return limits ? `The largest single top up is ${money(limits.maxMinor)}.` : "That amount is too high.";
+    case "country_required":
+      return "Choose your country first.";
+    case "unsupported_country":
+      return "This currency is not available for your country.";
+    case "unsupported_currency":
+    case "currency_unavailable":
+    case "not_connected":
+    case "rate_unavailable":
+      return "This payment option is not available right now. Please try another option or check back soon.";
+    case "wallet_currency":
+      return "Local-currency funding is only available for Naira wallets.";
+  }
+}
+
+/** "GH₵1,000" / "FCFA 5,000": the currency's symbol plus the amount, using
+ *  the currency's own number of decimals. */
+export function formatFundingAmount(amountMinor: number, currency: FundingCurrencyCode): string {
+  const divisor = minorUnitDivisor(currency);
+  const major = amountMinor / divisor;
+  const hasFraction = amountMinor % divisor !== 0;
+  const text = major.toLocaleString("en", {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: hasFraction ? 2 : 0,
+  });
+  const symbol = FUNDING_CURRENCIES[currency].symbol;
+  return /[A-Za-z]$/.test(symbol) ? `${symbol} ${text}` : `${symbol}${text}`;
+}

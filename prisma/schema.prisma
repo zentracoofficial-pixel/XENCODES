@@ -48,6 +48,12 @@ model User {
   /// writes this column, so there is no code path that could change it
   /// later.
   currency                  String     @default("NGN")
+  /// ISO 3166 alpha-2 country the account holder says they are in, saved at
+  /// registration from the request's detected location and changeable by the
+  /// customer on the wallet page. Only ever used to recommend and restrict
+  /// local-currency wallet funding (see src/lib/funding-currencies.ts); it
+  /// never decides the wallet currency, which stays NGN. Null when unknown.
+  country                   String?
   walletBalanceKobo         Int        @default(0)
   twoFactorSecret           String?
   twoFactorEnabled          Boolean    @default(false)
@@ -452,6 +458,23 @@ model WalletTransaction {
   /// Not a relation: an order can be deleted with its customer while the
   /// ledger row stays as history.
   activationId              String?
+  /// Local-currency funding only (GHS, KES, XAF, XOF, EGP, TZS); all null on
+  /// every other row. The wallet itself stays in `currency` above (NGN), so
+  /// `amountKobo` is what the wallet is credited, and these record what the
+  /// customer actually paid and how it was converted, fixed at the moment
+  /// the funding attempt was created.
+  /// The currency the customer pays in.
+  paymentCurrency           String?
+  /// The full amount the customer was asked to pay, in that currency's minor
+  /// unit, processing fee included.
+  paymentAmountMinor        Int?
+  /// The part of paymentAmountMinor that is the processing fee.
+  paymentFeeMinor           Int?
+  /// Naira per 1 unit of paymentCurrency at the time of the request.
+  fxRate                    Float?
+  /// How KoraPay says the customer paid (for example "mobile_money"),
+  /// recorded when the payment is verified.
+  paymentMethod             String?
   createdAt                 DateTime                 @default(now())
   /// When a verification (webhook, page-view check, admin recheck, or the
   /// reconciliation sweep) last actually asked KoraPay about this reference.
