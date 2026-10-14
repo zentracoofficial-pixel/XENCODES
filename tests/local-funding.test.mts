@@ -115,8 +115,8 @@ async function enable(code: "GHS" | "KES" | "XAF" = "GHS", usdRate = 15) {
 test("everything is off by default: no options, every quote refused", async () => {
   const states = await readFundingStates();
   for (const s of Object.values(states)) assert.equal(s.enabled, false);
-  assert.deepEqual(await getFundingOptions("GH"), []);
-  const q = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  assert.deepEqual(await getFundingOptions(), []);
+  const q = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
   assert.deepEqual(q.ok, false);
   assert.equal(!q.ok && q.error, "currency_unavailable");
 });
@@ -165,39 +165,30 @@ test("approving a fee records who and when", async () => {
   await clearFees();
 });
 
-test("enabled currency is offered to its own country only", async () => {
+test("an enabled currency is offered to every customer, and only enabled ones are", async () => {
   await enable("GHS");
-  assert.deepEqual((await getFundingOptions("GH")).map((o) => o.code), ["GHS"]);
-  assert.deepEqual(await getFundingOptions("KE"), []);
-  assert.deepEqual(await getFundingOptions("NG"), []);
-  // unknown country: every enabled option is a candidate; the server still holds the pick to a country
-  assert.deepEqual((await getFundingOptions(null)).map((o) => o.code), ["GHS"]);
+  assert.deepEqual((await getFundingOptions()).map((o) => o.code), ["GHS"]);
 });
 
-test("server rejects unsupported currencies, mismatched countries and bad amounts", async () => {
+test("server rejects unsupported or switched-off currencies and bad amounts", async () => {
   const bad = async (input: Parameters<typeof quoteLocalFunding>[0]) => {
     const r = await quoteLocalFunding(input);
     return r.ok ? "ok" : r.error;
   };
-  assert.equal(await bad({ savedCountry: "GH", currency: "USD", amountMinor: 10_000 }), "unsupported_currency");
-  assert.equal(await bad({ savedCountry: "GH", currency: "EUR", amountMinor: 10_000 }), "unsupported_currency");
-  assert.equal(await bad({ savedCountry: "GH", currency: "NGN", amountMinor: 10_000 }), "unsupported_currency");
-  assert.equal(await bad({ savedCountry: "GH", currency: "KES", amountMinor: 10_000 }), "currency_unavailable");
-  assert.equal(await bad({ savedCountry: "KE", currency: "GHS", amountMinor: 10_000 }), "unsupported_country");
-  assert.equal(await bad({ savedCountry: "NG", currency: "GHS", amountMinor: 10_000 }), "unsupported_country");
-  assert.equal(await bad({ savedCountry: null, currency: "GHS", amountMinor: 10_000 }), "country_required");
-  assert.equal(await bad({ savedCountry: "GH", currency: "GHS", amountMinor: 100 }), "amount_too_low");
-  assert.equal(await bad({ savedCountry: "GH", currency: "GHS", amountMinor: 99_999_999 }), "amount_too_high");
-  assert.equal(await bad({ savedCountry: "GH", currency: "GHS", amountMinor: 1234.5 }), "amount_invalid");
-  assert.equal(await bad({ savedCountry: "GH", currency: "GHS", amountMinor: Number.NaN }), "amount_invalid");
-  // a saved country wins over whatever the browser claims
-  assert.equal(await bad({ savedCountry: "KE", claimedCountry: "GH", currency: "GHS", amountMinor: 10_000 }), "unsupported_country");
-  // with no saved country, the picked one is used
-  assert.equal(await bad({ savedCountry: null, claimedCountry: "GH", currency: "GHS", amountMinor: 10_000 }), "ok");
+  assert.equal(await bad({ currency: "USD", amountMinor: 10_000 }), "unsupported_currency");
+  assert.equal(await bad({ currency: "EUR", amountMinor: 10_000 }), "unsupported_currency");
+  assert.equal(await bad({ currency: "NGN", amountMinor: 10_000 }), "unsupported_currency");
+  assert.equal(await bad({ currency: undefined, amountMinor: 10_000 }), "unsupported_currency");
+  assert.equal(await bad({ currency: "KES", amountMinor: 10_000 }), "currency_unavailable");
+  assert.equal(await bad({ currency: "GHS", amountMinor: 100 }), "amount_too_low");
+  assert.equal(await bad({ currency: "GHS", amountMinor: 99_999_999 }), "amount_too_high");
+  assert.equal(await bad({ currency: "GHS", amountMinor: 1234.5 }), "amount_invalid");
+  assert.equal(await bad({ currency: "GHS", amountMinor: Number.NaN }), "amount_invalid");
+  assert.equal(await bad({ currency: "GHS", amountMinor: 10_000 }), "ok");
 });
 
 async function pendingGhs(amountMinor = 10_000) {
-  const quoted = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor });
+  const quoted = await quoteLocalFunding({ currency: "GHS", amountMinor });
   assert.ok(quoted.ok);
   return { row: await createPendingLocalTopUp(userId, quoted.quote), quote: quoted.quote };
 }
@@ -312,9 +303,9 @@ test("Naira funding is unaffected: still verified and credited as before, with a
 test("with no approved fee decision, a local payment is refused, not given a guessed fee", async () => {
   await enable("GHS");
   await clearFees();
-  const refused = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  const refused = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
   assert.equal(!refused.ok && refused.error, "fee_not_configured");
-  assert.deepEqual(await getFundingOptions("GH"), []);
+  assert.deepEqual(await getFundingOptions(), []);
 
   const draft = await saveFeePolicy(
     "wallet_funding",
@@ -323,13 +314,13 @@ test("with no approved fee decision, a local payment is refused, not given a gue
     admin,
   );
   assert.equal(draft.ok, true);
-  const stillRefused = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  const stillRefused = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
   assert.equal(!stillRefused.ok && stillRefused.error, "fee_not_configured");
 });
 
 test("an approved but disabled fee means no fee: payment goes ahead and no fee is applied", async () => {
   await setFee("GHS", { approved: true, enabled: false });
-  const q = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  const q = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
   assert.ok(q.ok);
   assert.equal(q.quote.feeMinor, 0);
   assert.equal(q.quote.totalMinor, 10_000);
@@ -337,7 +328,7 @@ test("an approved but disabled fee means no fee: payment goes ahead and no fee i
 
 test("the fee shown in the quote is exactly the approved fee, and the pending row records it", async () => {
   await setFee("GHS", { percent: 2.5 });
-  const q = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 20_000 });
+  const q = await quoteLocalFunding({ currency: "GHS", amountMinor: 20_000 });
   assert.ok(q.ok);
   assert.equal(q.quote.feeMinor, 500); // 2.5% of GH₵200
   const row = await createPendingLocalTopUp(userId, q.quote);
@@ -352,9 +343,9 @@ test("the fee shown in the quote is exactly the approved fee, and the pending ro
 
 test("CFA amounts that are not multiples of 5 are rejected by the server", async () => {
   await enable("XAF", 600);
-  const odd = await quoteLocalFunding({ savedCountry: "CM", currency: "XAF", amountMinor: 10_003 });
+  const odd = await quoteLocalFunding({ currency: "XAF", amountMinor: 10_003 });
   assert.equal(!odd.ok && odd.error, "amount_step");
-  const even = await quoteLocalFunding({ savedCountry: "CM", currency: "XAF", amountMinor: 10_005 });
+  const even = await quoteLocalFunding({ currency: "XAF", amountMinor: 10_005 });
   assert.ok(even.ok);
   assert.equal(even.quote.totalMinor % 5, 0);
 });
@@ -362,7 +353,7 @@ test("CFA amounts that are not multiples of 5 are rejected by the server", async
 test("USDT, USD and every other non-listed currency are refused by the same checks", async () => {
   await enable("GHS");
   for (const currency of ["USDT", "USD", "GBP", "EUR", "ZAR", "CNY", "RWF", "NGN"]) {
-    const q = await quoteLocalFunding({ savedCountry: "GH", currency, amountMinor: 10_000 });
+    const q = await quoteLocalFunding({ currency, amountMinor: 10_000 });
     assert.equal(!q.ok && q.error, "unsupported_currency", currency);
   }
 });
@@ -463,4 +454,43 @@ test("saving funding switches for different currencies at the same moment keeps 
   assert.equal(states.GHS.enabled, true);
   assert.equal(states.KES.enabled, true);
   await saveFundingState("KES", { enabled: false, usdRate: 129, minMinor: 1000, maxMinor: 1_000_000 });
+});
+
+test("customers can change their own country, every change is audit-logged, and it is rate limited", async () => {
+  const { changeOwnCountry, COUNTRY_CHANGES_PER_DAY } = await import("../src/lib/user-country");
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const actor = { id: me.id, email: me.email };
+  await prisma.auditLog.deleteMany({ where: { targetId: userId, action: "user.country.self_update" } });
+  await prisma.user.update({ where: { id: userId }, data: { country: "GH" } });
+
+  assert.deepEqual(await changeOwnCountry(actor, "XX"), { ok: false, error: "invalid_country" });
+  assert.deepEqual(await changeOwnCountry(actor, "Ghana"), { ok: false, error: "invalid_country" });
+  assert.deepEqual(await changeOwnCountry(actor, "gh"), { ok: true, country: "GH", changed: false });
+
+  assert.deepEqual(await changeOwnCountry(actor, "KE"), { ok: true, country: "KE", changed: true });
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).country, "KE");
+  const log = await prisma.auditLog.findMany({ where: { targetId: userId, action: "user.country.self_update" } });
+  assert.equal(log.length, 1);
+  assert.deepEqual(log[0].metadata, { before: "GH", after: "KE" });
+
+  // Racing changes: exactly one wins per old value, and the audit trail matches reality.
+  const results = await Promise.all([changeOwnCountry(actor, "TZ"), changeOwnCountry(actor, "EG")]);
+  assert.equal(results.filter((r) => r.ok && r.changed).length, 1);
+  const trail = await prisma.auditLog.findMany({
+    where: { targetId: userId, action: "user.country.self_update" },
+    orderBy: { createdAt: "asc" },
+  });
+  const last = trail[trail.length - 1].metadata as { after: string };
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).country, last.after);
+
+  // Daily limit
+  for (const c of ["NG", "GH", "KE", "CM", "CI", "EG", "TZ"]) await changeOwnCountry(actor, c);
+  const count = await prisma.auditLog.count({ where: { targetId: userId, action: "user.country.self_update" } });
+  assert.equal(count, COUNTRY_CHANGES_PER_DAY);
+  const current = (await prisma.user.findUniqueOrThrow({ where: { id: userId } })).country;
+  assert.deepEqual(await changeOwnCountry(actor, current === "US" ? "GB" : "US"), { ok: false, error: "too_many_changes" });
+  // a day later it is allowed again
+  const tomorrow = Date.now() + 25 * 60 * 60 * 1000;
+  assert.equal((await changeOwnCountry(actor, current === "US" ? "GB" : "US", tomorrow)).ok, true);
+  await prisma.auditLog.deleteMany({ where: { targetId: userId, action: "user.country.self_update" } });
 });

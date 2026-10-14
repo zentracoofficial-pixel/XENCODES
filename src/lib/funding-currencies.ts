@@ -135,12 +135,6 @@ export function fundingCurrencyForCountry(iso2: string | null | undefined): Fund
   );
 }
 
-/** Whether a currency is meant for a country at all. */
-export function currencySupportsCountry(code: FundingCurrencyCode, iso2: string | null | undefined): boolean {
-  const country = normalizeCountry(iso2);
-  return Boolean(country && FUNDING_CURRENCIES[code].countries.some((c) => c.iso2 === country));
-}
-
 export interface FundingQuoteInput {
   currency: FundingCurrencyCode;
   /** What the customer wants to add, in the local currency's minor unit,
@@ -226,8 +220,6 @@ export type LocalFundingErrorCode =
   | "not_connected"
   | "unsupported_currency"
   | "currency_unavailable"
-  | "country_required"
-  | "unsupported_country"
   | LocalAmountError
   | "rate_unavailable"
   | "fee_not_configured"
@@ -255,10 +247,6 @@ export function localFundingErrorCopy(
         : "Enter a round amount.";
     case "fee_not_configured":
       return "This payment option is not available right now. Please try another option or check back soon.";
-    case "country_required":
-      return "Choose your country first.";
-    case "unsupported_country":
-      return "This currency is not available for your country.";
     case "unsupported_currency":
     case "currency_unavailable":
     case "not_connected":
@@ -273,4 +261,17 @@ export function localFundingErrorCopy(
  *  everywhere else, so the funding card and the rest of the site agree. */
 export function formatFundingAmount(amountMinor: number, currency: FundingCurrencyCode): string {
   return formatMoney(amountMinor, currency);
+}
+
+/**
+ * How far an admin's funding rate is from the market rate, in percent of the
+ * Naira a customer is credited: positive means customers get MORE Naira per
+ * unit than the market rate would give (a loss for Xencodes), negative means
+ * less. Both rates are units of the currency per 1 USD. Null without a usable
+ * market rate. Any customer can pay in any switched-on currency, so a rate
+ * that is too generous in one currency is the one to catch.
+ */
+export function fundingRateDeviationPercent(fundingUsdRate: number, marketUsdRate: number | undefined): number | null {
+  if (!(fundingUsdRate > 0) || !marketUsdRate || !(marketUsdRate > 0)) return null;
+  return (marketUsdRate / fundingUsdRate - 1) * 100;
 }

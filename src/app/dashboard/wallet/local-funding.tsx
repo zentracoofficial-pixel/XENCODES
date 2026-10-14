@@ -24,15 +24,12 @@ export function LocalFunding({
   name,
   minMinor,
   maxMinor,
-  country,
 }: {
   code: FundingCurrencyCode;
   symbol: string;
   name: string;
   minMinor: number;
   maxMinor: number;
-  /** The country to send with the request when none is saved yet. */
-  country: string | null;
 }) {
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{
@@ -56,7 +53,7 @@ export function LocalFunding({
   useEffect(() => {
     if (!inRange) return;
     const timer = setTimeout(() => {
-      previewLocalFundingAction(code, amountMinor, country)
+      previewLocalFundingAction(code, amountMinor)
         .catch(() => ({
           quote: undefined,
           error: "We could not work out the total just now. Check your connection and try again.",
@@ -68,7 +65,7 @@ export function LocalFunding({
     }, 350);
     latest.current = amountMinor;
     return () => clearTimeout(timer);
-  }, [amountMinor, inRange, code, country]);
+  }, [amountMinor, inRange, code]);
 
   const current = inRange && result?.amountMinor === amountMinor ? result : null;
   const quote = current?.quote ?? null;
@@ -79,7 +76,7 @@ export function LocalFunding({
   function submit() {
     setError(null);
     startTransition(async () => {
-      const started = await startLocalTopUpAction(code, amountMinor, country);
+      const started = await startLocalTopUpAction(code, amountMinor);
       if (started.error || !started.checkoutUrl || !started.quote) {
         setError(started.error ?? "We could not start checkout. Nothing was charged; please try again.");
         return;

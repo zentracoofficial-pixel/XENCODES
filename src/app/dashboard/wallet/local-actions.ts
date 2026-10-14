@@ -2,28 +2,27 @@
 
 import { revalidatePath } from "next/cache";
 import { getActiveUser } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { createPendingLocalTopUp, settleFailedTopUp } from "@/lib/funding";
 import { quoteLocalFunding } from "@/lib/funding-config";
 import {
   localFundingErrorCopy,
   isFundingCurrencyCode,
-  normalizeCountry,
   type FundingCurrencyCode,
   type FundingQuote,
 } from "@/lib/funding-currencies";
 import { initializeKorapayCharge, KorapayError } from "@/lib/korapay";
-import { isKnownCountry } from "@/lib/countries";
+import { changeOwnCountry } from "@/lib/user-country";
 
 /**
  * Local-currency funding: pay in Cedi, Shilling, CFA or Pound, credited to
  * the Naira wallet. See src/lib/funding-currencies.ts for the rules and
  * src/lib/funding.ts for the one place a balance moves.
  *
- * Both actions re-derive everything from the server: the customer's saved
- * country, the currency's admin settings and rate, the limits and the fee.
- * The browser sends only a currency, an amount and (for a customer with no
- * saved country) the country they picked, and none of it is trusted.
+ * Both actions re-derive everything from the server: the currency's admin
+ * switch and rate, the limits and the approved fee. The browser sends only a
+ * currency and an amount. Any customer may pay in any currency an admin has
+ * switched on (the one they chose in the currency selector is offered first);
+ * the country is not a restriction.
  */
 
 export interface LocalQuoteSummary {
@@ -59,7 +58,6 @@ export interface LocalStartResult extends LocalQuoteResult {
 async function evaluate(
   currency: unknown,
   amountMinor: unknown,
-  claimedCountry: unknown,
 ): Promise<{ error: string } | { quote: FundingQuote; userId: string; email: string; name: string | null }> {
   const user = await getActiveUser();
   if (!user) return { error: "Log in to add funds." };
@@ -68,15 +66,7 @@ async function evaluate(
     return { error: localFundingErrorCopy("wallet_currency", code) };
   }
 
-  // Only the country saved on the account counts. A customer with none saves
-  // it first (saveCountryAction, set once); a country sent by the browser is
-  // never trusted here, so it cannot be swapped per request to reach a
-  // currency meant for another country.
-  void claimedCountry;
-  if (!user.country) return { error: localFundingErrorCopy("country_required", code) };
   const result = await quoteLocalFunding({
-    savedCountry: user.country,
-    claimedCountry: null,
     currency,
     amountMinor: typeof amountMinor === "number" ? amountMinor : Number.NaN,
   });
@@ -89,9 +79,8 @@ async function evaluate(
 export async function previewLocalFundingAction(
   currency: string,
   amountMinor: number,
-  claimedCountry?: string | null,
 ): Promise<LocalQuoteResult> {
-  const checked = await evaluate(currency, amountMinor, claimedCountry);
+  const checked = await evaluate(currency, amountMinor);
   if ("error" in checked) return { error: checked.error };
   return { quote: summarize(checked.quote) };
 }
@@ -105,9 +94,8 @@ export async function previewLocalFundingAction(
 export async function startLocalTopUpAction(
   currency: string,
   amountMinor: number,
-  claimedCountry?: string | null,
 ): Promise<LocalStartResult> {
-  const checked = await evaluate(currency, amountMinor, claimedCountry);
+  const checked = await evaluate(currency, amountMinor);
   if ("error" in checked) return { error: checked.error };
 
   const pending = await createPendingLocalTopUp(checked.userId, checked.quote);
@@ -140,20 +128,21 @@ export async function startLocalTopUpAction(
 }
 
 /**
- * Saves the customer's country when we do not have one yet. Set once: it
- * decides which local currency is offered, so it is not a toggle a customer
- * can flip around; support can correct a wrong one.
+ * Saves or changes the customer's country (see changeOwnCountry() for the
+ * rules: any known country, a daily limit, every change audit-logged).
  */
 export async function saveCountryAction(country: string): Promise<{ error?: string; country?: string }> {
   const user = await getActiveUser();
   if (!user) return { error: "Log in to continue." };
-  const iso2 = normalizeCountry(country);
-  if (!iso2 || !isKnownCountry(iso2)) {
-    return { error: "Choose a country from the list." };
+  const result = await changeOwnCountry(user, country);
+  if (!result.ok) {
+    return {
+      error:
+        result.error === "too_many_changes"
+          ? "You have changed your country several times today. Try again tomorrow, or contact support."
+          : "Choose a country from the list.",
+    };
   }
-  if (user.country) return { country: user.country };
-
-  await prisma.user.updateMany({ where: { id: user.id, country: null }, data: { country: iso2 } });
-  revalidatePath("/", "layout");
-  return { country: iso2 };
+  if (result.changed) revalidatePath("/", "layout");
+  return { country: result.country };
 }
