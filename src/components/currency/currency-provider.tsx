@@ -1,32 +1,32 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { formatMoney } from "@/lib/currency";
 import {
-  chargedInNgnLabel,
   formatNgnForDisplay,
+  formatRecordedForDisplay,
   type DisplayContext,
 } from "@/lib/display-currency";
 import type { DisplayCurrencyCode } from "@/lib/currency-meta";
-import { formatMoney } from "@/lib/currency";
 
 interface Value {
   context: DisplayContext;
   display: DisplayCurrencyCode;
-  /** True when prices are shown in something other than Naira. */
-  converted: boolean;
-  /** A Naira amount (minor units) in the display currency, "≈"-marked when
-   *  converted. */
-  format: (ngnMinor: number) => string;
-  /** "Charged as ₦… from your Naira wallet". */
-  chargedLabel: (ngnMinor: number) => string;
-  /** For a sentence: "≈$1.53 (₦2,450)" when converted, "₦2,450" otherwise. */
-  withNaira: (ngnMinor: number) => string;
+  /** A stored amount (balance, price, charge) in the customer's currency. */
+  format: (storedMinor: number, storedCurrency?: string) => string;
+  /** Same, preferring the amount recorded at the time when it is in the
+   *  customer's current currency (a past purchase price, a payment made). */
+  formatRecorded: (
+    storedMinor: number,
+    recorded: { currency: string | null; minor: number | null } | null | undefined,
+    storedCurrency?: string,
+  ) => string;
 }
 
 const CurrencyContext = createContext<Value | null>(null);
 
-/** Hands the server-resolved display currency and rates to client components,
- *  so every price on a page is formatted by the same code. */
+/** Hands the server-resolved currency and rates to client components, so
+ *  every amount on a page is formatted by the same code. */
 export function CurrencyProvider({
   context,
   children,
@@ -38,23 +38,20 @@ export function CurrencyProvider({
     () => ({
       context,
       display: context.display,
-      converted: context.display !== "NGN",
-      format: (ngnMinor) => formatNgnForDisplay(ngnMinor, context.display, context.rates),
-      chargedLabel: chargedInNgnLabel,
-      withNaira: (ngnMinor) => {
-        const naira = formatMoney(ngnMinor, "NGN");
-        if (context.display === "NGN") return naira;
-        const shown = formatNgnForDisplay(ngnMinor, context.display, context.rates);
-        return shown === naira ? naira : `${shown} (${naira})`;
-      },
+      format: (minor, storedCurrency = "NGN") =>
+        storedCurrency === "NGN" ? formatNgnForDisplay(minor, context.display, context.rates) : formatMoney(minor, storedCurrency),
+      formatRecorded: (minor, recorded, storedCurrency = "NGN") =>
+        storedCurrency === "NGN"
+          ? formatRecordedForDisplay(minor, recorded, context.display, context.rates)
+          : formatMoney(minor, storedCurrency),
     }),
     [context],
   );
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
 }
 
-/** Display-currency helpers. Outside a provider (an isolated page) it falls
- *  back to plain Naira, which is always correct. */
+/** Currency helpers. Outside a provider (an isolated page) it is null and
+ *  callers fall back to the stored amount. */
 export function useDisplayMoney(): Value | null {
   return useContext(CurrencyContext);
 }

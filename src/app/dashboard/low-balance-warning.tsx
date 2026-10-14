@@ -26,7 +26,7 @@ export function LowBalanceWarning({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
       <p className="text-sm text-warning">
-        Your balance is low ({money && currency === "NGN" ? money.withNaira(balanceKobo) : formatMoney(balanceKobo, currency)}) — add funds to keep buying numbers.
+        Your balance is low ({money ? money.format(balanceKobo, currency) : formatMoney(balanceKobo, currency)}) — add funds to keep buying numbers.
       </p>
       <div className="flex items-center gap-2">
         <Button href="/dashboard/wallet" size="sm" variant="outline">

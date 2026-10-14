@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
+import { useDisplayMoney } from "@/components/currency/currency-provider";
+import { convertNgnMinor } from "@/lib/display-currency";
 import { formatFundingAmount, type FundingCurrencyCode } from "@/lib/funding-currencies";
 import {
   previewLocalFundingAction,
@@ -12,7 +14,7 @@ import {
 } from "./local-actions";
 
 /**
- * Pay in a local currency, credited to the Naira wallet.
+ * Pay in a local currency.
  *
  * The summary is a preview only: the server recomputes it from its own rate,
  * fee and limits when the customer confirms and is what KoraPay is actually
@@ -90,8 +92,8 @@ export function LocalFunding({
       <div>
         <h3 className="text-sm font-semibold">Ready to pay</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pay exactly {formatFundingAmount(checkout.quote.totalMinor, code)} at KoraPay. Your wallet is
-          credited {formatMoney(checkout.quote.creditKobo, "NGN")} once the payment is confirmed.
+          Pay exactly {formatFundingAmount(checkout.quote.totalMinor, code)} at KoraPay. Your balance goes up as
+          soon as the payment is confirmed.
         </p>
         <Summary quote={checkout.quote} />
         <div className="mt-4 flex flex-wrap gap-2">
@@ -114,7 +116,7 @@ export function LocalFunding({
   return (
     <div>
       <p className="text-sm text-muted-foreground">
-        Pay in {name} ({code}) and your wallet is credited in Naira. Any amount between{" "}
+        Pay in {name} ({code}). Any amount between{" "}
         {formatFundingAmount(minMinor, code)} and {formatFundingAmount(maxMinor, code)}.
       </p>
 
@@ -178,19 +180,48 @@ export function LocalFunding({
 
 function Summary({ quote }: { quote: LocalQuoteSummary }) {
   const code = quote.currency;
+  const money = useDisplayMoney();
+  const display = money?.display ?? code;
+  // One decimal style for the whole summary: if any line has pennies, all do.
+  const divisor = minorUnitDivisor(code);
+  const fixedDecimals = [quote.totalMinor, quote.feeMinor, quote.amountMinor].some((v) => v % divisor !== 0);
+  const fmt = (minor: number) => formatMoney(minor, code, { fixedDecimals });
+  // Exactly what the balance will show going up by: the amount credited,
+  // shown the same way the balance is.
+  const addedMinor = money ? convertNgnMinor(quote.creditKobo, display, money.context.rates) : null;
+  const added =
+    addedMinor === null
+      ? fmt(quote.amountMinor)
+      : formatMoney(addedMinor, display, { fixedDecimals: display === code && fixedDecimals });
+  // The rate this payment is actually converted at, in the customer's own
+  // currency; only worth showing when they pay in a different currency.
+  const rate = display !== code && money ? fundingRate(code, display, quote.ngnPerUnit, money.context.rates.perUsd) : null;
   return (
     <dl className="mt-4 max-w-sm divide-y divide-border rounded-xl border border-border bg-background text-sm">
-      <Row label="You pay" value={formatFundingAmount(quote.totalMinor, code)} strong />
+      <Row label="You pay" value={fmt(quote.totalMinor)} strong />
       {/* Shown only when an admin-approved fee applies to this payment. */}
-      {quote.feeMinor > 0 ? <Row label="Processing fee" value={formatFundingAmount(quote.feeMinor, code)} /> : null}
-      <Row
-        label="Exchange rate"
-        value={`1 ${code} = ${formatMoney(Math.round(quote.ngnPerUnit * 100), "NGN")}`}
-      />
-      <Row label="Wallet credit" value={formatMoney(quote.creditKobo, "NGN")} strong />
-      <Row label="Credited as" value="Nigerian Naira (NGN)" />
+      {quote.feeMinor > 0 ? <Row label="Processing fee" value={fmt(quote.feeMinor)} /> : null}
+      {rate ? <Row label="Exchange rate" value={rate} /> : null}
+      <Row label="Added to your balance" value={added} strong />
     </dl>
   );
+}
+
+/** "1 GHS = 0.0852 USD": the rate the payment is credited at, expressed in
+ *  the customer's own currency (the stored unit converted at the same rates
+ *  the balance is shown with). */
+function fundingRate(
+  from: string,
+  to: string,
+  storedPerUnit: number,
+  perUsd: Partial<Record<string, number>>,
+): string | null {
+  const storedPerUsd = perUsd.NGN;
+  const toPerUsd = perUsd[to];
+  if (!storedPerUsd || !toPerUsd) return null;
+  const value = (storedPerUnit / storedPerUsd) * toPerUsd;
+  const digits = value >= 100 ? 2 : value >= 1 ? 3 : 4;
+  return `1 ${from} = ${value.toLocaleString("en", { maximumFractionDigits: digits })} ${to}`;
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {

@@ -55,6 +55,8 @@ export default async function DashboardBuyPage({
             phoneNumber: row.phoneNumber,
             priceKobo: row.priceKobo,
             currency: row.currency,
+            displayCurrency: row.displayCurrency,
+            displayPriceMinor: row.displayPriceMinor,
             status: row.status,
             code: row.code,
             expiresAt: row.expiresAt.toISOString(),

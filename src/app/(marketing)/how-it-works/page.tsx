@@ -22,7 +22,7 @@ const STEPS = [
   },
   {
     title: "Fund your wallet",
-    body: "Add funds in NGN through KoraPay by card, bank transfer or USSD. Nothing is spent until you buy a number.",
+    body: "Add funds in your own currency through KoraPay: card, bank transfer or mobile money. Nothing is spent until you buy a number.",
   },
   {
     title: "Choose a service",

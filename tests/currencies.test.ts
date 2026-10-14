@@ -12,6 +12,7 @@ import {
   canDisplay,
   convertNgnMinor,
   formatNgnForDisplay,
+  formatRecordedForDisplay,
   resolveDisplayCurrency,
   type DisplayRates,
 } from "../src/lib/display-currency";
@@ -124,12 +125,21 @@ test("conversion: missing rates give null, never a made-up figure", () => {
   assert.equal(convertNgnMinor(150_000, "USD", noNgn), null);
 });
 
-test("converted prices are marked ≈, Naira is not, and a missing rate falls back to the real Naira amount", () => {
+test("amounts are shown plainly in the chosen currency, with no approximation mark or Naira", () => {
   assert.equal(formatNgnForDisplay(150_000, "NGN", rates), "₦1,500");
-  assert.equal(formatNgnForDisplay(150_000, "USD", rates), "≈$1.00");
-  assert.equal(formatNgnForDisplay(150_000, "GHS", rates), "≈GH₵15");
+  assert.equal(formatNgnForDisplay(150_000, "USD", rates), "$1.00");
+  assert.equal(formatNgnForDisplay(150_000, "GHS", rates), "GH₵15");
+  // only with no rate at all does it fall back to the stored amount
   const noKes: DisplayRates = { ...rates, perUsd: { NGN: 1500, USD: 1 } };
   assert.equal(formatNgnForDisplay(150_000, "KES", noKes), "₦1,500");
+});
+
+test("a recorded amount is shown as the customer saw it when it is in their current currency", () => {
+  assert.equal(formatRecordedForDisplay(150_000, { currency: "GHS", minor: 1_480 }, "GHS", rates), "GH₵14.80");
+  // a different currency now: convert the stored amount at today's rate instead
+  assert.equal(formatRecordedForDisplay(150_000, { currency: "GHS", minor: 1_480 }, "USD", rates), "$1.00");
+  assert.equal(formatRecordedForDisplay(150_000, null, "GHS", rates), "GH₵15");
+  assert.equal(formatRecordedForDisplay(150_000, { currency: null, minor: null }, "GHS", rates), "GH₵15");
 });
 
 test("display context: an unavailable chosen currency falls back to Naira and says what was asked for", () => {

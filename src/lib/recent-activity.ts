@@ -18,7 +18,12 @@ export interface ActivityItem {
   subtitle: string;
   trailing?: string;
   /** A money amount for the trailing slot, rendered in the display currency. */
-  trailingAmount?: { kobo: number; currency: string };
+  trailingAmount?: {
+    kobo: number;
+    currency: string;
+    /** The amount as the customer saw it at the time, when recorded. */
+    recorded?: { currency: string | null; minor: number | null } | null;
+  };
   href?: string;
   createdAt: Date;
 }
@@ -42,6 +47,21 @@ export async function getRecentActivity(userId: string, limit = 6): Promise<Acti
     }),
   ]);
 
+  // A refund shows the price the customer saw when they bought, the same as
+  // the purchase it reverses.
+  const refundOrderIds = walletRows
+    .filter((tx) => tx.type === "REFUND" && tx.activationId)
+    .map((tx) => tx.activationId as string);
+  const shownPrices = new Map(
+    (refundOrderIds.length
+      ? await prisma.activation.findMany({
+          where: { id: { in: refundOrderIds }, userId },
+          select: { id: true, displayCurrency: true, displayPriceMinor: true },
+        })
+      : []
+    ).map((a) => [a.id, { currency: a.displayCurrency, minor: a.displayPriceMinor }]),
+  );
+
   const items: ActivityItem[] = [];
 
   for (const activation of activations) {
@@ -54,7 +74,11 @@ export async function getRecentActivity(userId: string, limit = 6): Promise<Acti
       kind: "purchase",
       title: `Bought a ${activation.serviceName} number`,
       subtitle: activation.countryName,
-      trailingAmount: { kobo: activation.priceKobo, currency: activation.currency },
+      trailingAmount: {
+        kobo: activation.priceKobo,
+        currency: activation.currency,
+        recorded: { currency: activation.displayCurrency, minor: activation.displayPriceMinor },
+      },
       href: `/dashboard/buy?activation=${activation.id}`,
       createdAt: activation.createdAt,
     });
@@ -77,7 +101,13 @@ export async function getRecentActivity(userId: string, limit = 6): Promise<Acti
       kind: tx.type === "TOPUP" ? "topup" : "refund",
       title: tx.type === "TOPUP" ? "Wallet funded" : "Refund credited",
       subtitle: tx.description,
-      trailingAmount: { kobo: Math.abs(tx.amountKobo), currency: tx.currency },
+      trailingAmount: {
+        kobo: Math.abs(tx.amountKobo),
+        currency: tx.currency,
+        // A top-up shows what it added to the balance, converted the same
+        // way the balance is, so the two always agree.
+        recorded: tx.type === "REFUND" && tx.activationId ? shownPrices.get(tx.activationId) : null,
+      },
       href: "/dashboard/wallet",
       createdAt: tx.completedAt ?? tx.createdAt,
     });

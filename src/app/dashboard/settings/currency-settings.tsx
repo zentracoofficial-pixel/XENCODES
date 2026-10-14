@@ -81,8 +81,8 @@ export function CurrencySettings() {
             {usingPreference
               ? `Your choice. The default for your country is ${defaultCurrency.code}.`
               : `Automatic: the default for ${countryLabel ?? "your location"} is ${defaultCurrency.code}.`}{" "}
-            Prices are shown in this currency, and the wallet&apos;s funding card starts on it so you can pay in it
-            (when payments in it are available). Your balance is held in Naira (₦) and credited after conversion.
+            Your prices, balance and history are shown in this currency, and the wallet starts on it so you can pay
+            in it.
           </p>
           {usingPreference ? (
             <button

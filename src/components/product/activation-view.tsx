@@ -59,13 +59,16 @@ export function ActivationView({
 }) {
   const [pending, startTransition] = useTransition();
   const [activation, setActivation] = useState<ResumedActivation>(initial);
-  // What was paid or refunded, in the customer's display currency with the
-  // real Naira amount alongside when they differ.
+  // What was paid or refunded, in the customer's currency: the price they saw
+  // when they bought it when that is the currency they are viewing now.
   const money = useDisplayMoney();
-  const priceLabel =
-    money && activation.currency === "NGN"
-      ? money.withNaira(activation.priceKobo)
-      : formatMoney(activation.priceKobo, activation.currency);
+  const priceLabel = money
+    ? money.formatRecorded(
+        activation.priceKobo,
+        { currency: activation.displayCurrency ?? null, minor: activation.displayPriceMinor ?? null },
+        activation.currency,
+      )
+    : formatMoney(activation.priceKobo, activation.currency);
 
   const waiting = activation.status === "WAITING";
   const remaining = useCountdown(activation.expiresAt, waiting);

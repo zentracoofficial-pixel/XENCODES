@@ -86,7 +86,13 @@ export function majorToMinor(major: number, currency: string): number {
  *  back to a plain "CODE 1,234" rendering if Intl does not recognise the
  *  currency at all, which should not happen for anything the admin panel
  *  actually let someone enable (see isValidCurrencyCode()). */
-export function formatMoney(amountMinor: number, currency: string): string {
+export function formatMoney(
+  amountMinor: number,
+  currency: string,
+  /** Always show the currency's decimals ("GH₵100.00"), for a column of
+   *  amounts where some have pennies and some do not. */
+  options?: { fixedDecimals?: boolean },
+): string {
   const divisor = minorUnitDivisor(currency);
   const major = amountMinor / divisor;
   const hasFraction = amountMinor % divisor !== 0;
@@ -95,7 +101,7 @@ export function formatMoney(amountMinor: number, currency: string): string {
   // house format everywhere: "₦5,000", "GH₵50", "$5.00", "5,000 XAF".
   if (isDisplayCurrencyCode(currency)) {
     const meta = CURRENCY_META[currency];
-    const decimals = meta.fixedDecimals ?? (hasFraction ? Math.log10(divisor) : 0);
+    const decimals = meta.fixedDecimals ?? (hasFraction || options?.fixedDecimals ? Math.log10(divisor) : 0);
     const text = Math.abs(major).toLocaleString("en", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,

@@ -69,8 +69,8 @@ const PRICING_POINTS = [
   },
   {
     icon: Banknote,
-    title: "Priced in Naira",
-    body: "Xencodes currently operates in NGN, with nothing added at checkout beyond KoraPay's own processing fee.",
+    title: "Your own currency",
+    body: "See prices in your own currency, and pay in Naira or with mobile money in Cedi, Shilling, CFA franc or Egyptian Pound.",
   },
   {
     icon: RotateCcw,
@@ -100,7 +100,7 @@ export default async function HomePage() {
           name: SITE_NAME,
           url: SITE_URL,
           description:
-            "Xencodes is a virtual SMS verification platform: virtual phone numbers for receiving SMS verification codes across supported online services, priced in Nigerian Naira.",
+            "Xencodes is a virtual SMS verification platform: virtual phone numbers for receiving SMS verification codes across supported online services, priced and paid in your local currency.",
           publisher: { "@id": `${SITE_URL}/#organization` },
           inLanguage: "en",
         }}

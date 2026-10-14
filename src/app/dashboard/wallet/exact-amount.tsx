@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Info } from "lucide-react";
 import { formatMoney, minorUnitDivisor } from "@/lib/currency";
+import { useDisplayMoney } from "@/components/currency/currency-provider";
 
 /** The amount as plain digits for pasting into a bank app: no currency
  *  symbol, no thousands separators, and no trailing ".00". */
@@ -25,6 +26,7 @@ export function ExactAmount({
   creditedMinor: number;
   currency: string;
 }) {
+  const money = useDisplayMoney();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export function ExactAmount({
         </button>
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
-        Your wallet is credited {formatMoney(creditedMinor, currency)}.
+        Added to your balance: {money ? money.format(creditedMinor, currency) : formatMoney(creditedMinor, currency)}.
       </p>
       <p className="mt-2.5 flex items-start gap-1.5 text-xs text-muted-foreground">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />

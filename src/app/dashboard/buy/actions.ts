@@ -10,6 +10,8 @@ import { runPurchaseCascade } from "@/lib/purchase-cascade";
 import { creditWallet } from "@/lib/wallet";
 import { getActiveUser } from "@/lib/session";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
+import { getDisplayContext } from "@/lib/display-preference";
+import { convertNgnMinor } from "@/lib/display-currency";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
 import { evaluateNoCodeRecovery } from "@/lib/recovery";
@@ -103,6 +105,9 @@ export async function purchaseNumberAction(
   }
 
   const buyerCurrency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+  // Read now, before the supplier is asked for a number, so nothing extra
+  // happens between a number being bought and the order being recorded.
+  const displayContext = await getDisplayContext().catch(() => null);
 
   // Step one to three: cost, rule, price. All server side, all live.
   let quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency);
@@ -237,6 +242,15 @@ export async function purchaseNumberAction(
 
   const expiresAt = new Date(Date.now() + assigned.sessionSeconds * 1000);
 
+  // The price in the currency the customer is viewing, recorded with the
+  // order so their history keeps showing what they actually saw. Display
+  // only: the debit below is unchanged. Never blocks a purchase.
+  const displayPriceFor = (naira: number) => {
+    if (!displayContext || displayContext.display === "NGN" || buyerCurrency.code !== "NGN") return {};
+    const converted = convertNgnMinor(naira, displayContext.display, displayContext.rates);
+    return converted === null ? {} : { displayCurrency: displayContext.display, displayPriceMinor: converted };
+  };
+
   try {
     const activation = await prisma.$transaction(async (tx) => {
       // The real enforcement of the unverified purchase limit. The fast
@@ -295,6 +309,7 @@ export async function purchaseNumberAction(
           providerOfferId: boughtOfferId ?? null,
           currency: buyerCurrency.code,
           priceKobo,
+          ...displayPriceFor(priceKobo),
           providerCostKobo: quote.providerCostKobo,
           grossProfitKobo: quote.grossProfitKobo,
           targetMarginPercent: quote.targetMarginPercent,

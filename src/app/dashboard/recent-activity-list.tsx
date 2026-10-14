@@ -48,7 +48,11 @@ export function RecentActivityList({ items }: { items: ActivityItem[] }) {
             <span className="shrink-0 text-right">
               {item.trailingAmount ? (
                 <span className="block text-sm tabular-nums">
-                  <DisplayAmount kobo={item.trailingAmount.kobo} currency={item.trailingAmount.currency} naira="none" />
+                  <DisplayAmount
+                    kobo={item.trailingAmount.kobo}
+                    currency={item.trailingAmount.currency}
+                    recorded={item.trailingAmount.recorded}
+                  />
                 </span>
               ) : item.trailing ? (
                 <span className="block text-sm tabular-nums">{item.trailing}</span>

@@ -340,6 +340,12 @@ model Activation {
   currency                    String                  @default("NGN")
   /// What the customer paid, in `currency` above.
   priceKobo                   Int
+  /// The price as the customer saw it when they bought, in the currency they
+  /// were viewing prices in (GHS, USD, ...). Null when that was Naira (then
+  /// priceKobo is what they saw). Shown in their history, so a past purchase
+  /// does not appear to change price as exchange rates move.
+  displayCurrency             String?
+  displayPriceMinor           Int?
   /// What the supplier billed Xencodes for this exact order, converted from
   /// its native USD into `currency` at the admin-configured rate that was
   /// live at purchase time, and captured here rather than recomputed
