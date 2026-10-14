@@ -155,7 +155,7 @@ export function FundWallet({
       <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         Select payment currency
       </p>
-      <div role="radiogroup" aria-label="Payment currency" className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div role="radiogroup" aria-label="Payment currency" className="mt-3 grid grid-cols-2 gap-3 max-[340px]:grid-cols-1 sm:grid-cols-4">
         {ordered.map((card) => {
           const isActive = card.id === active;
           const usable = card.status === "available";
@@ -176,7 +176,7 @@ export function FundWallet({
                 }
               }}
               className={cn(
-                "flex min-h-[4.25rem] min-w-0 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
+                "flex min-h-[4.25rem] min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-3 text-left transition-colors sm:gap-3 sm:px-3",
                 isActive
                   ? "border-mint bg-mint-soft"
                   : usable
@@ -187,7 +187,7 @@ export function FundWallet({
               <span
                 aria-hidden
                 className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold sm:h-9 sm:w-9 sm:text-[11px]",
                   isActive ? "bg-forest text-white" : "bg-mint-soft text-forest",
                 )}
               >
@@ -197,7 +197,7 @@ export function FundWallet({
                 <span className={cn("block text-sm font-semibold", isActive ? "text-forest" : "text-foreground")}>
                   {card.code}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block truncate text-[11px] text-muted-foreground sm:text-xs">
                   {card.status === "coming_soon" ? "Coming soon" : card.name}
                 </span>
               </span>

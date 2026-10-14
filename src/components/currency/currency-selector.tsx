@@ -72,7 +72,9 @@ export function CurrencySelector({
   const usingPreference = context.source === "preference";
 
   return (
-    <div ref={ref} className={cn("relative", variant === "field" ? "w-full" : "", className)}>
+    // In a bar (compact) on a phone, the panel anchors to the bar itself so it
+    // can span the screen with an even margin; everywhere else to the button.
+    <div ref={ref} className={cn(variant === "field" ? "relative w-full" : "sm:relative", className)}>
       <button
         type="button"
         aria-haspopup="listbox"
@@ -81,14 +83,15 @@ export function CurrencySelector({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface text-sm font-medium text-foreground transition-colors hover:border-mint hover:bg-mint-soft",
-          variant === "field" ? "h-11 w-full justify-between px-3.5" : "h-10 px-3",
+          variant === "field" ? "h-11 w-full justify-between px-3.5" : "h-10 px-2.5 sm:px-3",
         )}
       >
         <span className="flex items-center gap-1.5 whitespace-nowrap">
           <CurrencyMark code={current.code} active />
-          <span className="tabular-nums">{current.code}</span>
+          {/* The badge alone on the narrowest phones, so the bar keeps its breathing room. */}
+          <span className={cn("tabular-nums", variant === "compact" && "max-[380px]:hidden")}>{current.code}</span>
         </span>
-        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground max-[340px]:hidden" />}
       </button>
 
       {open ? (
@@ -96,14 +99,18 @@ export function CurrencySelector({
           role="listbox"
           aria-label="Display currency"
           className={cn(
-            "absolute z-50 w-60 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-1.5 shadow-[var(--shadow-panel)]",
-            align === "right" ? "right-0" : "left-0",
-            direction === "up" ? "bottom-full mb-2" : "mt-2",
+            "absolute z-50 rounded-xl border border-border bg-surface p-2 shadow-[var(--shadow-panel)] sm:w-60 sm:p-1.5",
+            variant === "field" ? "max-sm:inset-x-0" : "max-sm:inset-x-3",
+            "max-sm:top-full max-sm:mt-1.5",
+            align === "right" ? "sm:right-0" : "sm:left-0",
+            direction === "up" ? "sm:bottom-full sm:mb-2" : "sm:top-full sm:mt-2",
           )}
         >
-          <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-2.5 sm:pb-1.5">
             Show prices in
           </p>
+          {/* Two columns on a phone, so the list is half as tall; one on larger screens. */}
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1 sm:gap-0">
           {context.options.map(({ code, available }) => {
             const meta = CURRENCY_META[code];
             const selected = code === context.display;
@@ -117,27 +124,28 @@ export function CurrencySelector({
                 disabled={!available || pending}
                 onClick={() => choose(code)}
                 className={cn(
-                  "flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
-                  selected ? "bg-mint-soft text-forest" : "hover:bg-mint-soft",
+                  "flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors sm:min-h-0 sm:border-transparent",
+                  selected ? "border-mint bg-mint-soft text-forest" : "border-border hover:bg-mint-soft sm:border-transparent",
                   !available && "cursor-not-allowed opacity-50 hover:bg-transparent",
                 )}
               >
                 <span className="flex min-w-0 items-center gap-2.5" title={meta.name}>
-                  <CurrencyMark code={code} active={selected} />
+                  <CurrencyMark code={code} active={selected} fixed />
                   <span className="font-semibold tabular-nums">{code}</span>
-                  {!available ? <span className="text-[11px] text-muted-foreground">No rate yet</span> : null}
+                  {!available ? <span className="truncate text-[11px] text-muted-foreground">No rate</span> : null}
                 </span>
                 {selected ? <Check className="h-4 w-4 shrink-0 text-forest" /> : null}
               </button>
             );
           })}
+          </div>
 
           {usingPreference && countryDefault !== context.display ? (
             <button
               type="button"
               disabled={pending}
               onClick={() => choose(null)}
-              className="mt-1 w-full rounded-lg px-2.5 py-2 text-left text-xs font-medium text-forest hover:bg-mint-soft"
+              className="mt-1.5 w-full rounded-lg px-2.5 py-2.5 text-left text-xs font-medium text-forest hover:bg-mint-soft sm:mt-1 sm:py-2"
             >
               Use my country&apos;s default ({countryDefault})
             </button>
@@ -147,17 +155,14 @@ export function CurrencySelector({
               type="button"
               disabled={pending}
               onClick={() => choose(null)}
-              className="mt-1 w-full rounded-lg px-2.5 py-2 text-left text-xs font-medium text-forest hover:bg-mint-soft"
+              className="mt-1.5 w-full rounded-lg px-2.5 py-2.5 text-left text-xs font-medium text-forest hover:bg-mint-soft sm:mt-1 sm:py-2"
             >
               Reset to automatic
             </button>
           ) : null}
 
-          <div className="mt-1 border-t border-border px-2.5 pb-1.5 pt-2 text-[11px] leading-relaxed text-muted-foreground">
-            <p>
-              Prices, your balance and funding all switch to this currency. Your balance moves once, at
-              today&apos;s rate, and then stays the same.
-            </p>
+          <div className="mt-2 border-t border-border px-2 pb-1 pt-2.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:px-2.5 sm:pb-1.5 sm:pt-2">
+            <p>Your balance moves to this currency once, at today&apos;s rate.</p>
             {context.rates.stale ? (
               <p className="mt-1 text-warning">
                 Rates were last updated {context.rates.asOf ? new Date(context.rates.asOf).toLocaleDateString("en-GB") : "a while ago"}; converted prices may be slightly off.
@@ -176,13 +181,23 @@ export function CurrencySelector({
  * The two CFA francs show their usual abbreviations, "FCFA" (Central) and
  * "CFA" (West), so they can be told apart.
  */
-function CurrencyMark({ code, active = false }: { code: keyof typeof CURRENCY_META; active?: boolean }) {
+function CurrencyMark({
+  code,
+  active = false,
+  fixed = false,
+}: {
+  code: keyof typeof CURRENCY_META;
+  active?: boolean;
+  /** A fixed width, so the codes beside a list of marks line up. */
+  fixed?: boolean;
+}) {
   const symbol = code === "XAF" ? "FCFA" : code === "XOF" ? "CFA" : CURRENCY_META[code].symbol;
   return (
     <span
       aria-hidden
       className={cn(
-        "inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-none",
+        "inline-flex h-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none",
+        fixed ? "w-10 px-1" : "min-w-6 px-1.5",
         active ? "bg-forest text-white" : "bg-mint-soft text-forest",
       )}
     >
