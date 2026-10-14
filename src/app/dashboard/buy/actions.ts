@@ -8,10 +8,12 @@ import type { NumberProvider, PurchasedNumber } from "@/lib/provider/types";
 import { autoAcceptCeilingKobo } from "@/lib/pool-ladder";
 import { runPurchaseCascade } from "@/lib/purchase-cascade";
 import { creditWallet } from "@/lib/wallet";
+import { chargeOf, walletCurrencyOf } from "@/lib/wallet-currency";
 import { getActiveUser } from "@/lib/session";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { getDisplayContext } from "@/lib/display-preference";
-import { convertNgnMinor } from "@/lib/display-currency";
+import { convertMinor } from "@/lib/display-currency";
+import { getDisplayRates } from "@/lib/exchange-rates";
 import { countRecentSuccessfulPurchases, getUnverifiedDailyPurchaseLimit } from "@/lib/verification";
 import { recordPurchaseFailure, recordPurchaseSuccess } from "@/lib/provider-failure-stats";
 import { evaluateNoCodeRecovery } from "@/lib/recovery";
@@ -145,11 +147,35 @@ export async function purchaseNumberAction(
     return { error: "price_changed", priceKobo };
   }
 
+  // The wallet is held in the customer's own currency. The Naira price is
+  // converted once, here, at the same rates the customer's prices are shown
+  // at, and that exact amount is what leaves the wallet and what a refund
+  // later returns. Prices and the margin stay worked out in Naira. The
+  // wallet is read after the display context, which may just have moved it
+  // to the customer's chosen currency.
+  const wallet = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { currency: true, walletBalanceKobo: true },
+  });
+  if (!wallet) return { error: "login_required" };
+  const walletCurrency = walletCurrencyOf(wallet.currency);
+  const rates = displayContext?.rates ?? (await getDisplayRates());
+  const chargeFor = (naira: number) => {
+    const converted = convertMinor(naira, buyerCurrency.code, walletCurrency, rates);
+    // A paid number never rounds down to free in a currency with bigger units.
+    return converted === null ? null : naira > 0 ? Math.max(converted, 1) : converted;
+  };
+  if (chargeFor(priceKobo) === null) return { error: "unpriceable" };
+  // The balance in the price's currency, for choosing which supplier rungs
+  // the customer can afford (the exact check is the debit below).
+  const balanceInPriceCurrency =
+    convertMinor(wallet.walletBalanceKobo, walletCurrency, buyerCurrency.code, rates) ?? 0;
+
   // Step four: can they pay. Checked before the supplier is asked for a
   // number, so a customer who cannot pay never consumes inventory. This is
   // a fast, non-atomic preliminary check against the balance read above;
   // the actual enforcement is the atomic conditional UPDATE further down.
-  if (user.walletBalanceKobo < priceKobo) return { error: "insufficient_balance" };
+  if (wallet.walletBalanceKobo < chargeFor(priceKobo)!) return { error: "insufficient_balance" };
 
   // Same fast, non-atomic shape as the balance check just above: a rough
   // preliminary check so an account that is obviously already at its limit
@@ -193,7 +219,7 @@ export async function purchaseNumberAction(
     outcome = await runPurchaseCascade({
       initial: quoted,
       ceilingKobo,
-      balanceKobo: user.walletBalanceKobo,
+      balanceKobo: balanceInPriceCurrency,
       outOfTime: () => Date.now() - startedAt > PURCHASE_TIME_BUDGET_MS,
       requote: async () => {
         const fresh = await quotePair(serviceSlug, countrySlug, buyerCurrency);
@@ -241,15 +267,9 @@ export async function purchaseNumberAction(
   await recordPurchaseSuccess(provider, serviceSlug, countrySlug);
 
   const expiresAt = new Date(Date.now() + assigned.sessionSeconds * 1000);
-
-  // The price in the currency the customer is viewing, recorded with the
-  // order so their history keeps showing what they actually saw. Display
-  // only: the debit below is unchanged. Never blocks a purchase.
-  const displayPriceFor = (naira: number) => {
-    if (!displayContext || displayContext.display === "NGN" || buyerCurrency.code !== "NGN") return {};
-    const converted = convertNgnMinor(naira, displayContext.display, displayContext.rates);
-    return converted === null ? {} : { displayCurrency: displayContext.display, displayPriceMinor: converted };
-  };
+  // What this order takes from the wallet, in the wallet's currency. Checked
+  // above for the first quote; the rung actually bought has its own price.
+  const chargeMinor = chargeFor(priceKobo);
 
   try {
     const activation = await prisma.$transaction(async (tx) => {
@@ -284,9 +304,12 @@ export async function purchaseNumberAction(
       // and Postgres serializes concurrent UPDATEs to the same row so the
       // second one re-evaluates against the first one's already-applied
       // result rather than a stale read.
+      // Also guarded on the wallet's currency, so a balance moved to another
+      // currency a moment ago is never debited in the wrong unit.
+      if (chargeMinor === null) throw new Error("insufficient_balance");
       const debited = await tx.user.updateMany({
-        where: { id: user.id, walletBalanceKobo: { gte: priceKobo } },
-        data: { walletBalanceKobo: { decrement: priceKobo } },
+        where: { id: user.id, currency: walletCurrency, walletBalanceKobo: { gte: chargeMinor } },
+        data: { walletBalanceKobo: { decrement: chargeMinor } },
       });
       if (debited.count === 0) {
         throw new Error("insufficient_balance");
@@ -309,7 +332,11 @@ export async function purchaseNumberAction(
           providerOfferId: boughtOfferId ?? null,
           currency: buyerCurrency.code,
           priceKobo,
-          ...displayPriceFor(priceKobo),
+          chargeCurrency: walletCurrency,
+          chargeMinor,
+          // What the customer saw is what they were charged.
+          displayCurrency: walletCurrency,
+          displayPriceMinor: chargeMinor,
           providerCostKobo: quote.providerCostKobo,
           grossProfitKobo: quote.grossProfitKobo,
           targetMarginPercent: quote.targetMarginPercent,
@@ -325,10 +352,10 @@ export async function purchaseNumberAction(
       await tx.walletTransaction.create({
         data: {
           userId: user.id,
-          amountKobo: -priceKobo,
+          amountKobo: -chargeMinor,
           type: "PURCHASE",
           description: `${service.name} number, ${country.name}`,
-          currency: buyerCurrency.code,
+          currency: walletCurrency,
           activationId: created.id,
         },
       });
@@ -456,10 +483,10 @@ export async function cancelActivationAction(
 
     await creditWallet(
       userId,
-      activation.priceKobo,
+      chargeOf(activation).amountMinor,
       "REFUND",
       `Refund, cancelled ${activation.serviceName} activation`,
-      activation.currency,
+      chargeOf(activation).currency,
       activation.id,
       tx,
     );

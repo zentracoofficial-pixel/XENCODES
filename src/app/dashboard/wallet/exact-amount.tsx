@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Info } from "lucide-react";
 import { formatMoney, minorUnitDivisor } from "@/lib/currency";
-import { useDisplayMoney } from "@/components/currency/currency-provider";
 
 /** The amount as plain digits for pasting into a bank app: no currency
  *  symbol, no thousands separators, and no trailing ".00". */
@@ -20,13 +19,18 @@ function plainAmount(totalMinor: number, currency: string): string {
 export function ExactAmount({
   totalMinor,
   creditedMinor,
+  creditedCurrency,
   currency,
+  hasFee,
 }: {
   totalMinor: number;
+  /** Exactly what the wallet is credited, in the wallet's own currency. */
   creditedMinor: number;
+  creditedCurrency: string;
   currency: string;
+  /** Whether the total includes a processing fee. */
+  hasFee: boolean;
 }) {
-  const money = useDisplayMoney();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -35,7 +39,6 @@ export function ExactAmount({
     return () => clearTimeout(timer);
   }, [copied]);
 
-  const hasFee = totalMinor > creditedMinor;
 
   return (
     <div className="mt-3 rounded-xl border border-mint/40 bg-mint-soft px-4 py-3">
@@ -59,7 +62,7 @@ export function ExactAmount({
         </button>
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
-        Added to your balance: {money ? money.format(creditedMinor, currency) : formatMoney(creditedMinor, currency)}.
+        Added to your balance: {formatMoney(creditedMinor, creditedCurrency)}.
       </p>
       <p className="mt-2.5 flex items-start gap-1.5 text-xs text-muted-foreground">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />

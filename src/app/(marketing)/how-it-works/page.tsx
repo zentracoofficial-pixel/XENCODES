@@ -22,7 +22,7 @@ const STEPS = [
   },
   {
     title: "Fund your wallet",
-    body: "Add funds in your own currency through KoraPay: card, bank transfer or mobile money. Nothing is spent until you buy a number.",
+    body: "Add funds through KoraPay by card or bank transfer. Your balance is kept in your own currency, and nothing is spent until you buy a number.",
   },
   {
     title: "Choose a service",

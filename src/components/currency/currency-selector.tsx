@@ -155,7 +155,8 @@ export function CurrencySelector({
 
           <div className="mt-1 border-t border-border px-2.5 pb-1.5 pt-2 text-[11px] leading-relaxed text-muted-foreground">
             <p>
-              Prices, your balance and funding all switch to this currency.
+              Prices, your balance and funding all switch to this currency. Your balance moves once, at
+              today&apos;s rate, and then stays the same.
             </p>
             {context.rates.stale ? (
               <p className="mt-1 text-warning">

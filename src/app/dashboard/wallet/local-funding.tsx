@@ -5,7 +5,6 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
 import { useDisplayMoney } from "@/components/currency/currency-provider";
-import { convertNgnMinor } from "@/lib/display-currency";
 import { formatFundingAmount, type FundingCurrencyCode } from "@/lib/funding-currencies";
 import {
   previewLocalFundingAction,
@@ -186,13 +185,10 @@ function Summary({ quote }: { quote: LocalQuoteSummary }) {
   const divisor = minorUnitDivisor(code);
   const fixedDecimals = [quote.totalMinor, quote.feeMinor, quote.amountMinor].some((v) => v % divisor !== 0);
   const fmt = (minor: number) => formatMoney(minor, code, { fixedDecimals });
-  // Exactly what the balance will show going up by: the amount credited,
-  // shown the same way the balance is.
-  const addedMinor = money ? convertNgnMinor(quote.creditKobo, display, money.context.rates) : null;
-  const added =
-    addedMinor === null
-      ? fmt(quote.amountMinor)
-      : formatMoney(addedMinor, display, { fixedDecimals: display === code && fixedDecimals });
+  // Exactly what the balance goes up by, fixed when the payment starts.
+  const added = formatMoney(quote.creditMinor, quote.creditCurrency, {
+    fixedDecimals: quote.creditCurrency === code && fixedDecimals,
+  });
   // The rate this payment is actually converted at, in the customer's own
   // currency; only worth showing when they pay in a different currency.
   const rate = display !== code && money ? fundingRate(code, display, quote.ngnPerUnit, money.context.rates.perUsd) : null;

@@ -110,7 +110,6 @@ test("customer-facing wording exists for every refusal", () => {
     "rate_unavailable",
     "amount_step",
     "fee_not_configured",
-    "wallet_currency",
   ] as const) {
     assert.ok(localFundingErrorCopy(code, "GHS", { minMinor: 1000, maxMinor: 5000 }).length > 10, code);
   }

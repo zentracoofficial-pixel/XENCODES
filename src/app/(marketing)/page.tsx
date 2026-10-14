@@ -70,7 +70,7 @@ const PRICING_POINTS = [
   {
     icon: Banknote,
     title: "Your own currency",
-    body: "See prices in your own currency, and pay in Naira or with mobile money in Cedi, Shilling, CFA franc or Egyptian Pound.",
+    body: "Prices and your wallet balance in your own currency. Your balance stays the same however exchange rates move.",
   },
   {
     icon: RotateCcw,

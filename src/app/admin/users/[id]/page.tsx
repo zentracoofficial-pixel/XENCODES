@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { formatMoney, formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatMultiCurrencySum, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { UserActions } from "./user-actions";
 import { CountryForm } from "./country-form";
@@ -72,7 +72,10 @@ export default async function AdminUserDetailPage({
         where: { userId: id, status: "RECEIVED" },
         _sum: { priceKobo: true },
       }),
-      prisma.walletTransaction.aggregate({
+      // A wallet can have been held in more than one currency over time,
+      // so funding is added up per currency.
+      prisma.walletTransaction.groupBy({
+        by: ["currency"],
         where: { userId: id, type: "TOPUP", status: "SUCCESSFUL" },
         _sum: { amountKobo: true },
       }),
@@ -127,12 +130,16 @@ export default async function AdminUserDetailPage({
         <Metric label="Wallet balance" value={formatMoney(user.walletBalanceKobo, user.currency)} />
         <Metric
           label="Total funded"
-          value={formatMoney(fundedAgg._sum.amountKobo ?? 0, user.currency)}
+          value={formatMultiCurrencySum(
+            fundedAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 })),
+            user.currency,
+          )}
           hint="Confirmed payments"
         />
         <Metric
           label="Total spent"
-          value={formatMoney(spendAgg._sum.priceKobo ?? 0, user.currency)}
+          // Number prices are recorded in Naira, whatever the wallet is in.
+          value={formatMoney(spendAgg._sum.priceKobo ?? 0, "NGN")}
           hint="On numbers"
         />
         <Metric label="Orders" value={user._count.activations} />

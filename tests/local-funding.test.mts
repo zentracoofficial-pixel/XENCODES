@@ -190,7 +190,7 @@ test("server rejects unsupported or switched-off currencies and bad amounts", as
 async function pendingGhs(amountMinor = 10_000) {
   const quoted = await quoteLocalFunding({ currency: "GHS", amountMinor });
   assert.ok(quoted.ok);
-  return { row: await createPendingLocalTopUp(userId, quoted.quote), quote: quoted.quote };
+  return { row: await createPendingLocalTopUp(userId, quoted.quote, { amountMinor: quoted.quote.creditKobo, currency: "NGN" }), quote: quoted.quote };
 }
 
 test("pending record stores provider-facing and wallet-facing amounts separately and credits nothing", async () => {
@@ -331,7 +331,7 @@ test("the fee shown in the quote is exactly the approved fee, and the pending ro
   const q = await quoteLocalFunding({ currency: "GHS", amountMinor: 20_000 });
   assert.ok(q.ok);
   assert.equal(q.quote.feeMinor, 500); // 2.5% of GH₵200
-  const row = await createPendingLocalTopUp(userId, q.quote);
+  const row = await createPendingLocalTopUp(userId, q.quote, { amountMinor: q.quote.creditKobo, currency: "NGN" });
   assert.equal(row.paymentFeeMinor, 500);
   assert.equal(row.paymentAmountMinor, 20_500);
   // changing the fee afterwards does not rewrite what this payment was quoted

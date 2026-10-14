@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { WalletTransactionType } from "@/generated/prisma/client";
+import { creditBalanceInTx } from "@/lib/wallet-currency";
 
 /** Whatever object prisma.$transaction's own callback receives: accepting
  *  this shape (rather than importing a specific generated type name) lets
@@ -32,23 +33,29 @@ export async function creditWallet(
   amountKobo: number,
   type: Extract<WalletTransactionType, "REFUND" | "ADJUSTMENT">,
   description: string,
-  /** ISO 4217, the currency amountKobo is actually denominated in: the
-   *  refunded activation's own currency, or the target account's currency
-   *  for an admin adjustment. Required rather than left to the schema's own
-   *  "NGN" default, which would silently mislabel every non-NGN credit. */
+  /** ISO 4217, the currency amountKobo is actually denominated in: what the
+   *  refunded order was charged in, or the target account's currency for an
+   *  admin adjustment. Converted into the wallet's currency if they differ. */
   currency: string,
   activationId?: string,
   tx?: TransactionClient,
 ) {
   const run = async (client: TransactionClient) => {
-    const user = await client.user.update({
-      where: { id: userId },
-      data: { walletBalanceKobo: { increment: amountKobo } },
-    });
+    // Lands in whatever currency the wallet is held in right now: a refund
+    // for an order bought before the customer moved their balance to another
+    // currency is converted at today's rate, never added in the wrong unit.
+    const applied = await creditBalanceInTx(client, userId, amountKobo, currency);
     await client.walletTransaction.create({
-      data: { userId, amountKobo, type, description, currency, activationId },
+      data: {
+        userId,
+        amountKobo: applied.amountMinor,
+        type,
+        description,
+        currency: applied.currency,
+        activationId,
+      },
     });
-    return user;
+    return applied;
   };
   return tx ? run(tx) : prisma.$transaction(run);
 }

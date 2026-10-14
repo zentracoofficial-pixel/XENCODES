@@ -54,7 +54,7 @@ export function FundWallet({
   options,
   country,
 }: {
-  naira: ComponentProps<typeof AddFunds>;
+  naira: Omit<ComponentProps<typeof AddFunds>, "walletCurrency" | "embedded">;
   walletCurrency: string;
   /** Every local currency currently switched on by an admin. */
   options: LocalOption[];
@@ -72,9 +72,8 @@ export function FundWallet({
   const [tapNotice, setTapNotice] = useState<{ text: string | null; forDisplay: string } | null>(null);
 
   // Coming back from KoraPay (either kind of payment): only the status card.
-  // Also the plain case for a wallet that is not in Naira.
-  if (searchParams.get("reference") || walletCurrency !== "NGN") {
-    return <AddFunds {...naira} />;
+  if (searchParams.get("reference")) {
+    return <AddFunds {...naira} walletCurrency={walletCurrency} />;
   }
 
   const enabled = new Map(options.map((option) => [option.code, option]));
@@ -95,7 +94,8 @@ export function FundWallet({
         code,
         name: FUNDING_CURRENCIES[code].name,
         methods: FUNDING_CURRENCIES[code].methods.join(", "),
-        status: enabled.has(code) ? "available" : "unavailable",
+        // Not yet approved on the KoraPay account: shown, but coming soon.
+        status: enabled.has(code) ? "available" : "coming_soon",
       }),
     ),
     {
@@ -122,11 +122,13 @@ export function FundWallet({
   const activeOption = active && active !== "NGN" ? enabled.get(active as FundingCurrencyCode) : undefined;
 
   const displayNote =
-    display === "USD"
-      ? "Prices are shown in US dollars, but dollars are not a payment option. Pay in Naira or a local currency below; USDT is coming soon."
-      : display !== "NGN" && !isAvailable(display)
-        ? `${display} payments are not available yet, so ${activeCard ? `you can pay in ${activeCard.code}` : "please check back soon"}. Your prices still show in ${display}.`
-        : null;
+    display !== "NGN" && !isAvailable(display)
+      ? `${display} payments are coming soon. ${
+          activeCard
+            ? `For now you can pay in ${activeCard.code}, and the amount is added to your balance in ${display}.`
+            : "Please check back soon."
+        }`
+      : null;
   const notice = tapNotice && tapNotice.forDisplay === display ? tapNotice.text : null;
   const noLocal = !cards.some((c) => c.id !== "NGN" && c.status === "available");
   const showUsdtNotice = display === "USD" || (noLocal && display !== "NGN" && country !== "NG");
@@ -134,7 +136,9 @@ export function FundWallet({
   function reasonFor(card: CardModel): string | null {
     switch (card.status) {
       case "coming_soon":
-        return USDT_FUNDING.comingSoonMessage;
+        return card.id === USDT_FUNDING.code
+          ? USDT_FUNDING.comingSoonMessage
+          : `${card.code} payments are coming soon. Please choose another currency for now.`;
       case "unavailable":
         return card.id === "NGN"
           ? "Naira payments are not connected right now. Please check back soon."
@@ -226,7 +230,7 @@ export function FundWallet({
             maxMinor={activeOption.maxMinor}
           />
         ) : active === "NGN" ? (
-          <AddFunds {...naira} embedded />
+          <AddFunds {...naira} walletCurrency={walletCurrency} embedded />
         ) : (
           <p className="text-sm text-muted-foreground">No payment option is available right now.</p>
         )}

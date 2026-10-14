@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getDisplayContext } from "@/lib/display-preference";
 import { brandIcons } from "@/data/brand-icons";
 import { searchServices, getServiceMeta, getInventoryStatus } from "@/lib/inventory";
 import { BuyPanel } from "@/components/product/buy-panel";
@@ -68,6 +69,9 @@ export default async function DashboardBuyPage({
     }
   }
 
+  // Before the balance is read, so the wallet is already in the customer's
+  // chosen currency.
+  await getDisplayContext();
   const [status, initialServices, user, defaultCurrency, favorites] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
@@ -98,6 +102,7 @@ export default async function DashboardBuyPage({
       initialFavoriteSlugs={favorites.map((f) => f.serviceSlug)}
       signedIn
       walletBalanceKobo={user?.walletBalanceKobo ?? 0}
+      walletCurrency={user?.currency ?? currency}
       currency={currency}
       unavailableMessage={status.connected ? undefined : status.message}
       basePath="/dashboard/buy"

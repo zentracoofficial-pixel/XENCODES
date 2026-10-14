@@ -346,6 +346,12 @@ model Activation {
   /// does not appear to change price as exchange rates move.
   displayCurrency             String?
   displayPriceMinor           Int?
+  /// What was actually taken from the wallet, in the wallet's own currency:
+  /// the price converted once, when bought. A refund returns exactly this.
+  /// Null on orders from before wallets were held in the customer's currency,
+  /// which were charged priceKobo in `currency`.
+  chargeCurrency              String?
+  chargeMinor                 Int?
   /// What the supplier billed Xencodes for this exact order, converted from
   /// its native USD into `currency` at the admin-configured rate that was
   /// live at purchase time, and captured here rather than recomputed

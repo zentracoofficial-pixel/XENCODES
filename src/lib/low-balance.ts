@@ -5,12 +5,18 @@ import {
   DEFAULT_LOW_BALANCE_THRESHOLD_NGN_KOBO,
   DEFAULT_LOW_BALANCE_THRESHOLD_USD_CENTS,
 } from "@/lib/settings";
+import { convertMinor } from "@/lib/display-currency";
+import { getDisplayRates } from "@/lib/exchange-rates";
 
 /** The admin-configured low-balance threshold, in the given currency's own
- *  minor unit. Only NGN and USD exist (see currency-config.ts), so this is
- *  a plain switch rather than a lookup keyed on an open-ended currency list. */
+ *  minor unit. NGN and USD have their own settings; a wallet held in any
+ *  other currency uses the Naira threshold converted at today's rate. */
 export async function getLowBalanceThreshold(currency: string): Promise<number> {
   const settings = await readSettings();
+  if (currency !== "USD" && currency !== "NGN") {
+    const ngn = readNumber(settings, SETTING_KEYS.lowBalanceThresholdNgnKobo, DEFAULT_LOW_BALANCE_THRESHOLD_NGN_KOBO);
+    return convertMinor(ngn, "NGN", currency, await getDisplayRates()) ?? 0;
+  }
   if (currency === "USD") {
     return readNumber(
       settings,

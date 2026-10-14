@@ -1,9 +1,9 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { formatMoney } from "@/lib/currency";
 import {
-  formatNgnForDisplay,
+  convertMinor,
+  formatStoredForDisplay,
   formatRecordedForDisplay,
   type DisplayContext,
 } from "@/lib/display-currency";
@@ -21,6 +21,9 @@ interface Value {
     recorded: { currency: string | null; minor: number | null } | null | undefined,
     storedCurrency?: string,
   ) => string;
+  /** An amount converted between currencies at the page's rates (to the
+   *  customer's currency by default), or null with no rate. */
+  convert: (minor: number, from: string, to?: string) => number | null;
 }
 
 const CurrencyContext = createContext<Value | null>(null);
@@ -39,11 +42,10 @@ export function CurrencyProvider({
       context,
       display: context.display,
       format: (minor, storedCurrency = "NGN") =>
-        storedCurrency === "NGN" ? formatNgnForDisplay(minor, context.display, context.rates) : formatMoney(minor, storedCurrency),
+        formatStoredForDisplay(minor, storedCurrency, context.display, context.rates),
       formatRecorded: (minor, recorded, storedCurrency = "NGN") =>
-        storedCurrency === "NGN"
-          ? formatRecordedForDisplay(minor, recorded, context.display, context.rates)
-          : formatMoney(minor, storedCurrency),
+        formatRecordedForDisplay(minor, recorded, context.display, context.rates, storedCurrency),
+      convert: (minor, from, to = context.display) => convertMinor(minor, from, to, context.rates),
     }),
     [context],
   );

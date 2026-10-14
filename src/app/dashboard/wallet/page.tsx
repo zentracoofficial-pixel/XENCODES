@@ -20,6 +20,7 @@ import {
   isFundingCurrencyCode,
 } from "@/lib/funding-currencies";
 import { reconcileStalePendingTopUpsAction } from "./actions";
+import { CURRENCY_MOVE_PROVIDER } from "@/lib/wallet-currency";
 
 export const metadata: Metadata = { title: "Wallet" };
 
@@ -48,6 +49,9 @@ export default async function WalletPage() {
   // src/lib/funding.ts) so it never turns a page view into a KoraPay call
   // every time.
   await reconcileStalePendingTopUpsAction();
+  // Before the balance is read, so the wallet is already in the customer's
+  // chosen currency.
+  const displayContext = await getDisplayContext();
 
   const [user, transactions] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
@@ -56,8 +60,16 @@ export default async function WalletPage() {
     // PENDING or CANCELLED, but was never money asked for and received or
     // genuinely attempted, so it has no place in the customer's own
     // history. Only a completed payment or a real declined attempt shows.
+    // The outgoing half of a balance moving to another currency is left out:
+    // the customer sees their balance arriving in its new currency.
     prisma.walletTransaction.findMany({
-      where: { userId, status: { in: ["SUCCESSFUL", "FAILED"] } },
+      where: {
+        userId,
+        status: { in: ["SUCCESSFUL", "FAILED"] },
+        // Spelled out: provider is usually null, and NOT (provider = x AND ...)
+        // would drop those rows too.
+        OR: [{ provider: null }, { provider: { not: CURRENCY_MOVE_PROVIDER } }, { amountKobo: { gte: 0 } }],
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
@@ -67,7 +79,7 @@ export default async function WalletPage() {
   // this list show what the customer actually saw. Top-ups show what they
   // added to the balance, converted the same way the balance is.
   const activationIds = transactions.map((tx) => tx.activationId).filter((id): id is string => Boolean(id));
-  const [currencyConfig, shownRows, displayContext] = await Promise.all([
+  const [currencyConfig, shownRows] = await Promise.all([
     getCurrencyConfig(user.currency),
     activationIds.length
       ? prisma.activation.findMany({
@@ -75,7 +87,6 @@ export default async function WalletPage() {
           select: { id: true, displayCurrency: true, displayPriceMinor: true },
         })
       : Promise.resolve([]),
-    getDisplayContext(),
   ]);
   const currency = currencyConfig ?? (await getDefaultCurrency());
   const shownPrices = new Map(
@@ -160,7 +171,9 @@ export default async function WalletPage() {
                   </span>
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{meta.label}</p>
+                    <p className="truncate text-sm font-medium">
+                      {tx.provider === CURRENCY_MOVE_PROVIDER ? "Currency changed" : meta.label}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {tx.status === "SUCCESSFUL"
                         ? tx.description

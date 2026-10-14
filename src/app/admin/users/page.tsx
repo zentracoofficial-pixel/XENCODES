@@ -251,7 +251,7 @@ export default async function AdminUsersPage({
                       {user._count.activations}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
-                      {formatMoney(spentByUser.get(user.id) ?? 0, user.currency)}
+                      {formatMoney(spentByUser.get(user.id) ?? 0, "NGN")}
                     </td>
                     <td className="px-3 py-3 text-xs text-muted-foreground" title={countryName(user.country) ?? undefined}>
                       {user.country ?? "—"}
