@@ -244,7 +244,7 @@ export default async function AdminServicesPage({
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-sm">
+            <table className="w-full min-w-[66rem] text-sm">
               <thead>
                 <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-5 py-2.5 font-medium">Service</th>

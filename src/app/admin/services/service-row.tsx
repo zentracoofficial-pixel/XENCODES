@@ -6,7 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/currency";
 import { formatMultiplier, multiplierToMarginPercent } from "@/lib/price-multiplier";
+import { PriceInput } from "@/components/admin/price-input";
 import {
+  previewServicePriceAction,
   setServiceEnabledAction,
   setServiceMarginAction,
   type MarginState,
@@ -102,25 +104,24 @@ export function ServiceRow({
         </span>
       </td>
       <td className="px-3 py-3">
-        <form action={formAction} className="flex items-center justify-end gap-2">
-          <input
-            name="priceMultiplier"
-            type="number"
-            step="0.01"
-            min="1"
-            max="100"
-            defaultValue={overrideMultiplier === null ? "" : Number(overrideMultiplier.toFixed(2))}
+        <form action={formAction} className="flex flex-col items-end gap-2">
+          <PriceInput
+            name="price"
+            compact
+            initialMultiplier={overrideMultiplier}
             placeholder="auto"
-            aria-label={`${name} price as a multiple of provider cost`}
-            className="h-10 w-20 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
+            ariaLabel={`${name} price, as a multiple of provider cost or a margin percent`}
+            preview={(raw, unit) => previewServicePriceAction(slug, raw, unit)}
           />
-          <span className="text-sm text-muted-foreground">x</span>
           <Button type="submit" variant="outline" size="sm" disabled={formPending}>
             {formPending ? "Saving" : "Save"}
           </Button>
         </form>
         {state.error ? (
           <p className="mt-1 text-right text-xs text-danger">{state.error}</p>
+        ) : null}
+        {state.summary ? (
+          <p className="mt-1 text-right text-xs text-success">{state.summary}</p>
         ) : null}
       </td>
       <td className="px-5 py-3 text-right">
