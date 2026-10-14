@@ -494,3 +494,58 @@ test("customers can change their own country, every change is audit-logged, and 
   assert.equal((await changeOwnCountry(actor, current === "US" ? "GB" : "US", tomorrow)).ok, true);
   await prisma.auditLog.deleteMany({ where: { targetId: userId, action: "user.country.self_update" } });
 });
+
+test("a currency can follow the market rate: fresh rates are used, stale ones pause payments", async () => {
+  const prior = (await prisma.setting.findUnique({ where: { key: SETTING_KEYS.displayRates } }))?.value ?? null;
+  const writeFeed = async (fetchedAt: string, ghs: number) =>
+    prisma.setting.upsert({
+      where: { key: SETTING_KEYS.displayRates },
+      create: { key: SETTING_KEYS.displayRates, value: JSON.stringify({ fetchedAt, attemptedAt: fetchedAt, rates: { GHS: ghs } }) },
+      update: { value: JSON.stringify({ fetchedAt, attemptedAt: fetchedAt, rates: { GHS: ghs } }) },
+    });
+  try {
+    await setFee("GHS", { approved: true, enabled: false });
+    // no manual rate needed when following the market
+    const saved = await saveFundingState("GHS", {
+      enabled: true,
+      usdRate: 0,
+      followMarket: true,
+      minMinor: 1000,
+      maxMinor: 1_000_000,
+    });
+    assert.deepEqual(saved, { ok: true });
+
+    await writeFeed(new Date().toISOString(), 12);
+    const fresh = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
+    assert.ok(fresh.ok);
+    const { readCurrencyConfig } = await import("../src/lib/currency-config");
+    const ngnRate = (await readCurrencyConfig()).find((c) => c.code === "NGN")!.usdRate;
+    assert.equal(fresh.quote.ngnPerUnit, ngnRate / 12);
+    assert.ok((await getFundingOptions()).some((o) => o.code === "GHS"));
+
+    // the market moves: the next quote follows it, no admin action needed
+    await writeFeed(new Date().toISOString(), 13);
+    const moved = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
+    assert.ok(moved.ok);
+    assert.equal(moved.quote.ngnPerUnit, ngnRate / 13);
+
+    // a stale market table pauses the currency instead of using an old rate
+    await writeFeed(new Date(Date.now() - 4 * 86_400_000).toISOString(), 12);
+    const stale = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
+    assert.equal(!stale.ok && stale.error, "rate_unavailable");
+    assert.ok(!(await getFundingOptions()).some((o) => o.code === "GHS"));
+
+    // without "follow the market", the manual rate is used and still required
+    assert.deepEqual(
+      await saveFundingState("GHS", { enabled: true, usdRate: 0, followMarket: false, minMinor: 1000, maxMinor: 1_000_000 }),
+      { ok: false, error: "rate_required" },
+    );
+    await saveFundingState("GHS", { enabled: true, usdRate: 15, followMarket: false, minMinor: 1000, maxMinor: 1_000_000 });
+    const manual = await quoteLocalFunding({ currency: "GHS", amountMinor: 10_000 });
+    assert.ok(manual.ok);
+    assert.equal(manual.quote.ngnPerUnit, ngnRate / 15);
+  } finally {
+    await prisma.setting.deleteMany({ where: { key: SETTING_KEYS.displayRates } });
+    if (prior !== null) await prisma.setting.create({ data: { key: SETTING_KEYS.displayRates, value: prior } });
+  }
+});

@@ -18,6 +18,7 @@ export function FundingCurrencyForm({
   values: {
     enabled: boolean;
     usdRate: number | null;
+    followMarket: boolean;
     minAmount: number;
     maxAmount: number;
   };
@@ -75,6 +76,19 @@ export function FundingCurrencyForm({
         </div>
       </div>
 
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="followMarket"
+          defaultChecked={values.followMarket}
+          className="mt-0.5 h-4 w-4 accent-[var(--forest)]"
+        />
+        <span>
+          <span className="font-medium">Follow the market rate.</span> Use the daily market rate instead of the
+          number above, so it never goes stale. If the market rate is more than 3 days old, {code} payments pause
+          until it refreshes.
+        </span>
+      </label>
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" name="confirmed" className="mt-0.5 h-4 w-4 accent-[var(--forest)]" />
         <span>

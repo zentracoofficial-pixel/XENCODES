@@ -3,6 +3,7 @@ import { readSettings, writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { readFundingStates } from "@/lib/funding-config";
 import { FUNDING_CURRENCY_CODES } from "@/lib/funding-currencies";
+import { parseStoredRates, type StoredRates } from "@/lib/market-rates";
 import { RATE_FRESH_MS, type DisplayRates } from "@/lib/display-currency";
 import type { DisplayCurrencyCode } from "@/lib/currency-meta";
 
@@ -24,33 +25,8 @@ const REFRESH_AFTER_MS = 12 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 10 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 4000;
 
-interface StoredRates {
-  fetchedAt: string;
-  attemptedAt: string;
-  rates: Partial<Record<DisplayCurrencyCode, number>>;
-}
-
 const FEED_CODES = FUNDING_CURRENCY_CODES;
-
-function parseStored(raw: string | undefined): StoredRates | null {
-  if (!raw) return null;
-  try {
-    const value = JSON.parse(raw) as StoredRates;
-    if (!value || typeof value !== "object" || typeof value.fetchedAt !== "string") return null;
-    const rates: StoredRates["rates"] = {};
-    for (const code of FEED_CODES) {
-      const rate = (value.rates as Record<string, unknown> | undefined)?.[code];
-      if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) rates[code] = rate;
-    }
-    return {
-      fetchedAt: value.fetchedAt,
-      attemptedAt: typeof value.attemptedAt === "string" ? value.attemptedAt : value.fetchedAt,
-      rates,
-    };
-  } catch {
-    return null;
-  }
-}
+const parseStored = parseStoredRates;
 
 /** Extracts and checks the six rates from the source's answer; null when the
  *  answer is not a usable table. Exported for tests. */

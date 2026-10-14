@@ -107,6 +107,7 @@ export async function saveFundingCurrencyAction(
   const enabled = formData.get("enabled") === "on";
   const confirmed = formData.get("confirmed") === "on";
   const usdRate = Number(formData.get("usdRate"));
+  const followMarket = formData.get("followMarket") === "on";
   const minMinor = majorToMinor(Number(formData.get("minAmount")), code);
   const maxMinor = majorToMinor(Number(formData.get("maxAmount")), code);
 
@@ -115,7 +116,7 @@ export async function saveFundingCurrencyAction(
       error: `Confirm that ${code} payments are enabled on the Xencodes KoraPay account before switching this on.`,
     };
   }
-  if (enabled && !(Number.isFinite(usdRate) && usdRate > 0)) {
+  if (enabled && !followMarket && !(Number.isFinite(usdRate) && usdRate > 0)) {
     return { error: "Enter this currency's exchange rate (units per 1 USD) before switching it on." };
   }
   if (!Number.isFinite(minMinor) || !Number.isFinite(maxMinor) || minMinor <= 0 || maxMinor < minMinor) {
@@ -126,6 +127,7 @@ export async function saveFundingCurrencyAction(
   const result = await saveFundingState(code, {
     enabled,
     usdRate: Number.isFinite(usdRate) && usdRate > 0 ? usdRate : 0,
+    followMarket,
     minMinor,
     maxMinor,
   });
@@ -145,8 +147,14 @@ export async function saveFundingCurrencyAction(
     targetId: code,
     metadata: {
       code,
-      before: { enabled: before.enabled, usdRate: before.usdRate, minMinor: before.minMinor, maxMinor: before.maxMinor },
-      after: { enabled, usdRate: usdRate > 0 ? usdRate : null, minMinor, maxMinor },
+      before: {
+        enabled: before.enabled,
+        usdRate: before.usdRate,
+        followMarket: before.followMarket,
+        minMinor: before.minMinor,
+        maxMinor: before.maxMinor,
+      },
+      after: { enabled, usdRate: usdRate > 0 ? usdRate : null, followMarket, minMinor, maxMinor },
       korapayConfirmed: enabled ? confirmed : null,
     },
   });

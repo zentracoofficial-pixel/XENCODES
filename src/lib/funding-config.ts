@@ -3,6 +3,7 @@ import { isFundingFeeConfigured, readFeePolicy, readFeePolicyMap, resolveFee } f
 import { minorUnitDivisor } from "@/lib/currency";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { isKorapayConfigured } from "@/lib/korapay";
+import { freshMarketRates } from "@/lib/market-rates";
 import {
   FUNDING_CURRENCIES,
   fundingStepMinor,
@@ -25,8 +26,11 @@ import {
 
 export interface FundingCurrencyState {
   enabled: boolean;
-  /** Units of this currency per 1 USD. Null until an admin sets it. */
+  /** Units of this currency per 1 USD, set by an admin. Null until set. */
   usdRate: number | null;
+  /** Use the market rate (refreshed daily, see src/lib/market-rates.ts)
+   *  instead of usdRate, so the rate never goes stale. */
+  followMarket: boolean;
   /** When the rate was last set, so a stale one is visible. ISO string. */
   rateUpdatedAt: string | null;
   minMinor: number;
@@ -41,6 +45,7 @@ function defaultState(code: FundingCurrencyCode): FundingCurrencyState {
   return {
     enabled: false,
     usdRate: null,
+    followMarket: false,
     rateUpdatedAt: null,
     minMinor: Math.round(meta.defaultMinMajor * divisor),
     maxMinor: Math.round(meta.defaultMaxMajor * divisor),
@@ -72,6 +77,7 @@ function parseFundingStates(raw: string | undefined): FundingStates {
     states[code] = {
       enabled: row.enabled === true,
       usdRate: rate !== undefined && rate > 0 ? rate : null,
+      followMarket: row.followMarket === true,
       rateUpdatedAt: typeof row.rateUpdatedAt === "string" ? row.rateUpdatedAt : null,
       minMinor: Math.round(num(row.minMinor) ?? base.minMinor),
       maxMinor: Math.round(num(row.maxMinor) ?? base.maxMinor),
@@ -92,7 +98,27 @@ export async function readFundingStates(
  *  admin, with a rate and sane limits. (KoraPay itself being connected is a
  *  separate, environment-level check made where it matters.) */
 export function isFundingStateUsable(state: FundingCurrencyState): boolean {
-  return state.enabled && state.usdRate !== null && state.minMinor > 0 && state.maxMinor >= state.minMinor;
+  return (
+    state.enabled &&
+    (state.followMarket || state.usdRate !== null) &&
+    state.minMinor > 0 &&
+    state.maxMinor >= state.minMinor
+  );
+}
+
+/**
+ * The rate a payment in this currency is converted at right now: the fresh
+ * market rate for a currency that follows the market (none when the market
+ * table is stale or missing, which refuses the payment rather than guessing),
+ * otherwise the admin's own rate.
+ */
+export function effectiveUsdRate(
+  code: FundingCurrencyCode,
+  state: FundingCurrencyState,
+  market: Partial<Record<FundingCurrencyCode, number>>,
+): number | null {
+  if (state.followMarket) return market[code] ?? null;
+  return state.usdRate;
 }
 
 /** Whether the saved rate is over a week old, for the admin page's warning. */
@@ -103,6 +129,7 @@ export function isRateStale(state: FundingCurrencyState, nowMs: number = Date.no
 export interface FundingStatePatch {
   enabled: boolean;
   usdRate: number;
+  followMarket?: boolean;
   minMinor: number;
   maxMinor: number;
 }
@@ -117,7 +144,7 @@ export async function saveFundingState(
   code: FundingCurrencyCode,
   patch: FundingStatePatch,
 ): Promise<{ ok: true } | { ok: false; error: FundingStateError }> {
-  if (patch.enabled && !(patch.usdRate > 0)) return { ok: false, error: "rate_required" };
+  if (patch.enabled && !patch.followMarket && !(patch.usdRate > 0)) return { ok: false, error: "rate_required" };
   // A currency is only switched on once its fee has been decided and approved
   // (even if the decision is "no fee"): see src/lib/fee-policy.ts.
   if (patch.enabled && !(await isFundingFeeConfigured(code))) return { ok: false, error: "fee_not_approved" };
@@ -132,6 +159,7 @@ export async function saveFundingState(
     states[code] = {
       enabled: patch.enabled,
       usdRate: patch.usdRate > 0 ? patch.usdRate : null,
+      followMarket: patch.followMarket === true,
       rateUpdatedAt: rateChanged ? new Date().toISOString() : previous.rateUpdatedAt,
       minMinor: Math.round(patch.minMinor),
       maxMinor: Math.round(patch.maxMinor),
@@ -164,12 +192,14 @@ export async function getFundingOptions(): Promise<FundingOption[]> {
   const ngn = currencies.find((c) => c.code === "NGN");
   if (!ngn) return [];
 
+  const market = freshMarketRates(settings);
   const options: FundingOption[] = [];
   for (const code of FUNDING_CURRENCY_CODES) {
     const state = states[code];
-    if (!isFundingStateUsable(state) || state.usdRate === null) continue;
+    const rate = effectiveUsdRate(code, state, market);
+    if (!isFundingStateUsable(state) || rate === null) continue;
     if (resolveFee(fees.get(code) ?? null, 1).status === "blocked") continue;
-    options.push({ code, state, ngnPerUnit: ngn.usdRate / state.usdRate });
+    options.push({ code, state, ngnPerUnit: ngn.usdRate / rate });
   }
   return options;
 }
@@ -206,9 +236,11 @@ export async function quoteLocalFunding(input: {
   const [states, currencies] = await Promise.all([readFundingStates(settings), readCurrencyConfig(settings)]);
   const state = states[code];
   const ngn = currencies.find((c) => c.code === "NGN");
-  if (!ngn || !isFundingStateUsable(state) || state.usdRate === null) {
+  if (!ngn || !isFundingStateUsable(state)) {
     return { ok: false, error: "currency_unavailable" };
   }
+  const rate = effectiveUsdRate(code, state, freshMarketRates(settings));
+  if (rate === null) return { ok: false, error: "rate_unavailable" };
 
   const limits = { minMinor: state.minMinor, maxMinor: state.maxMinor };
   const amountError = validateLocalAmount(input.amountMinor, state.minMinor, state.maxMinor, fundingStepMinor(code));
@@ -223,7 +255,7 @@ export async function quoteLocalFunding(input: {
   const quote = computeFundingQuote({
     currency: code,
     amountMinor: input.amountMinor,
-    currencyUsdRate: state.usdRate,
+    currencyUsdRate: rate,
     ngnUsdRate: ngn.usdRate,
     approvedFeeMinor: fee.feeMinor,
   });
