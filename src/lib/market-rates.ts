@@ -22,7 +22,9 @@ export function parseStoredRates(raw: string | undefined): StoredRates | null {
     const value = JSON.parse(raw) as StoredRates;
     if (!value || typeof value !== "object" || typeof value.fetchedAt !== "string") return null;
     const rates: StoredRates["rates"] = {};
-    for (const code of FUNDING_CURRENCY_CODES) {
+    // NGN is the market Naira rate, kept apart from the platform's own
+    // pricing rate (see DisplayRates.marketNgnPerUsd).
+    for (const code of [...FUNDING_CURRENCY_CODES, "NGN" as const]) {
       const rate = (value.rates as Record<string, unknown> | undefined)?.[code];
       if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) rates[code] = rate;
     }

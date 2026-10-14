@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { recordAudit } from "@/lib/audit";
-import { convertMinor, type DisplayRates } from "@/lib/display-currency";
+import { recordAudit, SYSTEM_ACTOR } from "@/lib/audit";
+import { convertMoneyMinor, type DisplayRates } from "@/lib/display-currency";
 import { getDisplayRates } from "@/lib/exchange-rates";
 import { isDisplayCurrencyCode, type DisplayCurrencyCode } from "@/lib/currency-meta";
 
@@ -59,7 +59,7 @@ export async function creditBalanceInTx(
     let applied = amountMinor;
     if (user.currency !== currency) {
       knownRates ??= await getDisplayRates();
-      const converted = convertMinor(amountMinor, currency, user.currency, knownRates);
+      const converted = convertMoneyMinor(amountMinor, currency, user.currency, knownRates);
       if (converted === null) throw new Error("no_rate");
       applied = converted;
     }
@@ -126,7 +126,7 @@ export async function alignWalletCurrency(
 
   const rates = options.rates ?? (await getDisplayRates());
   const balance = current.walletBalanceKobo;
-  const converted = convertMinor(balance, current.currency, target, rates);
+  const converted = convertMoneyMinor(balance, current.currency, target, rates);
   if (converted === null) return { ok: false, currency: from, error: "no_rate" };
 
   const moved = await prisma.$transaction(async (tx) => {
@@ -164,7 +164,9 @@ export async function alignWalletCurrency(
     action: CONVERSION_ACTION,
     targetType: "user",
     targetId: user.id,
-    metadata: { from: current.currency, to: target, fromMinor: balance, toMinor: converted },
+    // rateBasis marks a move made at the market rate (see
+    // correctUnderpaidMoves() for moves made before it was).
+    metadata: { from: current.currency, to: target, fromMinor: balance, toMinor: converted, rateBasis: "market" },
   }).catch((error) => console.error(`[wallet] could not audit currency move for ${user.id}:`, error));
   return { ok: true, currency: target, changed: true };
 }
@@ -182,4 +184,109 @@ export function chargeOf(activation: {
     return { amountMinor: activation.chargeMinor, currency: activation.chargeCurrency };
   }
   return { amountMinor: activation.priceKobo, currency: activation.currency };
+}
+
+const CORRECTION_ACTION = "wallet.currency.correct";
+
+/**
+ * Makes good money that was converted out of or into Naira at the platform's
+ * pricing rate instead of the market rate (balance moves and Naira payments
+ * into non-Naira wallets made before the market Naira rate was used). Each
+ * affected customer is credited the difference at today's market rate, never
+ * debited, once: every row checked is recorded in the audit log, under an
+ * advisory lock, so running this again changes nothing.
+ *
+ * Runs after the exchange rates are refreshed; does nothing without a fresh
+ * market Naira rate. Returns how many customers were credited.
+ */
+export async function correctUnderpaidMoves(rates?: DisplayRates): Promise<number> {
+  const r = rates ?? (await getDisplayRates());
+  if (!r.marketNgnPerUsd) return 0;
+
+  const checked = new Set(
+    (await prisma.auditLog.findMany({ where: { action: CORRECTION_ACTION }, select: { metadata: true } }))
+      .map((row) => (row.metadata as { sourceId?: unknown } | null)?.sourceId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
+  type Candidate = { sourceId: string; userId: string; currency: string; paidMinor: number; correctMinor: number };
+  const candidates: Candidate[] = [];
+
+  // Balance moves to or from Naira made before moves were done at the market rate.
+  const moves = await prisma.auditLog.findMany({ where: { action: CONVERSION_ACTION } });
+  for (const move of moves) {
+    const meta = move.metadata as Record<string, unknown> | null;
+    if (!meta || meta.rateBasis === "market" || checked.has(move.id) || !move.targetId) continue;
+    const { from, to, fromMinor, toMinor } = meta;
+    if (typeof from !== "string" || typeof to !== "string") continue;
+    if (typeof fromMinor !== "number" || typeof toMinor !== "number") continue;
+    if (from !== "NGN" && to !== "NGN") continue;
+    const correct = convertMoneyMinor(fromMinor, from, to, r);
+    if (correct === null) continue;
+    candidates.push({ sourceId: move.id, userId: move.targetId, currency: to, paidMinor: toMinor, correctMinor: correct });
+  }
+
+  // Naira payments into a wallet held in another currency, credited at the
+  // pricing rate. Such rows only exist since wallets could be held in other
+  // currencies; a gap over 5% cannot be day-to-day rate movement.
+  const topUps = await prisma.walletTransaction.findMany({
+    where: { type: "TOPUP", status: "SUCCESSFUL", paymentCurrency: "NGN", NOT: { currency: "NGN" } },
+  });
+  for (const row of topUps) {
+    if (checked.has(row.id) || row.paymentAmountMinor === null) continue;
+    const paidNgn = row.paymentAmountMinor - (row.paymentFeeMinor ?? 0);
+    const correct = convertMoneyMinor(paidNgn, "NGN", row.currency, r);
+    if (correct === null || correct - row.amountKobo <= correct * 0.05) continue;
+    candidates.push({ sourceId: row.id, userId: row.userId, currency: row.currency, paidMinor: row.amountKobo, correctMinor: correct });
+  }
+
+  let credited = 0;
+  for (const c of candidates) {
+    try {
+      const did = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('wallet-currency-correction'))`;
+        const already = await tx.auditLog.findFirst({
+          where: { action: CORRECTION_ACTION, targetId: c.userId, metadata: { path: ["sourceId"], equals: c.sourceId } },
+          select: { id: true },
+        });
+        if (already) return false;
+        const diff = c.correctMinor - c.paidMinor;
+        let applied: { amountMinor: number; currency: string } | null = null;
+        if (diff > 0) {
+          applied = await creditBalanceInTx(tx, c.userId, diff, c.currency, r);
+          await tx.walletTransaction.create({
+            data: {
+              userId: c.userId,
+              type: "ADJUSTMENT",
+              amountKobo: applied.amountMinor,
+              currency: applied.currency,
+              description: "Correction: converted at the market rate",
+            },
+          });
+        }
+        await tx.auditLog.create({
+          data: {
+            actorId: SYSTEM_ACTOR.id,
+            actorEmail: SYSTEM_ACTOR.email,
+            action: CORRECTION_ACTION,
+            targetType: "user",
+            targetId: c.userId,
+            metadata: {
+              sourceId: c.sourceId,
+              currency: c.currency,
+              paidMinor: c.paidMinor,
+              correctMinor: c.correctMinor,
+              creditedMinor: applied?.amountMinor ?? 0,
+              creditedCurrency: applied?.currency ?? c.currency,
+            },
+          },
+        });
+        return diff > 0;
+      });
+      if (did) credited += 1;
+    } catch (error) {
+      console.error(`[wallet] could not correct ${c.sourceId} for ${c.userId}:`, error);
+    }
+  }
+  return credited;
 }
