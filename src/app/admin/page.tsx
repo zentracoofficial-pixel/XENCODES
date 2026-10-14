@@ -254,7 +254,16 @@ export default async function AdminDashboardPage() {
       </section>
 
       <section>
-        <h2 className="mb-2.5 text-sm font-semibold">Money</h2>
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Money</h2>
+          <Link
+            href="/admin/sales"
+            className="inline-flex items-center gap-1 text-sm font-medium text-forest underline-offset-4 hover:underline"
+          >
+            Sales and profit by day, week and month
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
         <MetricGrid>
           <Metric
             label="Customer funding"
@@ -265,8 +274,8 @@ export default async function AdminDashboardPage() {
           <Metric
             label="Number sales"
             value={formatMultiCurrencySum(salesRows, defaultCurrency.code)}
-            hint="Charged to wallets"
-            href="/admin/wallet?type=PURCHASE"
+            hint="Completed orders, all time"
+            href="/admin/sales"
           />
           <Metric
             label="Provider cost"

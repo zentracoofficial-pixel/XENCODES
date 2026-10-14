@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   LifeBuoy,
+  LineChart,
   LogOut,
   Mail,
   Package,
@@ -24,7 +25,7 @@ import { NotificationBell, type NotificationItem } from "@/components/notificati
 import { logoutAction } from "@/app/dashboard/actions";
 
 /**
- * Ten screens, each of which does real work.
+ * Eleven screens, each of which does real work.
  *
  * Refunds live inside Orders, because a refund is something that happened
  * to an order. Pricing lives inside Services, because a margin is a
@@ -39,6 +40,7 @@ const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/activity", label: "Recent activity", icon: Activity },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/sales", label: "Sales and profit", icon: LineChart },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/services", label: "Services", icon: Package },
   { href: "/admin/providers", label: "Providers", icon: Plug },
