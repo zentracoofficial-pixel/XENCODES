@@ -109,8 +109,8 @@ export default async function PricingPage() {
             <div>
               <h2 className="font-semibold">Top up what you want</h2>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                There are no fixed funding packages. Add any amount, in Naira or with mobile money in Cedi, Shilling,
-                CFA franc or Egyptian Pound, and spend it a number at a time.
+                There are no fixed funding packages. Add any amount and spend it a number at a time. Your balance is
+                kept in your own currency, so it stays the same however exchange rates move.
               </p>
             </div>
           </div>

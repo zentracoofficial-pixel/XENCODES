@@ -10,13 +10,12 @@ import {
 /**
  * Display currency: what prices are SHOWN in. Pure and client-safe.
  *
- * Amounts are stored in one internal unit of account (Naira minor units) and
- * shown to each customer in the currency they chose. Every conversion goes
- * stored amount -> USD (at the platform's own rate, the same one prices are
- * built from, so it cancels out) -> the chosen currency at the market rate in
- * `DisplayRates`. Because prices, the balance, charges and funding credits
- * all use the same rates, a customer in Ghana sees one consistent set of
- * cedi amounts and never needs to see the internal unit.
+ * A customer's wallet is held in their own currency, so their balance is
+ * shown exactly as stored and never moves with exchange rates. Number prices
+ * are worked out in Naira and converted (stored amount -> USD at the
+ * platform's own rate -> the customer's currency at the market rate in
+ * `DisplayRates`); a purchase is converted once, when it is bought, and that
+ * exact amount is what leaves the wallet.
  */
 
 /** Units of each currency per 1 USD, plus how fresh they are. */
@@ -40,24 +39,60 @@ export function canDisplay(code: DisplayCurrencyCode, rates: DisplayRates): bool
   return Boolean(rates.perUsd.NGN && rates.perUsd[code]);
 }
 
+/** Units of `code` per 1 USD, or null when there is no rate. USD is always
+ *  1; NGN is the platform's own rate. */
+function unitsPerUsd(code: string, rates: DisplayRates): number | null {
+  if (code === "USD") return 1;
+  const rate = rates.perUsd[code as DisplayCurrencyCode];
+  return rate && rate > 0 ? rate : null;
+}
+
+/**
+ * An amount in the minor unit of `from` converted to the minor unit of `to`
+ * (through USD), or null when either currency has no rate. The same currency
+ * returns the amount unchanged: no round trip, no rounding drift.
+ */
+export function convertMinor(
+  amountMinor: number,
+  from: string,
+  to: string,
+  rates: DisplayRates,
+): number | null {
+  if (from === to) return amountMinor;
+  const fromPerUsd = unitsPerUsd(from, rates);
+  const toPerUsd = unitsPerUsd(to, rates);
+  if (!fromPerUsd || !toPerUsd) return null;
+  const usd = amountMinor / minorUnitDivisor(from) / fromPerUsd;
+  return Math.round(usd * toPerUsd * minorUnitDivisor(to));
+}
+
 /**
  * A Naira amount in the minor unit of `display`, or null when it cannot be
- * converted (no rate). NGN returns the amount unchanged: no round trip, no
- * rounding drift on the currency the wallet is actually in.
+ * converted (no rate). NGN returns the amount unchanged.
  */
 export function convertNgnMinor(
   ngnMinor: number,
   display: DisplayCurrencyCode,
   rates: DisplayRates,
 ): number | null {
-  if (display === "NGN") return ngnMinor;
-  const ngnPerUsd = rates.perUsd.NGN;
-  if (!ngnPerUsd || !(ngnPerUsd > 0)) return null;
-  const usdPerUnit = display === "USD" ? 1 : rates.perUsd[display];
-  if (!usdPerUnit || !(usdPerUnit > 0)) return null;
-  const usd = ngnMinor / minorUnitDivisor("NGN") / ngnPerUsd;
-  const target = usd * usdPerUnit;
-  return Math.round(target * minorUnitDivisor(display));
+  return convertMinor(ngnMinor, "NGN", display, rates);
+}
+
+/**
+ * A stored amount (in `stored`) formatted in the customer's currency. An
+ * amount already in that currency is shown exactly as stored; anything else
+ * is converted at today's rate, falling back to the stored currency only if
+ * there is no rate at all.
+ */
+export function formatStoredForDisplay(
+  amountMinor: number,
+  stored: string,
+  display: DisplayCurrencyCode,
+  rates: DisplayRates,
+): string {
+  const converted = convertMinor(amountMinor, stored, display, rates);
+  if (converted === null) return formatMoney(amountMinor, stored);
+  return formatMoney(converted, display);
 }
 
 /**
@@ -85,15 +120,16 @@ export function formatNgnForDisplay(
  * stored amount converted at today's rate.
  */
 export function formatRecordedForDisplay(
-  ngnMinor: number,
+  storedMinor: number,
   recorded: { currency: string | null; minor: number | null } | null | undefined,
   display: DisplayCurrencyCode,
   rates: DisplayRates,
+  storedCurrency: string = "NGN",
 ): string {
   if (recorded && recorded.currency === display && recorded.minor !== null) {
     return formatMoney(recorded.minor, display);
   }
-  return formatNgnForDisplay(ngnMinor, display, rates);
+  return formatStoredForDisplay(storedMinor, storedCurrency, display, rates);
 }
 
 export interface DisplayChoice {

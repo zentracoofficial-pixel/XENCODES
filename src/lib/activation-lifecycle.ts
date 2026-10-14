@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { resolveProvider } from "@/lib/provider";
 import { creditWallet } from "@/lib/wallet";
+import { chargeOf } from "@/lib/wallet-currency";
 import { notifyNumberPurchaseSale } from "@/lib/sales-notification";
 import { evaluateNoCodeRecovery, resolveRecoveryOnSuccess } from "@/lib/recovery";
 import type { ActivationRefundReason } from "@/generated/prisma/client";
@@ -238,10 +239,10 @@ export async function reconcileActivation(
 
     await creditWallet(
       userId,
-      activation.priceKobo,
+      chargeOf(activation).amountMinor,
       "REFUND",
       `Refund for ${activation.serviceName}, ${settled.why}`,
-      activation.currency,
+      chargeOf(activation).currency,
       activation.id,
       tx,
     );
@@ -390,10 +391,10 @@ export async function adminForceRefundActivation(
     const activation = await tx.activation.findUniqueOrThrow({ where: { id: activationId } });
     await creditWallet(
       activation.userId,
-      activation.priceKobo,
+      chargeOf(activation).amountMinor,
       "REFUND",
       `Refund for ${activation.serviceName}, ${REFUND_REASON_LABEL[input.reason].toLowerCase()}`,
-      activation.currency,
+      chargeOf(activation).currency,
       activation.id,
       tx,
     );

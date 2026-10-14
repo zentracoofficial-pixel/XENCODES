@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
-import { convertNgnMinor } from "@/lib/display-currency";
+import { convertMinor } from "@/lib/display-currency";
 import { getDisplayContext } from "@/lib/display-preference";
 import { ActivationLogo } from "./activation-logo";
 import { reconcileActivation } from "@/lib/activation-lifecycle";
@@ -45,6 +45,10 @@ export default async function DashboardPage() {
     );
   }
 
+  // First, so the wallet is already in the customer's chosen currency when
+  // the balance is read below.
+  const displayContext = await getDisplayContext();
+
   const [user, current, activity, favorites, fundedCount, activationCount, deliveredAgg, smsReceivedCount] =
     await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: userId } }),
@@ -80,12 +84,11 @@ export default async function DashboardPage() {
 
   // Total spent, added up from the prices the customer saw for each number
   // (recorded at purchase), so it matches their history line by line.
-  const displayContext = await getDisplayContext();
-  let totalSpentLabel: React.ReactNode = <DisplayAmount kobo={deliveredAgg._sum.priceKobo ?? 0} currency={user.currency} />;
-  if (displayContext.display !== "NGN" && user.currency === "NGN") {
+  let totalSpentLabel: React.ReactNode = <DisplayAmount kobo={deliveredAgg._sum.priceKobo ?? 0} currency="NGN" />;
+  {
     const delivered = await prisma.activation.findMany({
       where: { userId, status: "RECEIVED" },
-      select: { priceKobo: true, displayCurrency: true, displayPriceMinor: true },
+      select: { priceKobo: true, currency: true, displayCurrency: true, displayPriceMinor: true },
     });
     let sum = 0;
     let complete = true;
@@ -93,7 +96,7 @@ export default async function DashboardPage() {
       if (row.displayCurrency === displayContext.display && row.displayPriceMinor !== null) {
         sum += row.displayPriceMinor;
       } else {
-        const converted = convertNgnMinor(row.priceKobo, displayContext.display, displayContext.rates);
+        const converted = convertMinor(row.priceKobo, row.currency, displayContext.display, displayContext.rates);
         if (converted === null) complete = false;
         else sum += converted;
       }

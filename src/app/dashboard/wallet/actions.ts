@@ -12,14 +12,34 @@ import {
 import { resolveFundingFee } from "@/lib/fee-policy";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
+import { convertMinor } from "@/lib/display-currency";
+import { getDisplayRates } from "@/lib/exchange-rates";
+import { walletCurrencyOf } from "@/lib/wallet-currency";
+
+/** What a payment of `amountMinor` (in `paidIn`, before any fee) adds to a
+ *  wallet held in `walletCurrency`: the same amount when they match,
+ *  otherwise converted at today's rate. Null when there is no rate. */
+async function walletCreditFor(
+  walletCurrency: string,
+  amountMinor: number,
+  paidIn: string,
+): Promise<{ amountMinor: number; currency: string } | null> {
+  const wallet = walletCurrencyOf(walletCurrency);
+  if (wallet === paidIn) return { amountMinor, currency: wallet };
+  const converted = convertMinor(amountMinor, paidIn, wallet, await getDisplayRates());
+  return converted !== null && converted > 0 ? { amountMinor: converted, currency: wallet } : null;
+}
 
 export interface StartTopUpResult {
   error?: string;
   /** Our reference for the pending attempt, kept so the wallet page can
    *  poll it after a checkout redirect. */
   reference?: string;
-  /** What lands in the wallet once verified. Never includes the fee. */
+  /** The payment amount before the fee, in the payment currency (Naira). */
   amountKobo?: number;
+  /** Exactly what lands in the wallet once verified, in the wallet's own
+   *  currency: fixed now, so a rate change while paying cannot move it. */
+  creditMinor?: number;
   /** KoraPay's processing fee, charged on top, for display. */
   feeKobo?: number;
   /** What KoraPay actually charges the customer: amountKobo + feeKobo. */
@@ -91,6 +111,11 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
   }
   const feeKobo = fee.feeMinor;
 
+  const credit = await walletCreditFor(user.currency, amountKobo, currency.code);
+  if (!credit) {
+    return { error: "Wallet funding is not available right now because no exchange rate is available. Please try again later." };
+  }
+
   const pending = await createPendingTopUp(
     user.id,
     amountKobo,
@@ -98,13 +123,15 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     currency.minTopUpMinor,
     currency.maxTopUpMinor,
     feeKobo,
+    credit,
   );
   const reference = pending.providerReference ?? undefined;
-  const totalChargedKobo = pending.amountKobo + feeKobo;
+  const totalChargedKobo = amountKobo + feeKobo;
+  const creditMinor = credit.amountMinor;
 
   if (!isKorapayConfigured() || !reference) {
     revalidatePath("/dashboard/wallet");
-    return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo };
+    return { reference, amountKobo, creditMinor, feeKobo, totalChargedKobo };
   }
 
   try {
@@ -116,7 +143,7 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
       name: user.name,
     });
     revalidatePath("/dashboard/wallet");
-    return { reference, amountKobo: pending.amountKobo, feeKobo, totalChargedKobo, checkoutUrl };
+    return { reference, amountKobo, creditMinor, feeKobo, totalChargedKobo, checkoutUrl };
   } catch (error) {
     // Logged, not just recorded on the row: this is the one place a real
     // KoraPay rejection reason (bad credentials, a malformed field, an
@@ -144,6 +171,8 @@ export interface TopUpPreview {
   /** The admin-approved fee, 0 when none applies (then none is shown). */
   feeKobo?: number;
   totalKobo?: number;
+  /** What would be added to the wallet, in the wallet's own currency. */
+  creditMinor?: number;
 }
 
 /**
@@ -164,7 +193,11 @@ export async function previewTopUpAction(amountKobo: number): Promise<TopUpPrevi
   if (fee.status === "blocked") {
     return { error: "Wallet funding is not available right now. Please try again later." };
   }
-  return { feeKobo: fee.feeMinor, totalKobo: amountKobo + fee.feeMinor };
+  const credit = await walletCreditFor(user.currency, amountKobo, currency.code);
+  if (!credit) {
+    return { error: "Wallet funding is not available right now because no exchange rate is available. Please try again later." };
+  }
+  return { feeKobo: fee.feeMinor, totalKobo: amountKobo + fee.feeMinor, creditMinor: credit.amountMinor };
 }
 
 export interface TopUpStatus {

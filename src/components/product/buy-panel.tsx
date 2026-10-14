@@ -111,6 +111,7 @@ export function BuyPanel({
   signedIn,
   walletBalanceKobo,
   currency,
+  walletCurrency = currency,
   unavailableMessage,
   basePath = "/buy",
   walletHref = "/dashboard/wallet",
@@ -131,6 +132,9 @@ export function BuyPanel({
   initialCountrySlug?: string;
   signedIn: boolean;
   walletBalanceKobo: number;
+  /** The currency the wallet is held in (the customer's own). Prices are
+   *  quoted in `currency` and converted into this when bought. */
+  walletCurrency?: string;
   /** The currency every price on this page is quoted and charged in: the
    *  signed-in customer's own currency, or the platform default when
    *  signed out. Never assumed to be Naira. */
@@ -551,7 +555,15 @@ export function BuyPanel({
     : null;
 
   const unavailable = Boolean(unavailableMessage);
-  const affordable = priceKobo !== undefined && walletBalanceKobo >= priceKobo;
+  // The price as it would leave the wallet: converted once, at the same rate
+  // the price is shown at.
+  const priceInWallet =
+    priceKobo === undefined
+      ? undefined
+      : walletCurrency === currency
+        ? priceKobo
+        : (displayMoney?.convert(priceKobo, currency, walletCurrency) ?? undefined);
+  const affordable = priceInWallet !== undefined && walletBalanceKobo >= priceInWallet;
   const canBuy = !unavailable && priceKobo !== undefined && (!signedIn || affordable);
 
   return (
@@ -591,7 +603,7 @@ export function BuyPanel({
           </span>
           <span className="flex items-center gap-3">
             <span className="text-sm font-semibold tabular-nums">
-              <DisplayAmount kobo={walletBalanceKobo} currency={currency} />
+              <DisplayAmount kobo={walletBalanceKobo} currency={walletCurrency} />
             </span>
             <Link
               href={walletHref}
@@ -779,11 +791,14 @@ export function BuyPanel({
         </div>
       ) : null}
 
-      {signedIn && priceKobo !== undefined && !affordable ? (
+      {signedIn && priceInWallet !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            Add {priceText(priceKobo - walletBalanceKobo)} to your wallet to
-            buy this number.
+            Add{" "}
+            {displayMoney
+              ? displayMoney.format(priceInWallet - walletBalanceKobo, walletCurrency)
+              : formatMoney(priceInWallet - walletBalanceKobo, walletCurrency)}{" "}
+            to your wallet to buy this number.
           </p>
           <Button href={walletHref} size="sm" variant="outline">
             Add funds

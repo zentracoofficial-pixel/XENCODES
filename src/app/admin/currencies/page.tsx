@@ -49,10 +49,11 @@ export default async function AdminCurrenciesPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Currencies</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Registration, pricing, the wallet and checkout all use exactly one
-          of these two, based on whether an account is in Nigeria. Ghana, the
-          UK, the US and every other supported country all use USD; none of
-          them get their own wallet currency. (Paying in a local currency is separate; see Local-currency funding below.)
+          Number prices are worked out in Naira from the NGN rate below. Each
+          customer&apos;s wallet is held in the currency they chose (NGN, GHS,
+          KES, XAF, XOF, EGP, TZS or USD), so their balance never moves with
+          exchange rates: a purchase is converted once, at the moment it is
+          bought, and a refund returns exactly what was taken.
         </p>
       </div>
 
@@ -143,10 +144,11 @@ export default async function AdminCurrenciesPage() {
       <div className="pt-2">
         <h2 className="text-lg font-semibold tracking-tight">Local-currency funding</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Customers in these countries can pay in their own currency through KoraPay; the wallet is still credited
-          in Naira, at the rate saved here when they start the payment. Every currency is off until you confirm it
-          is enabled on the Xencodes KoraPay account and save a rate. Only these six exist; there is no way to add
-          others here.
+          Customers can pay in these currencies through KoraPay once each is switched on. Customers see a switched
+          off currency as &ldquo;coming soon&rdquo;. Wallets are held in each customer&apos;s own currency: paying in that same
+          currency credits exactly the amount paid; any other is converted once, when the payment starts. Only
+          switch a currency on after KoraPay has approved it on the Xencodes account. Only these six exist; there
+          is no way to add others here.
         </p>
         {!korapay ? (
           <p className="mt-2 text-sm text-warning">

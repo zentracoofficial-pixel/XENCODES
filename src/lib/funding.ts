@@ -4,6 +4,8 @@ import type { WalletTransaction } from "@/generated/prisma/client";
 import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
 import type { FundingQuote } from "@/lib/funding-currencies";
+import { minorUnitDivisor } from "@/lib/currency";
+import { creditBalanceInTx } from "@/lib/wallet-currency";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -60,22 +62,37 @@ export async function createPendingTopUp(
   /** The admin-approved fee passed on to the customer for this payment (0
    *  when none applies), recorded so the ledger shows what was charged. */
   feeMinor = 0,
+  /** What the wallet is credited, in its own currency, when that is not the
+   *  payment currency: converted when the payment is started and fixed. */
+  credit?: { amountMinor: number; currency: string },
 ): Promise<WalletTransaction> {
   const invalid = validateTopUpAmount(amountKobo, minTopUpMinor, maxTopUpMinor);
   if (invalid) throw new Error(invalid);
 
+  const converted = credit && credit.currency !== currency;
+  if (converted && !(credit.amountMinor > 0)) throw new Error("Invalid wallet credit.");
   return prisma.walletTransaction.create({
     data: {
       userId,
       type: "TOPUP",
-      amountKobo,
-      currency,
+      // The row is what the wallet will be credited, in the wallet's currency;
+      // the payment columns are what the customer is charged.
+      amountKobo: converted ? credit.amountMinor : amountKobo,
+      currency: converted ? credit.currency : currency,
       status: "PENDING",
       provider: FUNDING_PROVIDER.id,
       providerReference: newReference(),
       description: "Wallet top up",
       paymentFeeMinor: feeMinor,
       paymentAmountMinor: amountKobo + feeMinor,
+      ...(converted
+        ? {
+            paymentCurrency: currency,
+            // Units of the payment currency per one unit of the wallet's.
+            fxRate:
+              amountKobo / minorUnitDivisor(currency) / (credit.amountMinor / minorUnitDivisor(credit.currency)),
+          }
+        : {}),
     },
   });
 }
@@ -84,25 +101,27 @@ export async function createPendingTopUp(
  * Records that a customer in another country wants to add money by paying in
  * their own currency, and returns the row.
  *
- * The wallet stays in Naira: amountKobo is what the wallet will be credited
- * (fixed now, from the quote, so a rate change while the customer is paying
- * cannot change it), and the payment* columns record what the customer is
- * actually charged. Like createPendingTopUp() it credits nothing; the row is
+ * amountKobo is what the wallet will be credited, in the wallet's own
+ * currency (fixed now, so a rate change while the customer is paying cannot
+ * change it), and the payment* columns record what the customer is actually
+ * charged. Like createPendingTopUp() it credits nothing; the row is
  * PENDING until KoraPay confirms the payment.
  */
 export async function createPendingLocalTopUp(
   userId: string,
   quote: FundingQuote,
+  /** What the wallet is credited, in the wallet's own currency. */
+  credit: { amountMinor: number; currency: string },
 ): Promise<WalletTransaction> {
-  if (!(quote.creditKobo > 0) || !(quote.totalMinor >= quote.amountMinor)) {
+  if (!(credit.amountMinor > 0) || !(quote.totalMinor >= quote.amountMinor)) {
     throw new Error("Invalid funding quote.");
   }
   return prisma.walletTransaction.create({
     data: {
       userId,
       type: "TOPUP",
-      amountKobo: quote.creditKobo,
-      currency: "NGN",
+      amountKobo: credit.amountMinor,
+      currency: credit.currency,
       status: "PENDING",
       provider: FUNDING_PROVIDER.id,
       providerReference: newReference(),
@@ -179,10 +198,17 @@ export async function completeTopUp(
       return { credited: false, reason: `cannot_complete_from_${current?.status ?? row.status}` };
     }
 
-    await tx.user.update({
-      where: { id: row.userId },
-      data: { walletBalanceKobo: { increment: row.amountKobo } },
-    });
+    // Credited in the wallet's own currency. The row's amount was fixed in
+    // that currency when the payment started; only if the customer moved
+    // their balance to another currency since is it converted, and the row
+    // updated to say what was actually credited.
+    const applied = await creditBalanceInTx(tx, row.userId, row.amountKobo, row.currency);
+    if (applied.converted) {
+      await tx.walletTransaction.update({
+        where: { id: row.id },
+        data: { amountKobo: applied.amountMinor, currency: applied.currency },
+      });
+    }
 
     return { credited: true, walletTransactionId: row.id };
   });
@@ -281,10 +307,7 @@ export async function voidUnverifiedTopup(
       return { voided: false, reason: "not_an_unverified_topup" };
     }
 
-    await tx.user.update({
-      where: { id: row.userId },
-      data: { walletBalanceKobo: { decrement: row.amountKobo } },
-    });
+    await creditBalanceInTx(tx, row.userId, -row.amountKobo, row.currency);
 
     return { voided: true, amountKobo: row.amountKobo, userId: row.userId };
   });
@@ -345,7 +368,7 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
   }
 
   if (charge.status === "success") {
-    if (row.paymentCurrency) {
+    if (row.paymentCurrency && row.paymentCurrency !== "NGN") {
       // A local-currency payment (see createPendingLocalTopUp()). Held to a
       // stricter standard than the Naira path: it is credited only when
       // KoraPay confirms both the currency and the exact amount charged,
@@ -384,9 +407,12 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
       );
       return { state: "still_pending", reason: "amount_mismatch" };
     }
-    if (charge.currency !== undefined && charge.currency !== row.currency) {
+    // A Naira payment into a wallet held in another currency records NGN as
+    // the payment currency; older rows only have the wallet's.
+    const expectedCurrency = row.paymentCurrency ?? row.currency;
+    if (charge.currency !== undefined && charge.currency !== expectedCurrency) {
       console.error(
-        `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${row.currency}".`,
+        `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency}", expected "${expectedCurrency}".`,
       );
       return { state: "still_pending", reason: "currency_mismatch" };
     }

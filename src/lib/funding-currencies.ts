@@ -222,8 +222,7 @@ export type LocalFundingErrorCode =
   | "currency_unavailable"
   | LocalAmountError
   | "rate_unavailable"
-  | "fee_not_configured"
-  | "wallet_currency";
+  | "fee_not_configured";
 
 /** Customer-facing wording for every way a local funding request can be
  *  refused, so the preview and the real request say the same thing. */
@@ -252,8 +251,6 @@ export function localFundingErrorCopy(
     case "not_connected":
     case "rate_unavailable":
       return "This payment option is not available right now. Please try another option or check back soon.";
-    case "wallet_currency":
-      return "Local-currency funding is only available for Naira wallets.";
   }
 }
 

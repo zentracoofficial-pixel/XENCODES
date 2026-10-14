@@ -12,10 +12,14 @@ import {
 } from "@/lib/funding-currencies";
 import { initializeKorapayCharge, KorapayError } from "@/lib/korapay";
 import { changeOwnCountry } from "@/lib/user-country";
+import { convertMinor } from "@/lib/display-currency";
+import { getDisplayRates } from "@/lib/exchange-rates";
+import { walletCurrencyOf } from "@/lib/wallet-currency";
 
 /**
  * Local-currency funding: pay in Cedi, Shilling, CFA or Pound, credited to
- * the Naira wallet. See src/lib/funding-currencies.ts for the rules and
+ * the wallet in the wallet's own currency (exactly the amount paid when the
+ * wallet is in that currency). See src/lib/funding-currencies.ts for the rules and
  * src/lib/funding.ts for the one place a balance moves.
  *
  * Both actions re-derive everything from the server: the currency's admin
@@ -32,9 +36,26 @@ export interface LocalQuoteSummary {
   totalMinor: number;
   ngnPerUnit: number;
   creditKobo: number;
+  /** Exactly what the wallet is credited, in the wallet's own currency. */
+  creditMinor: number;
+  creditCurrency: string;
 }
 
-function summarize(quote: FundingQuote): LocalQuoteSummary {
+/** What a local-currency payment adds to a wallet held in `walletCurrency`:
+ *  the amount paid (before the fee) when the wallet is in the same currency,
+ *  otherwise the quoted Naira credit converted at today's rate. */
+async function walletCredit(
+  walletCurrency: string,
+  quote: FundingQuote,
+): Promise<{ amountMinor: number; currency: string } | null> {
+  const wallet = walletCurrencyOf(walletCurrency);
+  if (wallet === quote.currency) return { amountMinor: quote.amountMinor, currency: wallet };
+  if (wallet === "NGN") return { amountMinor: quote.creditKobo, currency: wallet };
+  const converted = convertMinor(quote.creditKobo, "NGN", wallet, await getDisplayRates());
+  return converted !== null && converted > 0 ? { amountMinor: converted, currency: wallet } : null;
+}
+
+function summarize(quote: FundingQuote, credit: { amountMinor: number; currency: string }): LocalQuoteSummary {
   return {
     currency: quote.currency,
     amountMinor: quote.amountMinor,
@@ -42,6 +63,8 @@ function summarize(quote: FundingQuote): LocalQuoteSummary {
     totalMinor: quote.totalMinor,
     ngnPerUnit: quote.ngnPerUnit,
     creditKobo: quote.creditKobo,
+    creditMinor: credit.amountMinor,
+    creditCurrency: credit.currency,
   };
 }
 
@@ -58,20 +81,28 @@ export interface LocalStartResult extends LocalQuoteResult {
 async function evaluate(
   currency: unknown,
   amountMinor: unknown,
-): Promise<{ error: string } | { quote: FundingQuote; userId: string; email: string; name: string | null }> {
+): Promise<
+  | { error: string }
+  | {
+      quote: FundingQuote;
+      credit: { amountMinor: number; currency: string };
+      userId: string;
+      email: string;
+      name: string | null;
+    }
+> {
   const user = await getActiveUser();
   if (!user) return { error: "Log in to add funds." };
   const code = isFundingCurrencyCode(currency) ? currency : null;
-  if (user.currency !== "NGN") {
-    return { error: localFundingErrorCopy("wallet_currency", code) };
-  }
 
   const result = await quoteLocalFunding({
     currency,
     amountMinor: typeof amountMinor === "number" ? amountMinor : Number.NaN,
   });
   if (!result.ok) return { error: localFundingErrorCopy(result.error, code, result.limits) };
-  return { quote: result.quote, userId: user.id, email: user.email, name: user.name };
+  const credit = await walletCredit(user.currency, result.quote);
+  if (!credit) return { error: localFundingErrorCopy("rate_unavailable", code) };
+  return { quote: result.quote, credit, userId: user.id, email: user.email, name: user.name };
 }
 
 /** What a payment would cost and credit, for the summary shown before the
@@ -82,7 +113,7 @@ export async function previewLocalFundingAction(
 ): Promise<LocalQuoteResult> {
   const checked = await evaluate(currency, amountMinor);
   if ("error" in checked) return { error: checked.error };
-  return { quote: summarize(checked.quote) };
+  return { quote: summarize(checked.quote, checked.credit) };
 }
 
 /**
@@ -98,7 +129,7 @@ export async function startLocalTopUpAction(
   const checked = await evaluate(currency, amountMinor);
   if ("error" in checked) return { error: checked.error };
 
-  const pending = await createPendingLocalTopUp(checked.userId, checked.quote);
+  const pending = await createPendingLocalTopUp(checked.userId, checked.quote, checked.credit);
   const reference = pending.providerReference;
   if (!reference) return { error: "We could not start checkout. Nothing was charged; please try again." };
 
@@ -111,7 +142,7 @@ export async function startLocalTopUpAction(
       name: checked.name,
     });
     revalidatePath("/dashboard/wallet");
-    return { reference, checkoutUrl, quote: summarize(checked.quote) };
+    return { reference, checkoutUrl, quote: summarize(checked.quote, checked.credit) };
   } catch (error) {
     console.error(`[wallet] KoraPay local checkout failed to start for ${reference}:`, error);
     await settleFailedTopUp(

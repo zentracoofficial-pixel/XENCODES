@@ -162,9 +162,10 @@ export default function AboutPage() {
                 <p>
                   Xencodes uses a pay-as-you-go wallet: you add funds once, then
                   spend them a number at a time with no subscription and no
-                  minimum commitment. You can fund it through KoraPay in Naira (card,
-                  bank transfer or USSD) or with mobile money in Cedi, Kenyan or
-                  Tanzanian Shilling, CFA franc or Egyptian Pound.
+                  minimum commitment. You fund it through KoraPay (card, bank
+                  transfer or USSD), and your balance is kept in your own
+                  currency, so it stays the same however exchange rates move.
+                  Mobile money in other currencies is coming soon.
                   See{" "}
                   <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
                     how pricing works

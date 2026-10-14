@@ -20,6 +20,7 @@ export function CurrencySettings() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editingCountry, setEditingCountry] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   // Shown straight away after a save, before the refreshed page arrives.
   const [justSaved, setJustSaved] = useState<string | null>(null);
   if (!money) return null;
@@ -81,8 +82,8 @@ export function CurrencySettings() {
             {usingPreference
               ? `Your choice. The default for your country is ${defaultCurrency.code}.`
               : `Automatic: the default for ${countryLabel ?? "your location"} is ${defaultCurrency.code}.`}{" "}
-            Your prices, balance and history are shown in this currency, and the wallet starts on it so you can pay
-            in it.
+            Your wallet is held in this currency, so your balance stays exactly the same when exchange rates
+            move. Choosing another currency moves your balance to it once, at that day&apos;s rate.
           </p>
           {usingPreference ? (
             <button
@@ -90,7 +91,8 @@ export function CurrencySettings() {
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
-                  await setDisplayCurrencyAction(null);
+                  const result = await setDisplayCurrencyAction(null);
+                  setRestoreError(result.error ?? null);
                   router.refresh();
                 })
               }
@@ -99,6 +101,7 @@ export function CurrencySettings() {
               Restore my country&apos;s default ({defaultCurrency.code})
             </button>
           ) : null}
+          {restoreError ? <p className="mt-2 text-xs text-danger">{restoreError}</p> : null}
         </div>
       </div>
     </div>

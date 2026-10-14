@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { convertMinor } from "@/lib/display-currency";
+import { getDisplayRates } from "@/lib/exchange-rates";
+import { DISPLAY_CURRENCY_CODES } from "@/lib/currency-meta";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -202,11 +205,19 @@ export async function resolveAudience(
       });
     }
 
-    case "low_balance":
+    case "low_balance": {
+      // The threshold is in Naira; a wallet held in another currency is
+      // compared against the same amount converted at today's rate.
+      const rates = await getDisplayRates();
+      const perCurrency = DISPLAY_CURRENCY_CODES.flatMap((currency) => {
+        const threshold = convertMinor(segment.thresholdKobo, "NGN", currency, rates);
+        return threshold === null ? [] : [{ currency, walletBalanceKobo: { lt: threshold } }];
+      });
       return prisma.user.findMany({
-        where: { ...LIVE_USER, walletBalanceKobo: { lt: segment.thresholdKobo } },
+        where: { ...LIVE_USER, OR: perCurrency },
         select: { id: true, email: true },
       });
+    }
 
     case "inactive_login":
       return prisma.user.findMany({

@@ -33,6 +33,7 @@ export function AddFunds({
   minTopUpMinor,
   maxTopUpMinor,
   fundingProvider,
+  walletCurrency,
   embedded = false,
 }: {
   /** ISO 4217, the account's own currency. Every amount here is in this
@@ -45,6 +46,9 @@ export function AddFunds({
    *  real payment in this currency yet, so the form itself is not shown at
    *  all rather than accepting an amount it could never actually collect. */
   fundingProvider: string | null;
+  /** The currency the wallet is held in. A payment in another currency is
+   *  converted once, when it is started, and that exact amount is credited. */
+  walletCurrency: string;
   /** Rendered inside the funding card, which supplies the heading. */
   embedded?: boolean;
 }) {
@@ -58,11 +62,13 @@ export function AddFunds({
     amountKobo: number;
     feeKobo: number;
     totalChargedKobo: number;
+    creditMinor: number;
   } | null>(null);
   const [checkout, setCheckout] = useState<{
     url: string;
     amountKobo: number;
     totalChargedKobo: number;
+    creditMinor: number;
   } | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -104,6 +110,7 @@ export function AddFunds({
   const [preview, setPreview] = useState<{
     amountKobo: number;
     feeKobo: number;
+    creditMinor: number | null;
     error: string | null;
   } | null>(null);
   const latestPreview = useRef(0);
@@ -113,13 +120,19 @@ export function AddFunds({
       previewTopUpAction(amountKobo)
         .then((answer) => {
           if (latestPreview.current !== amountKobo) return;
-          setPreview({ amountKobo, feeKobo: answer.feeKobo ?? 0, error: answer.error ?? null });
+          setPreview({
+            amountKobo,
+            feeKobo: answer.feeKobo ?? 0,
+            creditMinor: answer.creditMinor ?? null,
+            error: answer.error ?? null,
+          });
         })
         .catch(() => {
           if (latestPreview.current !== amountKobo) return;
           setPreview({
             amountKobo,
             feeKobo: 0,
+            creditMinor: null,
             error: "We could not work out the total just now. Check your connection and try again.",
           });
         });
@@ -147,6 +160,7 @@ export function AddFunds({
           url: result.checkoutUrl,
           amountKobo: result.amountKobo ?? amountKobo,
           totalChargedKobo: result.totalChargedKobo ?? result.amountKobo ?? amountKobo,
+          creditMinor: result.creditMinor ?? result.amountKobo ?? amountKobo,
         });
         return;
       }
@@ -156,6 +170,7 @@ export function AddFunds({
           amountKobo: result.amountKobo,
           feeKobo: result.feeKobo ?? 0,
           totalChargedKobo: result.totalChargedKobo ?? result.amountKobo,
+          creditMinor: result.creditMinor ?? result.amountKobo,
         });
         setAmount("");
       }
@@ -231,8 +246,10 @@ export function AddFunds({
         </p>
         <ExactAmount
           totalMinor={checkout.totalChargedKobo}
-          creditedMinor={checkout.amountKobo}
+          creditedMinor={checkout.creditMinor}
+          creditedCurrency={walletCurrency}
           currency={currency}
+          hasFee={checkout.totalChargedKobo > checkout.amountKobo}
         />
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -256,7 +273,7 @@ export function AddFunds({
       <section className={shell}>
         <h2 className="text-sm font-semibold">Funding request created</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          A pending top up of {formatMoney(pendingRef.amountKobo, currency)} is on your
+          A pending top up of {formatMoney(pendingRef.creditMinor, walletCurrency)} is on your
           account. Your balance has not changed, and will not change until a
           payment is received and confirmed.
         </p>
@@ -346,8 +363,10 @@ export function AddFunds({
       {previewReady ? (
         <ExactAmount
           totalMinor={amountKobo + previewFeeKobo}
-          creditedMinor={amountKobo}
+          creditedMinor={currentPreview?.creditMinor ?? amountKobo}
+          creditedCurrency={currentPreview?.creditMinor != null ? walletCurrency : currency}
           currency={currency}
+          hasFee={hasFee}
         />
       ) : null}
 
