@@ -5,6 +5,8 @@ import { requireAdmin } from "@/lib/admin";
 import { recordAudit } from "@/lib/audit";
 import { majorToMinor } from "@/lib/currency";
 import { updateCurrencySettings, type CurrencyCode } from "@/lib/currency-config";
+import { readFundingStates, saveFundingState } from "@/lib/funding-config";
+import { isFundingCurrencyCode } from "@/lib/funding-currencies";
 
 function refresh() {
   revalidatePath("/admin/currencies");
@@ -79,6 +81,76 @@ export async function saveCurrencyAction(
       minTopUpMinor,
       maxTopUpMinor,
       feeCapMinor,
+    },
+  });
+
+  refresh();
+  return { success: true };
+}
+
+export interface FundingCurrencyFormState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * Saves one local funding currency (GHS, KES, XAF, XOF, EGP, TZS): switched
+ * on or off, its exchange rate against USD, its processing fee and limits.
+ * Enabling needs a rate and an explicit confirmation that the payment method
+ * is already enabled on the Xencodes KoraPay account, so a currency cannot
+ * be shown to customers on the strength of this file's own defaults.
+ */
+export async function saveFundingCurrencyAction(
+  _prev: FundingCurrencyFormState,
+  formData: FormData,
+): Promise<FundingCurrencyFormState> {
+  const admin = await requireAdmin();
+
+  const code = (formData.get("code") as string)?.trim().toUpperCase();
+  if (!isFundingCurrencyCode(code)) return { error: "Unknown currency." };
+
+  const enabled = formData.get("enabled") === "on";
+  const confirmed = formData.get("confirmed") === "on";
+  const usdRate = Number(formData.get("usdRate"));
+  const feePercent = Number(formData.get("feePercent"));
+  const minMinor = majorToMinor(Number(formData.get("minAmount")), code);
+  const maxMinor = majorToMinor(Number(formData.get("maxAmount")), code);
+
+  if (enabled && !confirmed) {
+    return {
+      error: `Confirm that ${code} payments are enabled on the Xencodes KoraPay account before switching this on.`,
+    };
+  }
+  if (enabled && !(Number.isFinite(usdRate) && usdRate > 0)) {
+    return { error: "Enter this currency's exchange rate (units per 1 USD) before switching it on." };
+  }
+  if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 50) {
+    return { error: "The processing fee must be between 0 and 50 percent." };
+  }
+  if (!Number.isFinite(minMinor) || !Number.isFinite(maxMinor) || minMinor <= 0 || maxMinor < minMinor) {
+    return { error: "Enter a positive minimum and a maximum that is not below it." };
+  }
+
+  const before = (await readFundingStates())[code];
+  const result = await saveFundingState(code, {
+    enabled,
+    usdRate: Number.isFinite(usdRate) && usdRate > 0 ? usdRate : 0,
+    feePercent,
+    minMinor,
+    maxMinor,
+  });
+  if (!result.ok) return { error: "Those settings were not accepted. Check the rate, fee and limits." };
+
+  await recordAudit({
+    actor: admin,
+    action: "funding_currency.save",
+    targetType: "funding_currency",
+    targetId: code,
+    metadata: {
+      code,
+      before: { enabled: before.enabled, usdRate: before.usdRate, feePercent: before.feePercent, minMinor: before.minMinor, maxMinor: before.maxMinor },
+      after: { enabled, usdRate: usdRate > 0 ? usdRate : null, feePercent, minMinor, maxMinor },
+      korapayConfirmed: enabled ? confirmed : null,
     },
   });
 

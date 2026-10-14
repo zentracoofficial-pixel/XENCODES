@@ -5,6 +5,10 @@ import { requireAdmin } from "@/lib/admin";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { minorUnitDivisor } from "@/lib/currency";
 import { CurrencyForm } from "./currency-form";
+import { FundingCurrencyForm } from "./funding-currency-form";
+import { readFundingStates, isFundingStateUsable, isRateStale } from "@/lib/funding-config";
+import { FUNDING_CURRENCY_CODES, FUNDING_CURRENCIES } from "@/lib/funding-currencies";
+import { isKorapayConfigured } from "@/lib/korapay";
 
 export const metadata: Metadata = { title: "Admin: Currencies" };
 
@@ -25,7 +29,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminCurrenciesPage() {
   await requireAdmin();
 
-  const config = await readCurrencyConfig();
+  const [config, fundingStates] = await Promise.all([readCurrencyConfig(), readFundingStates()]);
+  const ngnRate = config.find((c) => c.code === "NGN")?.usdRate ?? 0;
+  const korapay = isKorapayConfigured();
 
   return (
     <div className="space-y-5">
@@ -35,7 +41,7 @@ export default async function AdminCurrenciesPage() {
           Registration, pricing, the wallet and checkout all use exactly one
           of these two, based on whether an account is in Nigeria. Ghana, the
           UK, the US and every other supported country all use USD; none of
-          them get their own local currency here.
+          them get their own wallet currency. (Paying in a local currency is separate; see Local-currency funding below.)
         </p>
       </div>
 
@@ -79,6 +85,63 @@ export default async function AdminCurrenciesPage() {
             </div>
           </Card>
         ))}
+      </div>
+
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold tracking-tight">Local-currency funding</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Customers in these countries can pay in their own currency through KoraPay; the wallet is still credited
+          in Naira, at the rate saved here when they start the payment. Every currency is off until you confirm it
+          is enabled on the Xencodes KoraPay account and save a rate. Only these six exist; there is no way to add
+          others here.
+        </p>
+        {!korapay ? (
+          <p className="mt-2 text-sm text-warning">
+            KoraPay is not connected on this deployment, so no local currency is offered to customers.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-4">
+        {FUNDING_CURRENCY_CODES.map((code) => {
+          const meta = FUNDING_CURRENCIES[code];
+          const state = fundingStates[code];
+          const divisor = minorUnitDivisor(code);
+          const live = korapay && isFundingStateUsable(state);
+          const stale = isRateStale(state);
+          return (
+            <Card key={code} className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  {code}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {meta.countries.map((c) => c.name).join(", ")} · {meta.methods.join(", ")}
+                  </span>
+                </h3>
+                <Badge variant={live ? "success" : "warning"}>{live ? "Offered to customers" : "Off"}</Badge>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {state.usdRate && ngnRate
+                  ? `1 ${code} = ₦${(ngnRate / state.usdRate).toFixed(4)} at the saved rates.`
+                  : "No rate saved yet."}
+                {state.rateUpdatedAt ? ` Rate set ${new Date(state.rateUpdatedAt).toLocaleDateString("en-GB")}.` : ""}
+                {stale ? " This rate is over a week old; check it against the market." : ""}
+              </p>
+              <div className="mt-3">
+                <FundingCurrencyForm
+                  code={code}
+                  values={{
+                    enabled: state.enabled,
+                    usdRate: state.usdRate,
+                    feePercent: state.feePercent,
+                    minAmount: state.minMinor / divisor,
+                    maxAmount: state.maxMinor / divisor,
+                  }}
+                />
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );

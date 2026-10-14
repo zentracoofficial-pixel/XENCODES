@@ -17,7 +17,13 @@ import {
   DEFAULT_TOPUP_FEE_PERCENT,
 } from "@/lib/settings";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
-import { AddFunds } from "./add-funds";
+import { getFundingOptions } from "@/lib/funding-config";
+import { FundWallet, type LocalOption } from "./fund-wallet";
+import {
+  FUNDING_CURRENCIES,
+  formatFundingAmount,
+  isFundingCurrencyCode,
+} from "@/lib/funding-currencies";
 import { reconcileStalePendingTopUpsAction } from "./actions";
 
 export const metadata: Metadata = { title: "Wallet" };
@@ -65,6 +71,15 @@ export default async function WalletPage() {
 
   const currency =
     (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+  const fundingOptions = await getFundingOptions(user.country);
+  const localOptions: LocalOption[] = fundingOptions.map(({ code, state }) => ({
+    code,
+    name: FUNDING_CURRENCIES[code].name,
+    symbol: FUNDING_CURRENCIES[code].symbol,
+    methods: FUNDING_CURRENCIES[code].methods,
+    minMinor: state.minMinor,
+    maxMinor: state.maxMinor,
+  }));
   const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
 
   return (
@@ -86,13 +101,18 @@ export default async function WalletPage() {
       </div>
 
       <Suspense fallback={null}>
-        <AddFunds
-          currency={currency.code}
-          minTopUpMinor={currency.minTopUpMinor}
-          maxTopUpMinor={currency.maxTopUpMinor}
-          feePercent={feePercent}
-          feeCapKobo={currency.feeCapMinor}
-          fundingProvider={currency.fundingProvider}
+        <FundWallet
+          walletCurrency={user.currency}
+          options={localOptions}
+          savedCountry={user.country}
+          naira={{
+            currency: currency.code,
+            minTopUpMinor: currency.minTopUpMinor,
+            maxTopUpMinor: currency.maxTopUpMinor,
+            feePercent,
+            feeCapKobo: currency.feeCapMinor,
+            fundingProvider: currency.fundingProvider,
+          }}
         />
       </Suspense>
 
@@ -137,6 +157,14 @@ export default async function WalletPage() {
                         ? tx.description
                         : `${tx.description}, payment failed`}
                     </p>
+                    {tx.paymentCurrency &&
+                    isFundingCurrencyCode(tx.paymentCurrency) &&
+                    tx.paymentAmountMinor !== null ? (
+                      <p className="truncate text-xs text-muted-foreground">
+                        Paid {formatFundingAmount(tx.paymentAmountMinor, tx.paymentCurrency)}
+                        {tx.fxRate ? ` at 1 ${tx.paymentCurrency} = ${formatMoney(Math.round(tx.fxRate * 100), "NGN")}` : ""}
+                      </p>
+                    ) : null}
                   </div>
 
                   <time

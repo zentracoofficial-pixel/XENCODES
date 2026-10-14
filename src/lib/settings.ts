@@ -53,6 +53,9 @@ export const SETTING_KEYS = {
    *  hold is recoverable from the legacy usd_to_ngn_rate/topup_fee_cap_kobo
    *  fallback below. */
   currencyConfig: "currency_config_v2",
+  /** Admin state for the six local funding currencies (enabled, rate, fee,
+   *  limits), one JSON object keyed by currency code. */
+  fundingCurrencies: "funding_currencies_v1",
   /** Wallet balance, in NGN kobo, at or below which the dashboard shows a
    *  low-balance warning. Deliberately its own simple numeric setting
    *  rather than folded into currency_config_v2: it is a UX nudge, not a

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
 import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
+import type { FundingQuote } from "@/lib/funding-currencies";
 
 /**
  * Wallet funding: asking for money, and the one path by which receiving it
@@ -75,6 +76,41 @@ export async function createPendingTopUp(
 }
 
 /**
+ * Records that a customer in another country wants to add money by paying in
+ * their own currency, and returns the row.
+ *
+ * The wallet stays in Naira: amountKobo is what the wallet will be credited
+ * (fixed now, from the quote, so a rate change while the customer is paying
+ * cannot change it), and the payment* columns record what the customer is
+ * actually charged. Like createPendingTopUp() it credits nothing; the row is
+ * PENDING until KoraPay confirms the payment.
+ */
+export async function createPendingLocalTopUp(
+  userId: string,
+  quote: FundingQuote,
+): Promise<WalletTransaction> {
+  if (!(quote.creditKobo > 0) || !(quote.totalMinor >= quote.amountMinor)) {
+    throw new Error("Invalid funding quote.");
+  }
+  return prisma.walletTransaction.create({
+    data: {
+      userId,
+      type: "TOPUP",
+      amountKobo: quote.creditKobo,
+      currency: "NGN",
+      status: "PENDING",
+      provider: FUNDING_PROVIDER.id,
+      providerReference: newReference(),
+      description: "Wallet top up",
+      paymentCurrency: quote.currency,
+      paymentAmountMinor: quote.totalMinor,
+      paymentFeeMinor: quote.feeMinor,
+      fxRate: quote.ngnPerUnit,
+    },
+  });
+}
+
+/**
  * Credits a verified payment, exactly once.
  *
  * This is the only function in the codebase permitted to increase a wallet
@@ -92,6 +128,8 @@ export async function createPendingTopUp(
 export async function completeTopUp(
   providerReference: string,
   providerTransactionId?: string,
+  /** How the customer paid, when the provider says. Recorded on the row. */
+  paymentMethod?: string,
 ): Promise<{ credited: boolean; reason?: string }> {
   const result = await prisma.$transaction(async (tx) => {
     const row = await tx.walletTransaction.findUnique({
@@ -115,6 +153,7 @@ export async function completeTopUp(
         status: "SUCCESSFUL",
         completedAt: new Date(),
         providerTransactionId: providerTransactionId ?? row.providerTransactionId,
+        ...(paymentMethod ? { paymentMethod } : {}),
       },
     });
 
@@ -283,6 +322,28 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
   }
 
   if (charge.status === "success") {
+    if (row.paymentCurrency) {
+      // A local-currency payment (see createPendingLocalTopUp()). Held to a
+      // stricter standard than the Naira path: it is credited only when
+      // KoraPay confirms both the currency and the exact amount charged,
+      // and anything it does not state is treated as unconfirmed, not
+      // assumed. Left PENDING for an admin to review otherwise.
+      if (charge.currency !== row.paymentCurrency) {
+        console.error(
+          `[funding] refusing to credit ${providerReference}: KoraPay confirmed currency "${charge.currency ?? "none"}", expected "${row.paymentCurrency}".`,
+        );
+        return { state: "still_pending", reason: "currency_mismatch" };
+      }
+      if (charge.paidAmountMinor === undefined || charge.paidAmountMinor !== row.paymentAmountMinor) {
+        console.error(
+          `[funding] refusing to credit ${providerReference}: KoraPay confirmed ${charge.paidAmountMinor ?? "no amount"} but the request was for ${row.paymentAmountMinor} ${row.paymentCurrency} (minor units).`,
+        );
+        return { state: "still_pending", reason: "amount_mismatch" };
+      }
+      const local = await completeTopUp(providerReference, charge.providerTransactionId, charge.paymentMethod);
+      return { state: local.credited || local.reason === "already_credited" ? "credited" : "failed" };
+    }
+
     // Best-effort cross-check: only compared when KoraPay's response
     // actually includes the field (see ChargeStatusResult's own comment on
     // why this is optional rather than assumed). A confirmed mismatch is
