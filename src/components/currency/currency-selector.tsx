@@ -155,7 +155,7 @@ export function CurrencySelector({
 
           <div className="mt-1 border-t border-border px-2.5 pb-1.5 pt-2 text-[11px] leading-relaxed text-muted-foreground">
             <p>
-              Prices and funding switch to this currency. Your balance is held in ₦; converted amounts are marked ≈.
+              Prices, your balance and funding all switch to this currency.
             </p>
             {context.rates.stale ? (
               <p className="mt-1 text-warning">

@@ -162,8 +162,9 @@ export default function AboutPage() {
                 <p>
                   Xencodes uses a pay-as-you-go wallet: you add funds once, then
                   spend them a number at a time with no subscription and no
-                  minimum commitment. Funding is currently supported in Nigerian
-                  Naira (NGN) through KoraPay, by card, bank transfer or USSD.
+                  minimum commitment. You can fund it through KoraPay in Naira (card,
+                  bank transfer or USSD) or with mobile money in Cedi, Kenyan or
+                  Tanzanian Shilling, CFA franc or Egyptian Pound.
                   See{" "}
                   <Link href="/pricing" className="text-forest underline-offset-4 hover:underline">
                     how pricing works

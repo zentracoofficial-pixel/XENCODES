@@ -7,15 +7,13 @@ import { UnavailableNotice } from "@/components/product/unavailable-notice";
 import { PageHero } from "@/components/marketing/page-hero";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { getInventoryStatus, countServices } from "@/lib/inventory";
-import { formatMoney } from "@/lib/currency";
-import { getVisitorCurrency } from "@/lib/currency-config";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Pay as you go pricing for virtual numbers, in Nigerian Naira. You pay per number, the price depends on the service and country, and no code means no charge.",
+    "Pay as you go pricing for virtual numbers, shown in your own currency. You pay per number, the price depends on the service and country, and no code means no charge.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -46,10 +44,9 @@ const FACTORS = [
  * question the buy page already answers correctly.
  */
 export default async function PricingPage() {
-  const [status, serviceCount, visitorCurrency] = await Promise.all([
+  const [status, serviceCount] = await Promise.all([
     getInventoryStatus(),
     countServices().catch(() => 0),
-    getVisitorCurrency(),
   ]);
 
   return (
@@ -112,9 +109,8 @@ export default async function PricingPage() {
             <div>
               <h2 className="font-semibold">Top up what you want</h2>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                {visitorCurrency.fundingProvider
-                  ? `There are no fixed funding packages. Add any amount from ${formatMoney(visitorCurrency.minTopUpMinor, visitorCurrency.code)} and spend it a number at a time.`
-                  : `Xencodes prices in ${visitorCurrency.code} for accounts outside Nigeria; funding is not connected for ${visitorCurrency.code} yet, so you can browse and see prices ahead of it going live.`}
+                There are no fixed funding packages. Add any amount, in Naira or with mobile money in Cedi, Shilling,
+                CFA franc or Egyptian Pound, and spend it a number at a time.
               </p>
             </div>
           </div>

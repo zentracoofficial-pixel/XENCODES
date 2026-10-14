@@ -192,11 +192,6 @@ export default async function ServiceDetailPage({
                   </li>
                 ))}
               </ul>
-              {displayContext.display !== "NGN" ? (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Prices are converted for display (≈). Numbers are charged in Naira from your Xencodes wallet.
-                </p>
-              ) : null}
             </section>
           ) : null}
 

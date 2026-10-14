@@ -10,12 +10,13 @@ import {
 /**
  * Display currency: what prices are SHOWN in. Pure and client-safe.
  *
- * The wallet is held and charged in Naira. Showing a price in dollars or
- * cedis is a conversion for reading only: it never changes a balance, a
- * charge or a ledger row, and it is always labelled as converted. Every
- * conversion goes Naira -> USD (at the platform's own Naira rate, so a
- * dollar price and its Naira price always agree) -> the display currency (at
- * the exchange rate in `DisplayRates`).
+ * Amounts are stored in one internal unit of account (Naira minor units) and
+ * shown to each customer in the currency they chose. Every conversion goes
+ * stored amount -> USD (at the platform's own rate, the same one prices are
+ * built from, so it cancels out) -> the chosen currency at the market rate in
+ * `DisplayRates`. Because prices, the balance, charges and funding credits
+ * all use the same rates, a customer in Ghana sees one consistent set of
+ * cedi amounts and never needs to see the internal unit.
  */
 
 /** Units of each currency per 1 USD, plus how fresh they are. */
@@ -60,9 +61,12 @@ export function convertNgnMinor(
 }
 
 /**
- * A Naira amount formatted for display. Naira stays exactly as stored. Any
- * other currency is prefixed "≈" to mark it as a converted figure, and falls
- * back to the Naira amount itself if there is no rate to convert with.
+ * An amount formatted in the customer's chosen currency. Balances, prices
+ * and charges are kept internally in one unit of account (Naira minor units)
+ * and every figure a customer sees is converted from it at the same rate at
+ * the same moment, so prices, balance and charges always agree with each
+ * other in whatever currency they chose. Falls back to the stored amount
+ * only if there is no rate at all to convert with.
  */
 export function formatNgnForDisplay(
   ngnMinor: number,
@@ -72,15 +76,24 @@ export function formatNgnForDisplay(
   if (display === "NGN") return formatMoney(ngnMinor, "NGN");
   const converted = convertNgnMinor(ngnMinor, display, rates);
   if (converted === null) return formatMoney(ngnMinor, "NGN");
-  // Nothing is approximate about zero.
-  if (ngnMinor === 0) return formatMoney(0, display);
-  return `≈${formatMoney(converted, display)}`;
+  return formatMoney(converted, display);
 }
 
-/** What is actually charged, for the line that discloses it beside a
- *  converted price. */
-export function chargedInNgnLabel(ngnMinor: number): string {
-  return `Charged as ${formatMoney(ngnMinor, "NGN")} from your Naira wallet`;
+/**
+ * An amount the customer saw at the time (a purchase price recorded with its
+ * currency) when it is in the currency they are viewing now, otherwise the
+ * stored amount converted at today's rate.
+ */
+export function formatRecordedForDisplay(
+  ngnMinor: number,
+  recorded: { currency: string | null; minor: number | null } | null | undefined,
+  display: DisplayCurrencyCode,
+  rates: DisplayRates,
+): string {
+  if (recorded && recorded.currency === display && recorded.minor !== null) {
+    return formatMoney(recorded.minor, display);
+  }
+  return formatNgnForDisplay(ngnMinor, display, rates);
 }
 
 export interface DisplayChoice {

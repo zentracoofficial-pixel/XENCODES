@@ -40,6 +40,9 @@ export interface ActivationState {
   priceKobo: number;
   /** ISO 4217; the currency priceKobo is denominated in. */
   currency: string;
+  /** The price as the customer saw it at purchase, when that was not Naira. */
+  displayCurrency?: string | null;
+  displayPriceMinor?: number | null;
   status: "WAITING" | "RECEIVED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
   code: string | null;
   expiresAt: string;
@@ -55,6 +58,8 @@ interface ActivationRow {
   phoneNumber: string;
   priceKobo: number;
   currency: string;
+  displayCurrency?: string | null;
+  displayPriceMinor?: number | null;
   status: string;
   code: string | null;
   expiresAt: Date;
@@ -71,6 +76,8 @@ export function toActivationState(activation: ActivationRow): ActivationState {
     phoneNumber: activation.phoneNumber,
     priceKobo: activation.priceKobo,
     currency: activation.currency,
+    displayCurrency: activation.displayCurrency ?? null,
+    displayPriceMinor: activation.displayPriceMinor ?? null,
     status: activation.status as ActivationState["status"],
     code: activation.code,
     expiresAt: activation.expiresAt.toISOString(),

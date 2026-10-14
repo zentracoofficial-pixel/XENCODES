@@ -466,12 +466,11 @@ export function BuyPanel({
 
   // The server returns popular services first, so grouping is a matter of
   // labelling the run rather than reordering anything here.
-  // Prices are shown in the customer's display currency (converted, marked
-  // with ≈); what is actually charged is always Naira, disclosed beside the
-  // final price below.
+  // Every price, the balance and the shortfall are shown in the customer's
+  // chosen currency, all converted at the same rate so they agree.
   const displayMoney = useDisplayMoney();
   const priceText = (kobo: number) =>
-    displayMoney && currency === "NGN" ? displayMoney.format(kobo) : formatMoney(kobo, currency);
+    displayMoney ? displayMoney.format(kobo, currency) : formatMoney(kobo, currency);
 
   const serviceOptions: ComboboxOption[] = services.map((item) => ({
     value: item.slug,
@@ -592,7 +591,7 @@ export function BuyPanel({
           </span>
           <span className="flex items-center gap-3">
             <span className="text-sm font-semibold tabular-nums">
-              <DisplayAmount kobo={walletBalanceKobo} currency={currency} naira="inline" />
+              <DisplayAmount kobo={walletBalanceKobo} currency={currency} />
             </span>
             <Link
               href={walletHref}
@@ -730,11 +729,6 @@ export function BuyPanel({
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums">
                   {priceText(priceKobo)}
                 </p>
-                {displayMoney?.converted ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Converted for display. Charged as {formatMoney(priceKobo, currency)} from your Naira wallet.
-                  </p>
-                ) : null}
               </div>
               <div className="pb-1 text-right">
                 {country.recommended ? (
@@ -788,7 +782,7 @@ export function BuyPanel({
       {signedIn && priceKobo !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            Add {displayMoney && currency === "NGN" ? displayMoney.withNaira(priceKobo - walletBalanceKobo) : formatMoney(priceKobo - walletBalanceKobo, currency)} to your wallet to
+            Add {priceText(priceKobo - walletBalanceKobo)} to your wallet to
             buy this number.
           </p>
           <Button href={walletHref} size="sm" variant="outline">

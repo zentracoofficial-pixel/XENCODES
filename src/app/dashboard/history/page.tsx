@@ -110,7 +110,7 @@ export default async function HistoryPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} align="end" />
+                    <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} recorded={{ currency: activation.displayCurrency, minor: activation.displayPriceMinor }} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {activation.createdAt.toLocaleString("en-NG", dateFormat)}
@@ -181,7 +181,7 @@ export default async function HistoryPage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Price</dt>
                     <dd className="mt-0.5 tabular-nums">
-                      <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} />
+                      <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} recorded={{ currency: activation.displayCurrency, minor: activation.displayPriceMinor }} />
                     </dd>
                   </div>
                 </dl>

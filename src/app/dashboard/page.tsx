@@ -5,7 +5,9 @@ import { ArrowRight, Plus, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatPhoneNumber } from "@/lib/currency";
+import { formatMoney, formatPhoneNumber } from "@/lib/currency";
+import { convertNgnMinor } from "@/lib/display-currency";
+import { getDisplayContext } from "@/lib/display-preference";
 import { ActivationLogo } from "./activation-logo";
 import { reconcileActivation } from "@/lib/activation-lifecycle";
 import { getRecentActivity } from "@/lib/recent-activity";
@@ -75,6 +77,29 @@ export default async function DashboardPage() {
     ]);
 
   const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
+
+  // Total spent, added up from the prices the customer saw for each number
+  // (recorded at purchase), so it matches their history line by line.
+  const displayContext = await getDisplayContext();
+  let totalSpentLabel: React.ReactNode = <DisplayAmount kobo={deliveredAgg._sum.priceKobo ?? 0} currency={user.currency} />;
+  if (displayContext.display !== "NGN" && user.currency === "NGN") {
+    const delivered = await prisma.activation.findMany({
+      where: { userId, status: "RECEIVED" },
+      select: { priceKobo: true, displayCurrency: true, displayPriceMinor: true },
+    });
+    let sum = 0;
+    let complete = true;
+    for (const row of delivered) {
+      if (row.displayCurrency === displayContext.display && row.displayPriceMinor !== null) {
+        sum += row.displayPriceMinor;
+      } else {
+        const converted = convertNgnMinor(row.priceKobo, displayContext.display, displayContext.rates);
+        if (converted === null) complete = false;
+        else sum += converted;
+      }
+    }
+    if (complete) totalSpentLabel = formatMoney(sum, displayContext.display);
+  }
   const showLowBalanceWarning = shouldShowLowBalanceWarning(
     user.walletBalanceKobo,
     lowBalanceThreshold,
@@ -142,11 +167,7 @@ export default async function DashboardPage() {
           <div>
             <p className="text-xs text-white/70">Wallet balance</p>
             <p className="mt-0.5 text-xl font-semibold tabular-nums">
-              <DisplayAmount
-                kobo={user.walletBalanceKobo}
-                currency={user.currency}
-                nairaClassName="mt-0.5 text-xs text-white/70"
-              />
+              <DisplayAmount kobo={user.walletBalanceKobo} currency={user.currency} />
             </p>
             {/* An empty wallet is stated plainly here rather than left for
                 the customer to discover at the moment they try to buy. */}
@@ -196,7 +217,7 @@ export default async function DashboardPage() {
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <DashboardStat
             label="Total spent"
-            value={<DisplayAmount kobo={deliveredAgg._sum.priceKobo ?? 0} currency={user.currency} />}
+            value={totalSpentLabel}
           />
           <DashboardStat label="Successful purchases" value={deliveredAgg._count} />
           <DashboardStat label="SMS received" value={smsReceivedCount} />

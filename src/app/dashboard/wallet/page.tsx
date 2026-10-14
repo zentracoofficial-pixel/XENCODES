@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatMoney } from "@/lib/currency";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { getFundingOptions } from "@/lib/funding-config";
 import { getDisplayContext } from "@/lib/display-preference";
@@ -64,9 +63,24 @@ export default async function WalletPage() {
     }),
   ]);
 
-  const currency =
-    (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
-  const displayContext = await getDisplayContext();
+  // The price each purchase was shown at, so purchases and their refunds in
+  // this list show what the customer actually saw. Top-ups show what they
+  // added to the balance, converted the same way the balance is.
+  const activationIds = transactions.map((tx) => tx.activationId).filter((id): id is string => Boolean(id));
+  const [currencyConfig, shownRows, displayContext] = await Promise.all([
+    getCurrencyConfig(user.currency),
+    activationIds.length
+      ? prisma.activation.findMany({
+          where: { id: { in: activationIds }, userId },
+          select: { id: true, displayCurrency: true, displayPriceMinor: true },
+        })
+      : Promise.resolve([]),
+    getDisplayContext(),
+  ]);
+  const currency = currencyConfig ?? (await getDefaultCurrency());
+  const shownPrices = new Map(
+    shownRows.map((a) => [a.id, { currency: a.displayCurrency, minor: a.displayPriceMinor }]),
+  );
   // Every currency an admin has switched on; any customer may pay in any of
   // them, and the server checks the currency again on every quote.
   const fundingOptions = await getFundingOptions();
@@ -93,18 +107,8 @@ export default async function WalletPage() {
           Wallet balance
         </p>
         <p className="mt-1.5 text-4xl font-semibold tabular-nums text-white">
-          <DisplayAmount
-            kobo={user.walletBalanceKobo}
-            currency={user.currency}
-            nairaClassName="mt-1 text-sm text-white/60"
-          />
+          <DisplayAmount kobo={user.walletBalanceKobo} currency={user.currency} />
         </p>
-        {displayContext.display !== "NGN" && user.currency === "NGN" ? (
-          <p className="mt-1 text-xs text-white/60">
-            Your wallet is held and charged in Naira. Amounts in {displayContext.display} are converted at
-            today&apos;s rate.
-          </p>
-        ) : null}
       </div>
 
       <Suspense fallback={null}>
@@ -165,9 +169,11 @@ export default async function WalletPage() {
                     {tx.paymentCurrency &&
                     isFundingCurrencyCode(tx.paymentCurrency) &&
                     tx.paymentAmountMinor !== null ? (
-                      <p className="truncate text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Paid {formatFundingAmount(tx.paymentAmountMinor, tx.paymentCurrency)}
-                        {tx.fxRate ? ` at 1 ${tx.paymentCurrency} = ${formatMoney(Math.round(tx.fxRate * 100), "NGN")}` : ""}
+                        {tx.paymentFeeMinor
+                          ? `, including a ${formatFundingAmount(tx.paymentFeeMinor, tx.paymentCurrency)} fee`
+                          : ""}
                       </p>
                     ) : null}
                   </div>
@@ -192,7 +198,7 @@ export default async function WalletPage() {
                       kobo={Math.abs(tx.amountKobo)}
                       currency={tx.currency}
                       sign={settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
-                      align="end"
+                      recorded={tx.activationId ? shownPrices.get(tx.activationId) : null}
                     />
                   </span>
                 </li>

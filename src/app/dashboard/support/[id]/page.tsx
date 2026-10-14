@@ -103,7 +103,7 @@ export default async function TicketDetailPage({
               <p className="truncate text-sm font-medium">{relatedOrder.serviceName}</p>
               <p className="truncate text-xs text-muted-foreground">
                 {relatedOrder.countryName} ·{" "}
-                <DisplayAmount kobo={relatedOrder.priceKobo} currency={relatedOrder.currency} naira="inline" />
+                <DisplayAmount kobo={relatedOrder.priceKobo} currency={relatedOrder.currency} />
               </p>
             </div>
             <Badge variant={ACTIVATION_STATUS_VARIANT[relatedOrder.status]}>

@@ -107,6 +107,9 @@ export function FundWallet({
       status: "coming_soon",
     },
   ];
+  // The customer's own currency first, then the rest, USDT last.
+  const rank = (id: string) => (id === display ? 0 : id === USDT_FUNDING.code ? 2 : 1);
+  const ordered = [...cards].sort((a, b) => rank(a.id) - rank(b.id));
   const isAvailable = (id: string | null | undefined) =>
     Boolean(id && cards.some((c) => c.id === id && c.status === "available"));
 
@@ -148,8 +151,8 @@ export function FundWallet({
       <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         Select payment currency
       </p>
-      <div role="radiogroup" aria-label="Payment currency" className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        {cards.map((card) => {
+      <div role="radiogroup" aria-label="Payment currency" className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {ordered.map((card) => {
           const isActive = card.id === active;
           const usable = card.status === "available";
           return (
@@ -169,7 +172,7 @@ export function FundWallet({
                 }
               }}
               className={cn(
-                "flex min-h-[3.75rem] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+                "flex min-h-[4.25rem] min-w-0 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
                 isActive
                   ? "border-mint bg-mint-soft"
                   : usable
@@ -180,8 +183,8 @@ export function FundWallet({
               <span
                 aria-hidden
                 className={cn(
-                  "w-6 shrink-0 text-xs font-semibold",
-                  isActive ? "text-forest" : "text-muted-foreground",
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                  isActive ? "bg-forest text-white" : "bg-mint-soft text-forest",
                 )}
               >
                 {card.chip}
@@ -208,7 +211,7 @@ export function FundWallet({
       ) : null}
       {activeCard ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          Pay with {activeCard.methods}. Your wallet is credited in Naira once the payment is confirmed.
+          Pay with {activeCard.methods}. Your balance goes up as soon as the payment is confirmed.
         </p>
       ) : null}
 
