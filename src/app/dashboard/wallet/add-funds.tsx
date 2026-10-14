@@ -33,6 +33,7 @@ export function AddFunds({
   minTopUpMinor,
   maxTopUpMinor,
   fundingProvider,
+  embedded = false,
 }: {
   /** ISO 4217, the account's own currency. Every amount here is in this
    *  currency's minor unit. */
@@ -44,8 +45,11 @@ export function AddFunds({
    *  real payment in this currency yet, so the form itself is not shown at
    *  all rather than accepting an amount it could never actually collect. */
   fundingProvider: string | null;
+  /** Rendered inside the funding card, which supplies the heading. */
+  embedded?: boolean;
 }) {
   const router = useRouter();
+  const shell = embedded ? "" : "rounded-xl border border-border bg-surface p-5";
   const searchParams = useSearchParams();
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -106,10 +110,19 @@ export function AddFunds({
   useEffect(() => {
     if (!valid) return;
     const timer = setTimeout(() => {
-      previewTopUpAction(amountKobo).then((answer) => {
-        if (latestPreview.current !== amountKobo) return;
-        setPreview({ amountKobo, feeKobo: answer.feeKobo ?? 0, error: answer.error ?? null });
-      });
+      previewTopUpAction(amountKobo)
+        .then((answer) => {
+          if (latestPreview.current !== amountKobo) return;
+          setPreview({ amountKobo, feeKobo: answer.feeKobo ?? 0, error: answer.error ?? null });
+        })
+        .catch(() => {
+          if (latestPreview.current !== amountKobo) return;
+          setPreview({
+            amountKobo,
+            feeKobo: 0,
+            error: "We could not work out the total just now. Check your connection and try again.",
+          });
+        });
     }, 300);
     latestPreview.current = amountKobo;
     return () => clearTimeout(timer);
@@ -151,7 +164,7 @@ export function AddFunds({
 
   if (!fundingProvider) {
     return (
-      <section className="rounded-xl border border-border bg-surface p-5">
+      <section className={shell}>
         <h2 className="text-sm font-semibold">Add funds</h2>
         <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-warning-soft px-3.5 py-3">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -167,7 +180,7 @@ export function AddFunds({
 
   if (returningReference && returnState) {
     return (
-      <section className="rounded-xl border border-border bg-surface p-5">
+      <section className={shell}>
         {returnState === "checking" ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -211,7 +224,7 @@ export function AddFunds({
 
   if (checkout) {
     return (
-      <section className="rounded-xl border border-border bg-surface p-5">
+      <section className={shell}>
         <h2 className="text-sm font-semibold">Ready to pay</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Copy the exact amount, then continue to KoraPay and pay it.
@@ -240,7 +253,7 @@ export function AddFunds({
 
   if (pendingRef) {
     return (
-      <section className="rounded-xl border border-border bg-surface p-5">
+      <section className={shell}>
         <h2 className="text-sm font-semibold">Funding request created</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           A pending top up of {formatMoney(pendingRef.amountKobo, currency)} is on your
@@ -280,9 +293,9 @@ export function AddFunds({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold">Add funds</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <section className={shell}>
+      {embedded ? null : <h2 className="text-sm font-semibold">Add funds</h2>}
+      <p className={embedded ? "text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground"}>
         Enter how much you want to add. Any amount between{" "}
         {formatMoney(minTopUpMinor, currency)} and {formatMoney(maxTopUpMinor, currency)}.
       </p>

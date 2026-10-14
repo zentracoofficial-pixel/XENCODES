@@ -7,6 +7,7 @@ import {
   type DisplayContext,
 } from "@/lib/display-currency";
 import type { DisplayCurrencyCode } from "@/lib/currency-meta";
+import { formatMoney } from "@/lib/currency";
 
 interface Value {
   context: DisplayContext;
@@ -18,6 +19,8 @@ interface Value {
   format: (ngnMinor: number) => string;
   /** "Charged as ₦… from your Naira wallet". */
   chargedLabel: (ngnMinor: number) => string;
+  /** For a sentence: "≈$1.53 (₦2,450)" when converted, "₦2,450" otherwise. */
+  withNaira: (ngnMinor: number) => string;
 }
 
 const CurrencyContext = createContext<Value | null>(null);
@@ -38,6 +41,12 @@ export function CurrencyProvider({
       converted: context.display !== "NGN",
       format: (ngnMinor) => formatNgnForDisplay(ngnMinor, context.display, context.rates),
       chargedLabel: chargedInNgnLabel,
+      withNaira: (ngnMinor) => {
+        const naira = formatMoney(ngnMinor, "NGN");
+        if (context.display === "NGN") return naira;
+        const shown = formatNgnForDisplay(ngnMinor, context.display, context.rates);
+        return shown === naira ? naira : `${shown} (${naira})`;
+      },
     }),
     [context],
   );

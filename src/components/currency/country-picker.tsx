@@ -53,7 +53,6 @@ export function CountryPicker({
           disabled={pending}
           onChange={(e) => {
             setValue(e.target.value);
-            if (e.target.value && !suggested) save(e.target.value);
           }}
           className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
         >
@@ -66,17 +65,18 @@ export function CountryPicker({
             </option>
           ))}
         </select>
-        {suggested ? (
-          <button
-            type="button"
-            disabled={!value || pending}
-            onClick={() => save(value)}
-            className="h-11 shrink-0 rounded-xl bg-forest px-4 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Confirm
-          </button>
-        ) : null}
+        <button
+          type="button"
+          disabled={!value || pending}
+          onClick={() => save(value)}
+          className="h-11 shrink-0 rounded-xl bg-forest px-4 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {pending ? "Saving" : "Confirm"}
+        </button>
       </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Saved once on your account. Contact support if you need to change it later.
+      </p>
       {error ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
     </div>
   );

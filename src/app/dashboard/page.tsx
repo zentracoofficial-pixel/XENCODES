@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
+import { DisplayAmount } from "@/components/currency/display-amount";
 import Link from "next/link";
 import { ArrowRight, Plus, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatMoney, formatPhoneNumber } from "@/lib/currency";
-import { formatNgnForDisplay } from "@/lib/display-currency";
-import { getDisplayContext } from "@/lib/display-preference";
+import { formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "./activation-logo";
 import { reconcileActivation } from "@/lib/activation-lifecycle";
 import { getRecentActivity } from "@/lib/recent-activity";
@@ -76,7 +75,6 @@ export default async function DashboardPage() {
     ]);
 
   const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
-  const displayContext = await getDisplayContext();
   const showLowBalanceWarning = shouldShowLowBalanceWarning(
     user.walletBalanceKobo,
     lowBalanceThreshold,
@@ -144,14 +142,12 @@ export default async function DashboardPage() {
           <div>
             <p className="text-xs text-white/70">Wallet balance</p>
             <p className="mt-0.5 text-xl font-semibold tabular-nums">
-              {formatMoney(user.walletBalanceKobo, user.currency)}
+              <DisplayAmount
+                kobo={user.walletBalanceKobo}
+                currency={user.currency}
+                nairaClassName="mt-0.5 text-xs text-white/70"
+              />
             </p>
-            {displayContext.display !== "NGN" && user.currency === "NGN" ? (
-              <p className="mt-0.5 text-xs text-white/70">
-                {formatNgnForDisplay(user.walletBalanceKobo, displayContext.display, displayContext.rates)} in{" "}
-                {displayContext.display}, for reference. Your wallet is in Naira.
-              </p>
-            ) : null}
             {/* An empty wallet is stated plainly here rather than left for
                 the customer to discover at the moment they try to buy. */}
             {user.walletBalanceKobo <= 0 ? (
@@ -200,7 +196,7 @@ export default async function DashboardPage() {
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <DashboardStat
             label="Total spent"
-            value={formatMoney(deliveredAgg._sum.priceKobo ?? 0, user.currency)}
+            value={<DisplayAmount kobo={deliveredAgg._sum.priceKobo ?? 0} currency={user.currency} />}
           />
           <DashboardStat label="Successful purchases" value={deliveredAgg._count} />
           <DashboardStat label="SMS received" value={smsReceivedCount} />

@@ -374,9 +374,13 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
     // manual review instead, since crediting the pending row's own amount
     // when KoraPay itself reports a different one charged would credit a
     // customer more or less than they actually paid.
-    if (charge.amountKobo !== undefined && charge.amountKobo !== row.amountKobo) {
+    // KoraPay is asked to charge the top-up plus any approved fee, which the
+    // row records as paymentAmountMinor; rows created before that column
+    // existed fall back to the credited amount, as they always did.
+    const expectedChargeKobo = row.paymentAmountMinor ?? row.amountKobo;
+    if (charge.amountKobo !== undefined && charge.amountKobo !== expectedChargeKobo) {
       console.error(
-        `[funding] refusing to credit ${providerReference}: KoraPay confirmed ${charge.amountKobo} kobo but the pending request was for ${row.amountKobo} kobo.`,
+        `[funding] refusing to credit ${providerReference}: KoraPay confirmed ${charge.amountKobo} kobo but the pending request was for ${expectedChargeKobo} kobo.`,
       );
       return { state: "still_pending", reason: "amount_mismatch" };
     }

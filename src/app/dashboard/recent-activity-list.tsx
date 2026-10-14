@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShoppingBag, MessageSquareText, Wallet, RotateCcw, Check } from "lucide-react";
 import type { ActivityItem, ActivityKind } from "@/lib/recent-activity";
+import { DisplayAmount } from "@/components/currency/display-amount";
 
 const ICONS: Record<ActivityKind, React.ComponentType<{ className?: string }>> = {
   purchase: ShoppingBag,
@@ -45,7 +46,11 @@ export function RecentActivityList({ items }: { items: ActivityItem[] }) {
               <span className="block truncate text-xs text-muted-foreground">{item.subtitle}</span>
             </span>
             <span className="shrink-0 text-right">
-              {item.trailing ? (
+              {item.trailingAmount ? (
+                <span className="block text-sm tabular-nums">
+                  <DisplayAmount kobo={item.trailingAmount.kobo} currency={item.trailingAmount.currency} naira="none" />
+                </span>
+              ) : item.trailing ? (
                 <span className="block text-sm tabular-nums">{item.trailing}</span>
               ) : null}
               <span className="block text-[11px] text-muted-foreground">

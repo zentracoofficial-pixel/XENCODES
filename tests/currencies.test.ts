@@ -232,3 +232,9 @@ test("USDT is a disabled constant, not a funding currency, and not a display cur
   assert.equal(isDisplayCurrencyCode("USDT"), false);
   assert.match(USDT_FUNDING.comingSoonMessage, /coming soon/i);
 });
+
+test("zero is shown plainly, without the ≈ mark", () => {
+  assert.equal(formatNgnForDisplay(0, "USD", rates), "$0.00");
+  assert.equal(formatNgnForDisplay(0, "GHS", rates), "GH₵0");
+  assert.equal(formatNgnForDisplay(0, "NGN", rates), "₦0");
+});

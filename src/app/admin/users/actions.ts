@@ -8,6 +8,7 @@ import { creditWallet } from "@/lib/wallet";
 import { majorToMinor } from "@/lib/currency";
 import { recordAudit } from "@/lib/audit";
 import { adminVerifyUserEmail } from "@/lib/verification";
+import { isKnownCountry } from "@/lib/countries";
 
 async function guardNotSelf(targetUserId: string, action: string) {
   const admin = await requireAdmin();
@@ -196,6 +197,47 @@ export async function verifyUserEmailAction(
     metadata: reason.trim() ? { reason: reason.trim() } : undefined,
   });
 
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export interface UserCountryState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * Corrects (or clears) the country on a customer's account. The country
+ * decides which local funding currency they are offered and their default
+ * display currency, and customers can only set it once themselves, so this is
+ * where a wrong one is fixed. Payments already requested keep the amounts
+ * they were quoted; only new funding attempts follow the new country. Their
+ * own display-currency choice, if they made one, is left alone.
+ */
+export async function setUserCountryAction(
+  userId: string,
+  _prev: UserCountryState,
+  formData: FormData,
+): Promise<UserCountryState> {
+  const admin = await requireAdmin();
+  const raw = String(formData.get("country") ?? "").trim().toUpperCase();
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 300);
+  const next = raw === "" ? null : raw;
+  if (next !== null && !isKnownCountry(next)) return { error: "Choose a country from the list." };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { country: true } });
+  if (!user) return { error: "That account no longer exists." };
+  if (user.country === next) return { success: true };
+
+  await prisma.user.update({ where: { id: userId }, data: { country: next } });
+  await recordAudit({
+    actor: admin,
+    action: "user.country.update",
+    targetType: "user",
+    targetId: userId,
+    metadata: { before: user.country, after: next, reason: reason || null },
+  });
   revalidatePath(`/admin/users/${userId}`);
   revalidatePath("/admin/users");
   return { success: true };

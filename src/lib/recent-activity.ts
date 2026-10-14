@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { formatMoney } from "@/lib/currency";
 
 /**
  * One merged, compact feed for the dashboard's "Recent activity" section:
@@ -18,6 +17,8 @@ export interface ActivityItem {
   title: string;
   subtitle: string;
   trailing?: string;
+  /** A money amount for the trailing slot, rendered in the display currency. */
+  trailingAmount?: { kobo: number; currency: string };
   href?: string;
   createdAt: Date;
 }
@@ -53,7 +54,7 @@ export async function getRecentActivity(userId: string, limit = 6): Promise<Acti
       kind: "purchase",
       title: `Bought a ${activation.serviceName} number`,
       subtitle: activation.countryName,
-      trailing: formatMoney(activation.priceKobo, activation.currency),
+      trailingAmount: { kobo: activation.priceKobo, currency: activation.currency },
       href: `/dashboard/buy?activation=${activation.id}`,
       createdAt: activation.createdAt,
     });
@@ -76,7 +77,7 @@ export async function getRecentActivity(userId: string, limit = 6): Promise<Acti
       kind: tx.type === "TOPUP" ? "topup" : "refund",
       title: tx.type === "TOPUP" ? "Wallet funded" : "Refund credited",
       subtitle: tx.description,
-      trailing: formatMoney(Math.abs(tx.amountKobo), tx.currency),
+      trailingAmount: { kobo: Math.abs(tx.amountKobo), currency: tx.currency },
       href: "/dashboard/wallet",
       createdAt: tx.completedAt ?? tx.createdAt,
     });

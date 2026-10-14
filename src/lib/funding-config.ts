@@ -1,5 +1,5 @@
-import { readSettings, writeSetting, SETTING_KEYS } from "@/lib/settings";
-import { isFundingFeeConfigured, resolveFundingFee } from "@/lib/fee-policy";
+import { readSettings, updateSettingAtomically, SETTING_KEYS } from "@/lib/settings";
+import { isFundingFeeConfigured, readFeePolicyMap, resolveFee, resolveFundingFee } from "@/lib/fee-policy";
 import { minorUnitDivisor } from "@/lib/currency";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { isKorapayConfigured } from "@/lib/korapay";
@@ -53,10 +53,8 @@ function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export async function readFundingStates(): Promise<FundingStates> {
-  const settings = await readSettings();
+function parseFundingStates(raw: string | undefined): FundingStates {
   let stored: Record<string, unknown> = {};
-  const raw = settings[SETTING_KEYS.fundingCurrencies];
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as unknown;
@@ -82,6 +80,14 @@ export async function readFundingStates(): Promise<FundingStates> {
     };
   }
   return states;
+}
+
+export async function readFundingStates(
+  /** Settings already read in this request, to avoid reading them again. */
+  preloaded?: Record<string, string>,
+): Promise<FundingStates> {
+  const settings = preloaded ?? (await readSettings());
+  return parseFundingStates(settings[SETTING_KEYS.fundingCurrencies]);
 }
 
 /** Whether a currency can be offered at all right now: switched on by an
@@ -119,17 +125,21 @@ export async function saveFundingState(
   if (patch.enabled && !(await isFundingFeeConfigured(code))) return { ok: false, error: "fee_not_approved" };
   if (!(patch.minMinor > 0 && patch.maxMinor >= patch.minMinor)) return { ok: false, error: "limits_invalid" };
 
-  const states = await readFundingStates();
-  const previous = states[code];
-  const rateChanged = patch.usdRate > 0 && patch.usdRate !== previous.usdRate;
-  states[code] = {
-    enabled: patch.enabled,
-    usdRate: patch.usdRate > 0 ? patch.usdRate : null,
-    rateUpdatedAt: rateChanged ? new Date().toISOString() : previous.rateUpdatedAt,
-    minMinor: Math.round(patch.minMinor),
-    maxMinor: Math.round(patch.maxMinor),
-  };
-  await writeSetting(SETTING_KEYS.fundingCurrencies, JSON.stringify(states));
+  // Compare-and-swap, so saving one currency never undoes a change another
+  // admin just made to a different one.
+  await updateSettingAtomically(SETTING_KEYS.fundingCurrencies, (raw) => {
+    const states = parseFundingStates(raw);
+    const previous = states[code];
+    const rateChanged = patch.usdRate > 0 && patch.usdRate !== previous.usdRate;
+    states[code] = {
+      enabled: patch.enabled,
+      usdRate: patch.usdRate > 0 ? patch.usdRate : null,
+      rateUpdatedAt: rateChanged ? new Date().toISOString() : previous.rateUpdatedAt,
+      minMinor: Math.round(patch.minMinor),
+      maxMinor: Math.round(patch.maxMinor),
+    };
+    return JSON.stringify(states);
+  });
   return { ok: true };
 }
 
@@ -149,7 +159,10 @@ export interface FundingOption {
  */
 export async function getFundingOptions(country: string | null | undefined): Promise<FundingOption[]> {
   if (!isKorapayConfigured()) return [];
-  const [states, currencies] = await Promise.all([readFundingStates(), readCurrencyConfig()]);
+  // One read of the settings table for the rates, the switches and the fees.
+  const settings = await readSettings();
+  const [states, currencies] = await Promise.all([readFundingStates(settings), readCurrencyConfig(settings)]);
+  const fees = readFeePolicyMap(settings);
   const ngn = currencies.find((c) => c.code === "NGN");
   if (!ngn) return [];
 
@@ -159,7 +172,7 @@ export async function getFundingOptions(country: string | null | undefined): Pro
     const state = states[code];
     if (!isFundingStateUsable(state) || state.usdRate === null) continue;
     if (known && !currencySupportsCountry(code, known)) continue;
-    if (!(await isFundingFeeConfigured(code))) continue;
+    if (resolveFee(fees.get(code) ?? null, 1).status === "blocked") continue;
     options.push({ code, state, ngnPerUnit: ngn.usdRate / state.usdRate });
   }
   return options;

@@ -72,6 +72,8 @@ export function formatNgnForDisplay(
   if (display === "NGN") return formatMoney(ngnMinor, "NGN");
   const converted = convertNgnMinor(ngnMinor, display, rates);
   if (converted === null) return formatMoney(ngnMinor, "NGN");
+  // Nothing is approximate about zero.
+  if (ngnMinor === 0) return formatMoney(0, display);
   return `≈${formatMoney(converted, display)}`;
 }
 

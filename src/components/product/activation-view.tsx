@@ -8,6 +8,7 @@ import {
   formatDuration,
 } from "@/components/product/activation-panel";
 import { formatMoney } from "@/lib/currency";
+import { useDisplayMoney } from "@/components/currency/currency-provider";
 import {
   cancelActivationAction,
   getActivationStateAction,
@@ -58,6 +59,13 @@ export function ActivationView({
 }) {
   const [pending, startTransition] = useTransition();
   const [activation, setActivation] = useState<ResumedActivation>(initial);
+  // What was paid or refunded, in the customer's display currency with the
+  // real Naira amount alongside when they differ.
+  const money = useDisplayMoney();
+  const priceLabel =
+    money && activation.currency === "NGN"
+      ? money.withNaira(activation.priceKobo)
+      : formatMoney(activation.priceKobo, activation.currency);
 
   const waiting = activation.status === "WAITING";
   const remaining = useCountdown(activation.expiresAt, waiting);
@@ -137,15 +145,15 @@ export function ActivationView({
           secondsRemaining={remaining}
           createdAt={activation.createdAt}
           receivedAt={activation.receivedAt}
-          refundedAmountLabel={formatMoney(activation.priceKobo, activation.currency)}
+          refundedAmountLabel={priceLabel}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 {activation.status === "WAITING"
                   ? `Refunded automatically in ${formatDuration(remaining)} if no code arrives`
                   : activation.status === "RECEIVED"
-                    ? `Paid ${formatMoney(activation.priceKobo, activation.currency)}`
-                    : `Refunded ${formatMoney(activation.priceKobo, activation.currency)}`}
+                    ? `Paid ${priceLabel}`
+                    : `Refunded ${priceLabel}`}
               </span>
               {activation.status === "WAITING" ? (
                 waitedLong ? null : (
@@ -175,7 +183,7 @@ export function ActivationView({
         <div className="mt-4 rounded-2xl border border-warning/30 bg-warning-soft p-4">
           <p className="text-sm font-semibold text-warning">No code yet?</p>
           <p className="mt-1 text-sm text-warning">
-            Don&apos;t wait it out. Get your {formatMoney(activation.priceKobo, activation.currency)}{" "}
+            Don&apos;t wait it out. Get your {priceLabel}{" "}
             back to your wallet at once and try another number.
           </p>
           <Button
@@ -187,7 +195,7 @@ export function ActivationView({
           >
             {pending
               ? "Refunding"
-              : `Refund my ${formatMoney(activation.priceKobo, activation.currency)}`}
+              : `Refund my ${priceLabel}`}
           </Button>
         </div>
       ) : null}

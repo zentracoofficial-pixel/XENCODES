@@ -39,6 +39,8 @@ export const SETTING_KEYS = {
    *  currency (see src/lib/currency-config.ts) since a fixed cap in one
    *  currency's minor units means nothing in another's. See
    *  src/lib/funding-limits.ts's calculateTopupFeeKobo(). */
+  /** Legacy: the funding fee now lives in feePolicies; this was read once by
+   *  the migration that carried it over and is not read by code any more. */
   topupFeePercent: "topup_fee_percent",
   /** Legacy single-currency fee cap, from before more than one currency
    *  could be enabled. Read only as a one-time fallback for NGN's own cap
@@ -125,8 +127,6 @@ export const EXCLUSIVE_PRICE_MULTIPLIER = 1.43;
  * Kept editable in Settings for the rare case KoraPay quotes this specific
  * account a different negotiated rate.
  */
-export const DEFAULT_TOPUP_FEE_PERCENT = 1.5;
-export const DEFAULT_TOPUP_FEE_CAP_KOBO = 200_000; // NGN 2,000
 
 /** Sane starting points, editable in Settings: low enough that a customer
  *  who could still afford one more number is not warned, high enough that
@@ -166,6 +166,38 @@ export async function writeSetting(key: SettingKey, value: string) {
     create: { key, value },
     update: { value },
   });
+}
+
+export type SettingsSnapshot = Record<string, string>;
+
+/**
+ * Read-modify-write of one setting without losing a concurrent change: the
+ * write only lands if the stored value is still the one `mutate` was given
+ * (compare-and-swap on the value itself), otherwise it re-reads and tries
+ * again. Two admins saving different currencies in the same JSON setting at
+ * the same moment therefore both keep their change.
+ */
+export async function updateSettingAtomically(
+  key: SettingKey,
+  mutate: (current: string | undefined) => string,
+  attempts = 5,
+): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    const row = await prisma.setting.findUnique({ where: { key } });
+    const next = mutate(row?.value);
+    if (row) {
+      const result = await prisma.setting.updateMany({ where: { key, value: row.value }, data: { value: next } });
+      if (result.count === 1) return;
+    } else {
+      try {
+        await prisma.setting.create({ data: { key, value: next } });
+        return;
+      } catch {
+        // Someone created it first: loop and apply on top of theirs.
+      }
+    }
+  }
+  throw new Error(`Could not save "${key}": it kept changing underneath this update.`);
 }
 
 export function readNumber(

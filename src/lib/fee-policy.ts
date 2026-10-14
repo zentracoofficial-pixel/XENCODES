@@ -1,4 +1,4 @@
-import { readSettings, writeSetting, SETTING_KEYS } from "@/lib/settings";
+import { readSettings, updateSettingAtomically, SETTING_KEYS } from "@/lib/settings";
 import { calculateTopupFeeKobo } from "@/lib/funding-limits";
 import type { FundingCurrencyCode } from "@/lib/funding-currencies";
 
@@ -75,9 +75,7 @@ function sanitize(value: unknown, kind: FeeKind, currency: FeeCurrency): FeePoli
   };
 }
 
-async function readRaw(): Promise<Record<string, unknown>> {
-  const settings = await readSettings();
-  const raw = settings[SETTING_KEYS.feePolicies];
+function parseRaw(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -90,9 +88,31 @@ async function readRaw(): Promise<Record<string, unknown>> {
   }
 }
 
-export async function readFeePolicy(kind: FeeKind, currency: FeeCurrency): Promise<FeePolicy | null> {
-  const raw = await readRaw();
+async function readRaw(preloaded?: Record<string, string>): Promise<Record<string, unknown>> {
+  const settings = preloaded ?? (await readSettings());
+  return parseRaw(settings[SETTING_KEYS.feePolicies]);
+}
+
+export async function readFeePolicy(
+  kind: FeeKind,
+  currency: FeeCurrency,
+  preloaded?: Record<string, string>,
+): Promise<FeePolicy | null> {
+  const raw = await readRaw(preloaded);
   return sanitize(raw[feePolicyKey(kind, currency)], kind, currency);
+}
+
+/** Every wallet-funding fee policy from one settings read, by currency. */
+export function readFeePolicyMap(settings: Record<string, string>): Map<string, FeePolicy> {
+  const raw = parseRaw(settings[SETTING_KEYS.feePolicies]);
+  const map = new Map<string, FeePolicy>();
+  for (const key of Object.keys(raw)) {
+    const [kind, currency] = key.split(":");
+    if (kind !== "wallet_funding" || !currency) continue;
+    const policy = sanitize(raw[key], "wallet_funding", currency as FeeCurrency);
+    if (policy) map.set(currency, policy);
+  }
+  return map;
 }
 
 /** The fee for an amount under a policy, in minor units. Pure. The percent
@@ -159,29 +179,36 @@ export async function saveFeePolicy(
   }
   if (patch.enabled && !patch.approved) return { ok: false, error: "enable_needs_approval" };
 
-  const raw = await readRaw();
   const key = feePolicyKey(kind, currency);
-  const before = sanitize(raw[key], kind, currency);
-  const newlyApproved = patch.approved && !(before?.approved ?? false);
-  const after: FeePolicy = {
-    kind,
-    currency,
-    model: patch.model,
-    percent: patch.model === "percent" ? patch.percent : 0,
-    fixedMinor: patch.model === "fixed" ? patch.fixedMinor : 0,
-    capMinor: patch.model === "percent" ? patch.capMinor : null,
-    approved: patch.approved,
-    enabled: patch.enabled,
-    approvedBy: patch.approved ? (newlyApproved || !before?.approvedBy ? admin.email : before.approvedBy) : null,
-    approvedAt: patch.approved
-      ? newlyApproved || !before?.approvedAt
-        ? new Date().toISOString()
-        : before.approvedAt
-      : null,
-  };
-  raw[key] = after;
-  await writeSetting(SETTING_KEYS.feePolicies, JSON.stringify(raw));
-  return { ok: true, before, after };
+  let before: FeePolicy | null = null;
+  let after: FeePolicy | null = null;
+  // Compare-and-swap, so saving one currency's fee never undoes another
+  // admin's change to a different one made at the same moment.
+  await updateSettingAtomically(SETTING_KEYS.feePolicies, (current) => {
+    const raw = parseRaw(current);
+    before = sanitize(raw[key], kind, currency);
+    const newlyApproved = patch.approved && !(before?.approved ?? false);
+    after = {
+      kind,
+      currency,
+      model: patch.model,
+      percent: patch.model === "percent" ? patch.percent : 0,
+      fixedMinor: patch.model === "fixed" ? patch.fixedMinor : 0,
+      capMinor: patch.model === "percent" ? patch.capMinor : null,
+      approved: patch.approved,
+      enabled: patch.enabled,
+      approvedBy: patch.approved ? (newlyApproved || !before?.approvedBy ? admin.email : before.approvedBy) : null,
+      approvedAt: patch.approved
+        ? newlyApproved || !before?.approvedAt
+          ? new Date().toISOString()
+          : before.approvedAt
+        : null,
+    };
+    raw[key] = after;
+    return JSON.stringify(raw);
+  });
+  if (!after) throw new Error("Fee policy was not saved.");
+  return { ok: true, before, after: after as FeePolicy };
 }
 
 /** A customer-facing description of an applied fee, for the funding summary. */

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { DisplayAmount } from "@/components/currency/display-amount";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { formatMoney, formatPhoneNumber } from "@/lib/currency";
+import { formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "../activation-logo";
 import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 import { CopyCodeButton } from "./copy-code-button";
@@ -109,7 +110,7 @@ export default async function HistoryPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {formatMoney(activation.priceKobo, activation.currency)}
+                    <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} align="end" />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {activation.createdAt.toLocaleString("en-NG", dateFormat)}
@@ -180,7 +181,7 @@ export default async function HistoryPage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Price</dt>
                     <dd className="mt-0.5 tabular-nums">
-                      {formatMoney(activation.priceKobo, activation.currency)}
+                      <DisplayAmount kobo={activation.priceKobo} currency={activation.currency} />
                     </dd>
                   </div>
                 </dl>
