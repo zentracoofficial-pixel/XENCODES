@@ -6,6 +6,8 @@ import { recordAudit } from "@/lib/audit";
 import { majorToMinor } from "@/lib/currency";
 import { updateCurrencySettings, type CurrencyCode } from "@/lib/currency-config";
 import { readFundingStates, saveFundingState } from "@/lib/funding-config";
+import { saveFeePolicy } from "@/lib/fee-policy";
+import type { Prisma } from "@/generated/prisma/client";
 import { isFundingCurrencyCode } from "@/lib/funding-currencies";
 
 function refresh() {
@@ -44,7 +46,6 @@ export async function saveCurrencyAction(
   const usdRate = Number(formData.get("usdRate"));
   const minTopUp = Number(formData.get("minTopUp"));
   const maxTopUp = Number(formData.get("maxTopUp"));
-  const feeCap = Number(formData.get("feeCap"));
 
   if (code === "NGN" && (!Number.isFinite(usdRate) || usdRate <= 0)) {
     return { error: "Enter a positive USD exchange rate." };
@@ -55,20 +56,15 @@ export async function saveCurrencyAction(
   if (!Number.isFinite(maxTopUp) || maxTopUp <= minTopUp) {
     return { error: "The maximum top up must be greater than the minimum." };
   }
-  if (!Number.isFinite(feeCap) || feeCap < 0) {
-    return { error: "Enter a non-negative fee cap." };
-  }
 
   const currency = code as CurrencyCode;
   const minTopUpMinor = majorToMinor(minTopUp, currency);
   const maxTopUpMinor = majorToMinor(maxTopUp, currency);
-  const feeCapMinor = majorToMinor(feeCap, currency);
 
   await updateCurrencySettings(currency, {
     ...(currency === "NGN" ? { usdRate } : {}),
     minTopUpMinor,
     maxTopUpMinor,
-    feeCapMinor,
   });
   await recordAudit({
     actor: admin,
@@ -80,7 +76,6 @@ export async function saveCurrencyAction(
       usdRate: currency === "NGN" ? usdRate : 1,
       minTopUpMinor,
       maxTopUpMinor,
-      feeCapMinor,
     },
   });
 
@@ -112,7 +107,6 @@ export async function saveFundingCurrencyAction(
   const enabled = formData.get("enabled") === "on";
   const confirmed = formData.get("confirmed") === "on";
   const usdRate = Number(formData.get("usdRate"));
-  const feePercent = Number(formData.get("feePercent"));
   const minMinor = majorToMinor(Number(formData.get("minAmount")), code);
   const maxMinor = majorToMinor(Number(formData.get("maxAmount")), code);
 
@@ -124,9 +118,6 @@ export async function saveFundingCurrencyAction(
   if (enabled && !(Number.isFinite(usdRate) && usdRate > 0)) {
     return { error: "Enter this currency's exchange rate (units per 1 USD) before switching it on." };
   }
-  if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 50) {
-    return { error: "The processing fee must be between 0 and 50 percent." };
-  }
   if (!Number.isFinite(minMinor) || !Number.isFinite(maxMinor) || minMinor <= 0 || maxMinor < minMinor) {
     return { error: "Enter a positive minimum and a maximum that is not below it." };
   }
@@ -135,11 +126,17 @@ export async function saveFundingCurrencyAction(
   const result = await saveFundingState(code, {
     enabled,
     usdRate: Number.isFinite(usdRate) && usdRate > 0 ? usdRate : 0,
-    feePercent,
     minMinor,
     maxMinor,
   });
-  if (!result.ok) return { error: "Those settings were not accepted. Check the rate, fee and limits." };
+  if (!result.ok) {
+    return {
+      error:
+        result.error === "fee_not_approved"
+          ? `Approve a ${code} funding fee first (below), even if the decision is no fee, then switch this on.`
+          : "Those settings were not accepted. Check the rate and limits.",
+    };
+  }
 
   await recordAudit({
     actor: admin,
@@ -148,9 +145,86 @@ export async function saveFundingCurrencyAction(
     targetId: code,
     metadata: {
       code,
-      before: { enabled: before.enabled, usdRate: before.usdRate, feePercent: before.feePercent, minMinor: before.minMinor, maxMinor: before.maxMinor },
-      after: { enabled, usdRate: usdRate > 0 ? usdRate : null, feePercent, minMinor, maxMinor },
+      before: { enabled: before.enabled, usdRate: before.usdRate, minMinor: before.minMinor, maxMinor: before.maxMinor },
+      after: { enabled, usdRate: usdRate > 0 ? usdRate : null, minMinor, maxMinor },
       korapayConfirmed: enabled ? confirmed : null,
+    },
+  });
+
+  refresh();
+  return { success: true };
+}
+
+export interface FeePolicyFormState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * Saves the funding fee decision for one currency: the amount (percent or
+ * flat, with an optional cap), whether it is APPROVED, and whether it is
+ * ENABLED. Only an approved, enabled fee is ever shown or charged, and the
+ * server resolves it from this record on every quote (see
+ * src/lib/fee-policy.ts). Approving records who and when; every change is
+ * audit-logged with the before and after.
+ */
+export async function saveFeePolicyAction(
+  _prev: FeePolicyFormState,
+  formData: FormData,
+): Promise<FeePolicyFormState> {
+  const admin = await requireAdmin();
+
+  const currency = (formData.get("currency") as string)?.trim().toUpperCase();
+  if (currency !== "NGN" && !isFundingCurrencyCode(currency)) return { error: "Unknown currency." };
+
+  const model = formData.get("model") === "fixed" ? "fixed" : "percent";
+  const percent = Number(formData.get("percent") || 0);
+  const fixedMajor = Number(formData.get("fixed") || 0);
+  const capRaw = String(formData.get("cap") ?? "").trim();
+  const capMajor = capRaw === "" ? null : Number(capRaw);
+  const approved = formData.get("approved") === "on";
+  const enabled = formData.get("enabled") === "on";
+
+  if (model === "percent" && !(Number.isFinite(percent) && percent >= 0 && percent <= 50)) {
+    return { error: "The fee percentage must be between 0 and 50." };
+  }
+  if (model === "fixed" && !(Number.isFinite(fixedMajor) && fixedMajor >= 0)) {
+    return { error: "Enter a flat fee of zero or more." };
+  }
+  if (capMajor !== null && !(Number.isFinite(capMajor) && capMajor >= 0)) {
+    return { error: "The cap must be zero or more, or left empty for no cap." };
+  }
+
+  const result = await saveFeePolicy(
+    "wallet_funding",
+    currency,
+    {
+      model,
+      percent,
+      fixedMinor: majorToMinor(fixedMajor, currency),
+      capMinor: capMajor === null ? null : majorToMinor(capMajor, currency),
+      approved,
+      enabled,
+    },
+    admin,
+  );
+  if (!result.ok) {
+    return {
+      error:
+        result.error === "enable_needs_approval"
+          ? "A fee must be approved before it can be switched on."
+          : "Those fee settings were not accepted.",
+    };
+  }
+
+  await recordAudit({
+    actor: admin,
+    action: "fee_policy.save",
+    targetType: "fee_policy",
+    targetId: `wallet_funding:${currency}`,
+    metadata: {
+      before: result.before as unknown as Prisma.InputJsonValue,
+      after: result.after as unknown as Prisma.InputJsonValue,
     },
   });
 

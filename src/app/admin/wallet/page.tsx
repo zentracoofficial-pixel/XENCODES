@@ -110,7 +110,7 @@ export default async function AdminWalletPage({
       : {}),
   };
 
-  const [transactions, count, fundedAgg, pendingAgg, unverifiedCount, defaultCurrency] =
+  const [transactions, count, fundedAgg, pendingAgg, unverifiedCount, defaultCurrency, feeAgg] =
     await Promise.all([
       prisma.walletTransaction.findMany({
         where,
@@ -141,6 +141,16 @@ export default async function AdminWalletPage({
         where: { type: "TOPUP", status: "SUCCESSFUL", providerTransactionId: null },
       }),
       getDefaultCurrency(),
+      // What KoraPay reported charging Xencodes on confirmed top-ups, against
+      // the fee passed on to customers, per payment currency. Only payments
+      // where KoraPay reported a fee count, so a missing figure is never read
+      // as zero.
+      prisma.walletTransaction.groupBy({
+        by: ["paymentCurrency", "currency"],
+        where: { type: "TOPUP", status: "SUCCESSFUL", providerFeeMinor: { not: null } },
+        _sum: { providerFeeMinor: true, providerVatMinor: true, paymentFeeMinor: true },
+        _count: true,
+      }),
     ]);
 
   const fundedRows = fundedAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
@@ -185,6 +195,30 @@ export default async function AdminWalletPage({
             : "."}
         </p>
       </div>
+
+      {feeAgg.length > 0 ? (
+        <div className="rounded-lg border border-border bg-surface px-4 py-3 text-sm">
+          <p className="font-medium">KoraPay fees on confirmed top-ups</p>
+          <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+            {feeAgg.map((row) => {
+              const code = row.paymentCurrency ?? row.currency;
+              const kora = (row._sum.providerFeeMinor ?? 0) + (row._sum.providerVatMinor ?? 0);
+              const charged = row._sum.paymentFeeMinor ?? 0;
+              return (
+                <li key={`${row.paymentCurrency}-${row.currency}`}>
+                  {code}: KoraPay took {formatMoney(kora, code)} (fee plus VAT) across {row._count}{" "}
+                  {row._count === 1 ? "payment" : "payments"}; {formatMoney(charged, code)} was charged to customers
+                  as the approved fee, a difference of {formatMoney(charged - kora, code)}.
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Only payments where KoraPay reported its fee are counted; a payment with no reported fee is left out,
+            never counted as zero.
+          </p>
+        </div>
+      ) : null}
 
       {unverifiedCount > 0 ? (
         <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3 text-sm text-danger">

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ChangePasswordForm } from "./change-password-form";
 import { TwoFactorSettings } from "./two-factor-settings";
 import { LogoutEverywhereButton } from "./logout-everywhere-button";
+import { CurrencySettings } from "./currency-settings";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -22,6 +23,8 @@ export default async function SettingsPage() {
           <h2 className="font-semibold">Profile</h2>
           <p className="mt-2 text-sm text-muted-foreground">{user.email}</p>
         </div>
+
+        <CurrencySettings />
 
         <ChangePasswordForm />
         <TwoFactorSettings enabled={user.twoFactorEnabled} />

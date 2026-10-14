@@ -165,6 +165,53 @@ export default async function AdminTransactionPage({
               <span className="text-muted-foreground">None</span>
             )}
           </Row>
+          {tx.type === "TOPUP" ? (
+            <>
+              {tx.paymentCurrency && tx.paymentAmountMinor !== null ? (
+                <Row label="Customer paid">
+                  {formatMoney(tx.paymentAmountMinor, tx.paymentCurrency)}
+                  {tx.fxRate ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      at 1 {tx.paymentCurrency} = {formatMoney(Math.round(tx.fxRate * 100), "NGN")}
+                    </span>
+                  ) : null}
+                </Row>
+              ) : null}
+              <Row label="Fee charged to customer">
+                {tx.paymentFeeMinor !== null && tx.paymentFeeMinor > 0
+                  ? formatMoney(tx.paymentFeeMinor, tx.paymentCurrency ?? tx.currency)
+                  : "None"}
+              </Row>
+              <Row label="Payment method">{tx.paymentMethod ?? "Not reported"}</Row>
+              <Row label="KoraPay fee">
+                {tx.providerFeeMinor !== null
+                  ? formatMoney(tx.providerFeeMinor, tx.paymentCurrency ?? tx.currency)
+                  : tx.status === "SUCCESSFUL"
+                    ? "Not reported by KoraPay"
+                    : "Not known yet"}
+              </Row>
+              {tx.providerVatMinor !== null ? (
+                <Row label="KoraPay VAT">
+                  {formatMoney(tx.providerVatMinor, tx.paymentCurrency ?? tx.currency)}
+                </Row>
+              ) : null}
+              {tx.providerChargedMinor !== null ? (
+                <Row label="Total KoraPay charged">
+                  {formatMoney(tx.providerChargedMinor, tx.paymentCurrency ?? tx.currency)}
+                </Row>
+              ) : null}
+              {tx.providerFeeMinor !== null && tx.paymentFeeMinor !== null ? (
+                <Row label="Fee margin">
+                  {formatMoney(
+                    tx.paymentFeeMinor - tx.providerFeeMinor - (tx.providerVatMinor ?? 0),
+                    tx.paymentCurrency ?? tx.currency,
+                  )}
+                  <span className="text-muted-foreground"> fee charged minus KoraPay fee and VAT</span>
+                </Row>
+              ) : null}
+            </>
+          ) : null}
           <Row label="Created">
             {tx.createdAt.toLocaleString("en-NG", dateFormat)}
           </Row>

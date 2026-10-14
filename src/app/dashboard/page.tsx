@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
+import { formatNgnForDisplay } from "@/lib/display-currency";
+import { getDisplayContext } from "@/lib/display-preference";
 import { ActivationLogo } from "./activation-logo";
 import { reconcileActivation } from "@/lib/activation-lifecycle";
 import { getRecentActivity } from "@/lib/recent-activity";
@@ -74,6 +76,7 @@ export default async function DashboardPage() {
     ]);
 
   const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
+  const displayContext = await getDisplayContext();
   const showLowBalanceWarning = shouldShowLowBalanceWarning(
     user.walletBalanceKobo,
     lowBalanceThreshold,
@@ -143,6 +146,12 @@ export default async function DashboardPage() {
             <p className="mt-0.5 text-xl font-semibold tabular-nums">
               {formatMoney(user.walletBalanceKobo, user.currency)}
             </p>
+            {displayContext.display !== "NGN" && user.currency === "NGN" ? (
+              <p className="mt-0.5 text-xs text-white/70">
+                {formatNgnForDisplay(user.walletBalanceKobo, displayContext.display, displayContext.rates)} in{" "}
+                {displayContext.display}, for reference. Your wallet is in Naira.
+              </p>
+            ) : null}
             {/* An empty wallet is stated plainly here rather than left for
                 the customer to discover at the moment they try to buy. */}
             {user.walletBalanceKobo <= 0 ? (

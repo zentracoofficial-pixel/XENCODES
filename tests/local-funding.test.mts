@@ -19,20 +19,44 @@ const { createPendingLocalTopUp, createPendingTopUp, reconcileTopUp, verifyAndSe
   "../src/lib/funding"
 );
 const { SETTING_KEYS } = await import("../src/lib/settings");
+const { saveFeePolicy, resolveFundingFee } = await import("../src/lib/fee-policy");
 
-type Charge = { status: string; amount?: number | string; currency?: string; payment_method?: string };
+const admin = { email: "tests@test.invalid" };
+async function setFee(
+  currency: "NGN" | "GHS" | "KES" | "XAF",
+  over: { approved?: boolean; enabled?: boolean; percent?: number } = {},
+) {
+  const r = await saveFeePolicy(
+    "wallet_funding",
+    currency,
+    {
+      model: "percent",
+      percent: over.percent ?? 1.5,
+      fixedMinor: 0,
+      capMinor: null,
+      approved: over.approved ?? true,
+      enabled: over.enabled ?? true,
+    },
+    admin,
+  );
+  assert.equal(r.ok, true);
+}
+async function clearFees() {
+  await prisma.setting.deleteMany({ where: { key: SETTING_KEYS.feePolicies } });
+}
+
+type Charge = { status: string; amount?: number | string; currency?: string; payment_method?: string; fee?: number | string; vat?: number | string; amount_charged?: number | string };
 let charge: Charge = { status: "pending" };
-let verifyCalls = 0;
 const realFetch = globalThis.fetch;
 
 let userId = "";
 let savedSetting: string | null = null;
+let savedFees: string | null = null;
 
 before(async () => {
   globalThis.fetch = (async (input: unknown) => {
     const url = String(input);
     if (url.includes("/charges/") && !url.includes("initialize")) {
-      verifyCalls++;
       const reference = decodeURIComponent(url.split("/charges/")[1]);
       return new Response(JSON.stringify({ status: true, message: "ok", data: { reference, ...charge } }), {
         status: 200,
@@ -43,6 +67,8 @@ before(async () => {
 
   savedSetting = (await prisma.setting.findUnique({ where: { key: SETTING_KEYS.fundingCurrencies } }))?.value ?? null;
   await prisma.setting.deleteMany({ where: { key: SETTING_KEYS.fundingCurrencies } });
+  savedFees = (await prisma.setting.findUnique({ where: { key: SETTING_KEYS.feePolicies } }))?.value ?? null;
+  await clearFees();
 
   const user = await prisma.user.create({
     data: {
@@ -64,6 +90,10 @@ after(async () => {
   if (savedSetting !== null) {
     await prisma.setting.create({ data: { key: SETTING_KEYS.fundingCurrencies, value: savedSetting } });
   }
+  await clearFees();
+  if (savedFees !== null) {
+    await prisma.setting.create({ data: { key: SETTING_KEYS.feePolicies, value: savedFees } });
+  }
   await prisma.$disconnect();
 });
 
@@ -72,10 +102,10 @@ async function balance() {
 }
 
 async function enable(code: "GHS" | "KES" | "XAF" = "GHS", usdRate = 15) {
+  await setFee(code);
   const r = await saveFundingState(code, {
     enabled: true,
     usdRate,
-    feePercent: 1.5,
     minMinor: code === "XAF" ? 500 : 1000,
     maxMinor: code === "XAF" ? 1_000_000 : 1_000_000,
   });
@@ -92,8 +122,47 @@ test("everything is off by default: no options, every quote refused", async () =
 });
 
 test("a currency cannot be enabled without a rate", async () => {
-  const r = await saveFundingState("KES", { enabled: true, usdRate: 0, feePercent: 1.5, minMinor: 1000, maxMinor: 5000 });
+  const r = await saveFundingState("KES", { enabled: true, usdRate: 0, minMinor: 1000, maxMinor: 5000 });
   assert.deepEqual(r, { ok: false, error: "rate_required" });
+});
+
+test("a currency cannot be switched on until its fee decision is approved", async () => {
+  await clearFees();
+  const patch = { enabled: true, usdRate: 129, minMinor: 1000, maxMinor: 5000 };
+  assert.deepEqual(await saveFundingState("KES", patch), { ok: false, error: "fee_not_approved" });
+  await setFee("KES", { approved: false, enabled: false });
+  assert.deepEqual(await saveFundingState("KES", patch), { ok: false, error: "fee_not_approved" });
+  await setFee("KES", { approved: true, enabled: false }); // approved: no fee
+  assert.deepEqual(await saveFundingState("KES", patch), { ok: true });
+  await saveFundingState("KES", { ...patch, enabled: false });
+  await clearFees();
+});
+
+test("a fee cannot be switched on without being approved", async () => {
+  const r = await saveFeePolicy(
+    "wallet_funding",
+    "GHS",
+    { model: "percent", percent: 2, fixedMinor: 0, capMinor: null, approved: false, enabled: true },
+    admin,
+  );
+  assert.deepEqual(r, { ok: false, error: "enable_needs_approval" });
+  const bad = await saveFeePolicy(
+    "wallet_funding",
+    "GHS",
+    { model: "percent", percent: 99, fixedMinor: 0, capMinor: null, approved: true, enabled: true },
+    admin,
+  );
+  assert.deepEqual(bad, { ok: false, error: "percent_invalid" });
+});
+
+test("approving a fee records who and when", async () => {
+  await setFee("GHS", { percent: 2 });
+  const q = await resolveFundingFee("GHS", 10_000);
+  assert.equal(q.status, "applied");
+  assert.equal(q.status === "applied" && q.feeMinor, 200);
+  assert.equal(q.status === "applied" && q.policy.approvedBy, "tests@test.invalid");
+  assert.ok(q.status === "applied" && q.policy.approvedAt);
+  await clearFees();
 });
 
 test("enabled currency is offered to its own country only", async () => {
@@ -240,10 +309,114 @@ test("Naira funding is unaffected: still verified and credited as before, with a
   });
 });
 
-test("XAF/XOF payments are charged in whole multiples of 5", async () => {
+test("with no approved fee decision, a local payment is refused, not given a guessed fee", async () => {
+  await enable("GHS");
+  await clearFees();
+  const refused = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  assert.equal(!refused.ok && refused.error, "fee_not_configured");
+  assert.deepEqual(await getFundingOptions("GH"), []);
+
+  const draft = await saveFeePolicy(
+    "wallet_funding",
+    "GHS",
+    { model: "percent", percent: 2, fixedMinor: 0, capMinor: null, approved: false, enabled: false },
+    admin,
+  );
+  assert.equal(draft.ok, true);
+  const stillRefused = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  assert.equal(!stillRefused.ok && stillRefused.error, "fee_not_configured");
+});
+
+test("an approved but disabled fee means no fee: payment goes ahead and no fee is applied", async () => {
+  await setFee("GHS", { approved: true, enabled: false });
+  const q = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 10_000 });
+  assert.ok(q.ok);
+  assert.equal(q.quote.feeMinor, 0);
+  assert.equal(q.quote.totalMinor, 10_000);
+});
+
+test("the fee shown in the quote is exactly the approved fee, and the pending row records it", async () => {
+  await setFee("GHS", { percent: 2.5 });
+  const q = await quoteLocalFunding({ savedCountry: "GH", currency: "GHS", amountMinor: 20_000 });
+  assert.ok(q.ok);
+  assert.equal(q.quote.feeMinor, 500); // 2.5% of GH₵200
+  const row = await createPendingLocalTopUp(userId, q.quote);
+  assert.equal(row.paymentFeeMinor, 500);
+  assert.equal(row.paymentAmountMinor, 20_500);
+  // changing the fee afterwards does not rewrite what this payment was quoted
+  await setFee("GHS", { percent: 9 });
+  const again = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: row.id } });
+  assert.equal(again.paymentFeeMinor, 500);
+  await setFee("GHS", { percent: 1.5 });
+});
+
+test("CFA amounts that are not multiples of 5 are rejected by the server", async () => {
   await enable("XAF", 600);
-  const r = await quoteLocalFunding({ savedCountry: "CM", currency: "XAF", amountMinor: 10_003 });
-  assert.ok(r.ok);
-  assert.equal(r.quote.totalMinor % 5, 0);
-  assert.ok(verifyCalls > 0);
+  const odd = await quoteLocalFunding({ savedCountry: "CM", currency: "XAF", amountMinor: 10_003 });
+  assert.equal(!odd.ok && odd.error, "amount_step");
+  const even = await quoteLocalFunding({ savedCountry: "CM", currency: "XAF", amountMinor: 10_005 });
+  assert.ok(even.ok);
+  assert.equal(even.quote.totalMinor % 5, 0);
+});
+
+test("USDT, USD and every other non-listed currency are refused by the same checks", async () => {
+  await enable("GHS");
+  for (const currency of ["USDT", "USD", "GBP", "EUR", "ZAR", "CNY", "RWF", "NGN"]) {
+    const q = await quoteLocalFunding({ savedCountry: "GH", currency, amountMinor: 10_000 });
+    assert.equal(!q.ok && q.error, "unsupported_currency", currency);
+  }
+});
+
+test("KoraPay's own fee, VAT and total are recorded when it reports them, and left empty when it does not", async () => {
+  await enable("GHS");
+  const { row, quote } = await pendingGhs(10_000);
+  charge = {
+    status: "success",
+    amount: String(quote.totalMinor / 100),
+    currency: "GHS",
+    payment_method: "mobile_money",
+    fee: 1.2,
+    vat: "0.18",
+    amount_charged: quote.totalMinor / 100,
+  } as Charge;
+  const outcome = await reconcileTopUp(row.providerReference!, "WEBHOOK");
+  assert.equal(outcome.state, "credited");
+  const saved = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: row.id } });
+  assert.equal(saved.providerFeeMinor, 120);
+  assert.equal(saved.providerVatMinor, 18);
+  assert.equal(saved.providerChargedMinor, quote.totalMinor);
+
+  const second = await pendingGhs(10_000);
+  charge = { status: "success", amount: second.quote.totalMinor / 100, currency: "GHS" };
+  await reconcileTopUp(second.row.providerReference!, "WEBHOOK");
+  const none = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: second.row.id } });
+  assert.equal(none.status, "SUCCESSFUL");
+  assert.equal(none.providerFeeMinor, null);
+  assert.equal(none.providerVatMinor, null);
+});
+
+test("Naira funding records the approved fee on the row and still credits only the requested amount", async () => {
+  await setFee("NGN", { percent: 1.5 });
+  const fee = await resolveFundingFee("NGN", 1_000_000);
+  assert.equal(fee.status, "applied");
+  const feeKobo = fee.feeMinor;
+  assert.equal(feeKobo, 15_000);
+
+  const before = await balance();
+  const row = await createPendingTopUp(userId, 1_000_000, "NGN", 10_000, 100_000_000, feeKobo);
+  assert.equal(row.paymentFeeMinor, 15_000);
+  assert.equal(row.paymentAmountMinor, 1_015_000);
+  assert.equal(row.paymentCurrency, null);
+  charge = { status: "success", amount: "10150", currency: "NGN", fee: 152.25 } as Charge;
+  const outcome = await verifyAndSettleTopUp(row.providerReference!);
+  assert.equal(outcome.state, "credited");
+  assert.equal(await balance(), before + 1_000_000);
+  const saved = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: row.id } });
+  assert.equal(saved.providerFeeMinor, 15_225);
+});
+
+test("a Naira payment is blocked when no approved fee decision exists", async () => {
+  await clearFees();
+  const fee = await resolveFundingFee("NGN", 1_000_000);
+  assert.equal(fee.status, "blocked");
 });

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatMoney } from "@/lib/currency";
+import { useDisplayMoney } from "@/components/currency/currency-provider";
 import {
   purchaseNumberAction,
   type PurchaseError,
@@ -464,6 +465,12 @@ export function BuyPanel({
 
   // The server returns popular services first, so grouping is a matter of
   // labelling the run rather than reordering anything here.
+  // Prices are shown in the customer's display currency (converted, marked
+  // with ≈); what is actually charged is always Naira, disclosed beside the
+  // final price below.
+  const displayMoney = useDisplayMoney();
+  const priceText = (kobo: number) => (displayMoney ? displayMoney.format(kobo) : formatMoney(kobo, currency));
+
   const serviceOptions: ComboboxOption[] = services.map((item) => ({
     value: item.slug,
     label: item.name,
@@ -504,7 +511,7 @@ export function BuyPanel({
           </span>
         ) : null}
         <span className="text-sm font-semibold tabular-nums">
-          {formatMoney(item.priceKobo, currency)}
+          {priceText(item.priceKobo)}
         </span>
       </span>
     ),
@@ -719,8 +726,13 @@ export function BuyPanel({
               <div>
                 <p className="text-xs text-muted-foreground">You pay</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums">
-                  {formatMoney(priceKobo, currency)}
+                  {priceText(priceKobo)}
                 </p>
+                {displayMoney?.converted ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Converted for display. Charged as {formatMoney(priceKobo, currency)} from your Naira wallet.
+                  </p>
+                ) : null}
               </div>
               <div className="pb-1 text-right">
                 {country.recommended ? (

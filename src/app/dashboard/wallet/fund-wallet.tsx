@@ -1,18 +1,17 @@
 "use client";
 
-import { useState, useTransition, type ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, Globe } from "lucide-react";
+import { Check } from "lucide-react";
 import {
   currencySupportsCountry,
   fundingCurrencyForCountry,
-  pickerCountries,
   type FundingCurrencyCode,
 } from "@/lib/funding-currencies";
+import { CountryPicker } from "@/components/currency/country-picker";
 import { AddFunds } from "./add-funds";
 import { LocalFunding } from "./local-funding";
 import { UsdtCard, UsdtComingSoonNotice } from "./usdt-coming-soon";
-import { saveCountryAction } from "./local-actions";
 
 /**
  * The wallet's funding area: one place to choose how to add money.
@@ -32,13 +31,12 @@ export interface LocalOption {
   maxMinor: number;
 }
 
-const OTHER = "OTHER";
-
 export function FundWallet({
   naira,
   walletCurrency,
   options,
   savedCountry,
+  detectedCountry,
 }: {
   naira: ComponentProps<typeof AddFunds>;
   walletCurrency: string;
@@ -46,12 +44,11 @@ export function FundWallet({
    *  country when there is one, otherwise every enabled one. */
   options: LocalOption[];
   savedCountry: string | null;
+  /** Country detected from the request, only ever a preselected suggestion. */
+  detectedCountry: string | null;
 }) {
   const searchParams = useSearchParams();
   const [country, setCountry] = useState<string | null>(savedCountry);
-  const [other, setOther] = useState(false);
-  const [countryError, setCountryError] = useState<string | null>(null);
-  const [saving, startSaving] = useTransition();
   const [selected, setSelected] = useState<string | null>(null);
 
   // Coming back from KoraPay (either kind of payment): only the status card.
@@ -71,28 +68,8 @@ export function FundWallet({
   const active = selected && (selected === "NGN" || sorted.some((o) => o.code === selected)) ? selected : defaultTab;
   const activeOption = sorted.find((o) => o.code === active);
 
-  const needsCountry = !countryKnown && !other;
-  const showUsdtNotice = (other || (countryKnown && country !== "NG")) && sorted.length === 0;
-
-  function chooseCountry(value: string) {
-    setCountryError(null);
-    if (!value) return;
-    if (value === OTHER) {
-      setOther(true);
-      return;
-    }
-    setOther(false);
-    setCountry(value);
-    startSaving(async () => {
-      const result = await saveCountryAction(value);
-      if (result.error) {
-        setCountry(null);
-        setCountryError(result.error);
-      } else if (result.country) {
-        setCountry(result.country);
-      }
-    });
-  }
+  const needsCountry = !countryKnown;
+  const showUsdtNotice = countryKnown && country !== "NG" && sorted.length === 0;
 
   return (
     <section className="rounded-xl border border-border bg-surface p-5">
@@ -102,29 +79,8 @@ export function FundWallet({
       </p>
 
       {needsCountry ? (
-        <div className="mt-4 max-w-xs">
-          <label htmlFor="funding-country" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Globe className="h-3.5 w-3.5" />
-            Where are you paying from?
-          </label>
-          <select
-            id="funding-country"
-            defaultValue=""
-            disabled={saving}
-            onChange={(e) => chooseCountry(e.target.value)}
-            className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
-          >
-            <option value="" disabled>
-              Select your country
-            </option>
-            {pickerCountries().map((c) => (
-              <option key={c.iso2} value={c.iso2}>
-                {c.name}
-              </option>
-            ))}
-            <option value={OTHER}>Another country</option>
-          </select>
-          {countryError ? <p className="mt-2 text-sm text-danger">{countryError}</p> : null}
+        <div className="mt-4">
+          <CountryPicker id="funding-country" suggested={detectedCountry} onSaved={setCountry} />
         </div>
       ) : null}
 

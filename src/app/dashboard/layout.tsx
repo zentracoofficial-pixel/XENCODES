@@ -7,6 +7,8 @@ import { DashboardBottomNav, DashboardSidebar, DashboardTopBar } from "./dashboa
 import { VerificationBanner } from "./verification-banner";
 import { AnnouncementPopup } from "./announcement-popup";
 import { getAnnouncement } from "@/lib/announcement";
+import { CurrencyProvider } from "@/components/currency/currency-provider";
+import { getDisplayContext } from "@/lib/display-preference";
 
 // A customer's wallet, orders and account settings must never be treated
 // as public SEO content, whatever links to them. robots.txt's disallow
@@ -30,7 +32,7 @@ export default async function DashboardLayout({
 
   // Only queried for an unverified account: a verified customer (the
   // overwhelming majority of page loads) skips both queries entirely.
-  const [eligibility, pendingRequest, unreadCount, notifications, announcement] = await Promise.all([
+  const [eligibility, pendingRequest, unreadCount, notifications, announcement, currencyContext] = await Promise.all([
     user.emailVerified ? Promise.resolve(null) : getResendEligibility(user.id),
     user.emailVerified
       ? Promise.resolve(null)
@@ -42,6 +44,7 @@ export default async function DashboardLayout({
     listRecentNotifications(user.id),
     // A failed settings read must never take the whole dashboard down.
     getAnnouncement().catch(() => null),
+    getDisplayContext(),
   ]);
 
   const notificationItems = notifications.map((notification) => ({
@@ -53,6 +56,7 @@ export default async function DashboardLayout({
   }));
 
   return (
+    <CurrencyProvider context={currencyContext}>
     <div className="flex min-h-screen bg-background">
       <DashboardSidebar notifications={notificationItems} unreadCount={unreadCount} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -86,5 +90,6 @@ export default async function DashboardLayout({
       </div>
       <DashboardBottomNav />
     </div>
+    </CurrencyProvider>
   );
 }

@@ -9,7 +9,6 @@ import {
   fundingCurrencyForCountry,
   isFundingCurrencyCode,
   localFundingErrorCopy,
-  pickerCountries,
   validateLocalAmount,
 } from "../src/lib/funding-currencies";
 import { parseMinorAmount, verifyKorapayWebhookSignature } from "../src/lib/korapay";
@@ -44,21 +43,14 @@ test("a currency only supports its own country", () => {
   assert.equal(currencySupportsCountry("KES", null), false);
 });
 
-test("the country picker offers Nigeria and the six countries only", () => {
-  assert.deepEqual(
-    pickerCountries().map((c) => c.iso2),
-    ["NG", "GH", "KE", "CM", "CI", "EG", "TZ"],
-  );
-});
-
-test("quote: fee goes on top and is never credited", () => {
+test("quote: an approved fee goes on top and is never credited", () => {
   // 1 USD = 1500 NGN = 15 GHS, so 1 GHS = 100 NGN.
   const q = computeFundingQuote({
     currency: "GHS",
     amountMinor: 10_000, // GH₵100.00
     currencyUsdRate: 15,
     ngnUsdRate: 1500,
-    feePercent: 1.5,
+    approvedFeeMinor: 150,
   })!;
   assert.equal(q.feeMinor, 150);
   assert.equal(q.totalMinor, 10_150);
@@ -66,52 +58,53 @@ test("quote: fee goes on top and is never credited", () => {
   assert.equal(q.creditKobo, 1_000_000); // ₦10,000.00 from GH₵100 alone
 });
 
-test("quote: XAF totals round up to a multiple of 5 and the rounding goes into the fee", () => {
-  const q = computeFundingQuote({
-    currency: "XAF",
-    amountMinor: 10_003,
-    currencyUsdRate: 600,
-    ngnUsdRate: 1500,
-    feePercent: 1.5,
-  })!;
-  assert.equal(q.totalMinor % 5, 0);
-  assert.ok(q.totalMinor >= 10_003 + 150);
-  assert.equal(q.feeMinor, q.totalMinor - 10_003);
-  // credit depends on the amount alone: 10003 XAF at 2.5 NGN each
-  assert.equal(q.creditKobo, Math.floor(10_003 * 2.5 * 100));
-});
-
-test("quote: credit is floored, never rounded up", () => {
+test("quote: no approved fee means no fee and total equals amount", () => {
   const q = computeFundingQuote({
     currency: "KES",
     amountMinor: 12_345,
     currencyUsdRate: 129,
     ngnUsdRate: 1500,
-    feePercent: 0,
+    approvedFeeMinor: 0,
   })!;
-  const exact = (123.45 * 1500) / 129 * 100;
+  assert.equal(q.feeMinor, 0);
+  assert.equal(q.totalMinor, 12_345);
+  const exact = ((123.45 * 1500) / 129) * 100;
   assert.equal(q.creditKobo, Math.floor(exact + 1e-9));
   assert.ok(q.creditKobo <= exact + 1e-6);
-  assert.equal(q.feeMinor, 0);
+});
+
+test("quote: CFA amounts must be multiples of 5, so no rounding is ever added to what the customer pays", () => {
+  const base = { currency: "XAF" as const, currencyUsdRate: 600, ngnUsdRate: 1500 };
+  assert.equal(computeFundingQuote({ ...base, amountMinor: 10_003, approvedFeeMinor: 0 }), null);
+  const none = computeFundingQuote({ ...base, amountMinor: 10_005, approvedFeeMinor: 0 })!;
+  assert.equal(none.feeMinor, 0);
+  assert.equal(none.totalMinor, 10_005);
+  // an approved fee is rounded up to the step so the total stays chargeable
+  const withFee = computeFundingQuote({ ...base, amountMinor: 10_005, approvedFeeMinor: 153 })!;
+  assert.equal(withFee.feeMinor, 155);
+  assert.equal(withFee.totalMinor % 5, 0);
+  assert.equal(withFee.creditKobo, Math.floor(10_005 * 2.5 * 100));
 });
 
 test("quote: refuses nonsense inputs", () => {
-  const base = { currency: "GHS" as const, amountMinor: 1000, currencyUsdRate: 15, ngnUsdRate: 1500, feePercent: 1 };
+  const base = { currency: "GHS" as const, amountMinor: 1000, currencyUsdRate: 15, ngnUsdRate: 1500, approvedFeeMinor: 10 };
   assert.equal(computeFundingQuote({ ...base, currencyUsdRate: 0 }), null);
   assert.equal(computeFundingQuote({ ...base, ngnUsdRate: -1 }), null);
   assert.equal(computeFundingQuote({ ...base, amountMinor: 0 }), null);
   assert.equal(computeFundingQuote({ ...base, amountMinor: 10.5 }), null);
-  assert.equal(computeFundingQuote({ ...base, feePercent: 80 }), null);
-  assert.equal(computeFundingQuote({ ...base, feePercent: Number.NaN }), null);
+  assert.equal(computeFundingQuote({ ...base, approvedFeeMinor: -1 }), null);
+  assert.equal(computeFundingQuote({ ...base, approvedFeeMinor: 1.5 }), null);
 });
 
-test("amount limits", () => {
+test("amount limits and step", () => {
   assert.equal(validateLocalAmount(500, 1000, 5000), "amount_too_low");
   assert.equal(validateLocalAmount(6000, 1000, 5000), "amount_too_high");
   assert.equal(validateLocalAmount(1000, 1000, 5000), null);
   assert.equal(validateLocalAmount(5000, 1000, 5000), null);
   assert.equal(validateLocalAmount(Number.NaN, 1000, 5000), "amount_invalid");
   assert.equal(validateLocalAmount(1.5, 1000, 5000), "amount_invalid");
+  assert.equal(validateLocalAmount(1003, 1000, 5000, 5), "amount_step");
+  assert.equal(validateLocalAmount(1005, 1000, 5000, 5), null);
 });
 
 test("customer-facing wording exists for every refusal", () => {
@@ -125,11 +118,14 @@ test("customer-facing wording exists for every refusal", () => {
     "amount_too_low",
     "amount_too_high",
     "rate_unavailable",
+    "amount_step",
+    "fee_not_configured",
     "wallet_currency",
   ] as const) {
     assert.ok(localFundingErrorCopy(code, "GHS", { minMinor: 1000, maxMinor: 5000 }).length > 10, code);
   }
   assert.match(localFundingErrorCopy("amount_too_low", "GHS", { minMinor: 1000, maxMinor: 5000 }), /GH₵10/);
+  assert.match(localFundingErrorCopy("amount_step", "XAF"), /multiples of 5/);
 });
 
 test("every currency has methods, a symbol and a sane default range", () => {

@@ -9,11 +9,11 @@ import {
   localFundingErrorCopy,
   isFundingCurrencyCode,
   normalizeCountry,
-  pickerCountries,
   type FundingCurrencyCode,
   type FundingQuote,
 } from "@/lib/funding-currencies";
 import { initializeKorapayCharge, KorapayError } from "@/lib/korapay";
+import { isKnownCountry } from "@/lib/countries";
 
 /**
  * Local-currency funding: pay in Cedi, Shilling, CFA or Pound, credited to
@@ -142,12 +142,12 @@ export async function saveCountryAction(country: string): Promise<{ error?: stri
   const user = await getActiveUser();
   if (!user) return { error: "Log in to continue." };
   const iso2 = normalizeCountry(country);
-  if (!iso2 || !pickerCountries().some((c) => c.iso2 === iso2)) {
+  if (!iso2 || !isKnownCountry(iso2)) {
     return { error: "Choose a country from the list." };
   }
   if (user.country) return { country: user.country };
 
   await prisma.user.updateMany({ where: { id: user.id, country: null }, data: { country: iso2 } });
-  revalidatePath("/dashboard/wallet");
+  revalidatePath("/", "layout");
   return { country: iso2 };
 }

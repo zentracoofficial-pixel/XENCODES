@@ -97,40 +97,6 @@ export async function saveMarginSettingsAction(
 }
 
 /**
- * The processing fee percentage passed on to customers at wallet top-up, so
- * KoraPay's cut is not silently absorbed by the business. KoraPay's own
- * published rate is one number regardless of currency, so this stays a
- * single platform-wide setting; the fee's cap, unlike the percentage, does
- * vary sensibly by currency and is set per-currency on /admin/currencies
- * instead, not here.
- */
-export async function saveTopupFeeSettingsAction(
-  _prev: SettingsState,
-  formData: FormData,
-): Promise<SettingsState> {
-  const admin = await requireAdmin();
-
-  const feePercent = Number(formData.get("feePercent"));
-
-  if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 20) {
-    return { error: "Enter a fee percentage between 0 and 20." };
-  }
-
-  await writeSetting(SETTING_KEYS.topupFeePercent, String(feePercent));
-  await recordAudit({
-    actor: admin,
-    action: "settings.update",
-    targetType: "settings",
-    targetId: "topup_fee",
-    metadata: { feePercent },
-  });
-
-  revalidatePath("/admin/settings");
-  revalidatePath("/dashboard/wallet");
-  return { success: true };
-}
-
-/**
  * The customer-recovery thresholds and the admin-editable automatic email
  * template — see src/lib/recovery.ts for how each one is actually used.
  * Validated to sane, non-empty bounds: a threshold of 0 or a negative

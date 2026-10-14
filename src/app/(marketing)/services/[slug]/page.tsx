@@ -10,7 +10,8 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { UnavailableNotice } from "@/components/product/unavailable-notice";
 import { getServiceMeta, getServiceCountries, getInventoryStatus } from "@/lib/inventory";
 import { getVisitorCurrency } from "@/lib/currency-config";
-import { formatMoney } from "@/lib/currency";
+import { formatNgnForDisplay } from "@/lib/display-currency";
+import { getDisplayContext } from "@/lib/display-preference";
 import { SITE_URL } from "@/lib/site";
 import { SERVICE_PAGES, getServicePageContent } from "@/data/service-pages";
 
@@ -81,6 +82,7 @@ export default async function ServiceDetailPage({
   }
 
   const currency = await getVisitorCurrency();
+  const displayContext = await getDisplayContext();
   const [meta, countries, status] = await Promise.all([
     getServiceMeta(slug),
     getServiceCountries(slug, currency),
@@ -185,11 +187,16 @@ export default async function ServiceDetailPage({
                       ) : null}
                     </div>
                     <p className="shrink-0 text-sm font-semibold tabular-nums">
-                      {formatMoney(country.priceKobo, currency.code)}
+                      {formatNgnForDisplay(country.priceKobo, displayContext.display, displayContext.rates)}
                     </p>
                   </li>
                 ))}
               </ul>
+              {displayContext.display !== "NGN" ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Prices are converted for display (≈). Numbers are charged in Naira from your Xencodes wallet.
+                </p>
+              ) : null}
             </section>
           ) : null}
 

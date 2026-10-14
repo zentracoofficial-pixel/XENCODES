@@ -18,7 +18,6 @@ export function FundingCurrencyForm({
   values: {
     enabled: boolean;
     usdRate: number | null;
-    feePercent: number;
     minAmount: number;
     maxAmount: number;
   };
@@ -29,7 +28,7 @@ export function FundingCurrencyForm({
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="code" value={code} />
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <label className={labelClass} htmlFor={`fx-rate-${code}`}>
             {code} per 1 USD
@@ -41,22 +40,6 @@ export function FundingCurrencyForm({
             step="0.0001"
             min="0"
             defaultValue={values.usdRate ?? ""}
-            className={inputClass}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor={`fx-fee-${code}`}>
-            Processing fee %
-          </label>
-          <input
-            id={`fx-fee-${code}`}
-            name="feePercent"
-            type="number"
-            step="0.01"
-            min="0"
-            max="50"
-            defaultValue={values.feePercent}
-            required
             className={inputClass}
           />
         </div>
