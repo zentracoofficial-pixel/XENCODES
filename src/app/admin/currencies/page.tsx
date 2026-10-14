@@ -8,7 +8,9 @@ import { CurrencyForm } from "./currency-form";
 import { FundingCurrencyForm } from "./funding-currency-form";
 import { FeePolicyForm } from "./fee-policy-form";
 import { readFeePolicy } from "@/lib/fee-policy";
-import { readFundingStates, isFundingStateUsable, isRateStale } from "@/lib/funding-config";
+import { readFundingStates, isFundingStateUsable, isRateStale, effectiveUsdRate } from "@/lib/funding-config";
+import { freshMarketRates } from "@/lib/market-rates";
+import { readSettings } from "@/lib/settings";
 import { FUNDING_CURRENCY_CODES, FUNDING_CURRENCIES, fundingRateDeviationPercent } from "@/lib/funding-currencies";
 import { getDisplayRates } from "@/lib/exchange-rates";
 import { isKorapayConfigured } from "@/lib/korapay";
@@ -38,6 +40,7 @@ export default async function AdminCurrenciesPage() {
   // Market rates (from the exchange-rate feed) to compare the funding rates
   // against; only used when the feed has actually supplied them.
   const market = await getDisplayRates();
+  const marketForFunding = freshMarketRates(await readSettings());
   const feeCodes = ["NGN", ...FUNDING_CURRENCY_CODES] as const;
   const feePolicies = await Promise.all(feeCodes.map((code) => readFeePolicy("wallet_funding", code)));
 
@@ -157,10 +160,14 @@ export default async function AdminCurrenciesPage() {
           const meta = FUNDING_CURRENCIES[code];
           const state = fundingStates[code];
           const divisor = minorUnitDivisor(code);
-          const live = korapay && isFundingStateUsable(state);
+          const liveRate = effectiveUsdRate(code, state, marketForFunding);
+          const feePolicy = feePolicies[feeCodes.indexOf(code)];
+          const live = korapay && isFundingStateUsable(state) && liveRate !== null && Boolean(feePolicy?.approved);
           const stale = isRateStale(state);
           const deviation =
-            market.asOf && state.usdRate ? fundingRateDeviationPercent(state.usdRate, market.perUsd[code]) : null;
+            market.asOf && state.usdRate && !state.followMarket
+              ? fundingRateDeviationPercent(state.usdRate, market.perUsd[code])
+              : null;
           return (
             <Card key={code} className="p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -173,11 +180,17 @@ export default async function AdminCurrenciesPage() {
                 <Badge variant={live ? "success" : "warning"}>{live ? "Offered to customers" : "Off"}</Badge>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                {state.usdRate && ngnRate
-                  ? `1 ${code} = ₦${(ngnRate / state.usdRate).toFixed(4)} at the saved rates.`
-                  : "No rate saved yet."}
-                {state.rateUpdatedAt ? ` Rate set ${new Date(state.rateUpdatedAt).toLocaleDateString("en-GB")}.` : ""}
-                {stale ? " This rate is over a week old; check it against the market." : ""}
+                {state.followMarket
+                  ? liveRate && ngnRate
+                    ? `Following the market: ${liveRate} ${code} per USD, so 1 ${code} = ₦${(ngnRate / liveRate).toFixed(4)} right now.`
+                    : "Following the market, but no fresh market rate is available, so payments are paused."
+                  : state.usdRate && ngnRate
+                    ? `1 ${code} = ₦${(ngnRate / state.usdRate).toFixed(4)} at the saved rates.`
+                    : "No rate saved yet."}
+                {!state.followMarket && state.rateUpdatedAt
+                  ? ` Rate set ${new Date(state.rateUpdatedAt).toLocaleDateString("en-GB")}.`
+                  : ""}
+                {!state.followMarket && stale ? " This rate is over a week old; check it against the market." : ""}
               </p>
               {deviation !== null && Math.abs(deviation) >= 3 ? (
                 <p className={deviation > 0 ? "mt-1 text-xs font-medium text-danger" : "mt-1 text-xs text-warning"}>
@@ -192,6 +205,7 @@ export default async function AdminCurrenciesPage() {
                   values={{
                     enabled: state.enabled,
                     usdRate: state.usdRate,
+                    followMarket: state.followMarket,
                     minAmount: state.minMinor / divisor,
                     maxAmount: state.maxMinor / divisor,
                   }}
