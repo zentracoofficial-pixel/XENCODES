@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { readSettings } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
 import { getEnabledProviders, getNumberProvider } from "@/lib/provider";
 import { formatMoney } from "@/lib/currency";
@@ -32,9 +31,8 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings, announcement] =
+  const [rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings, announcement] =
     await Promise.all([
-      readSettings(),
       loadMarginRules(),
       prisma.user.findMany({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } }),
       getNumberProvider(),

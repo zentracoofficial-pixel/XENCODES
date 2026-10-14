@@ -4,7 +4,6 @@ import {
   readNumber,
   SETTING_KEYS,
   DEFAULT_USD_TO_NGN_RATE,
-  DEFAULT_TOPUP_FEE_CAP_KOBO,
 } from "@/lib/settings";
 import { majorToMinor } from "@/lib/currency";
 import { isKorapayConfigured } from "@/lib/korapay";
@@ -53,11 +52,6 @@ export interface CurrencyConfigEntry {
    *  is connected and no follow-up migration or admin step is needed. */
   minTopUpMinor: number;
   maxTopUpMinor: number;
-  /** Ceiling on a payment provider's processing fee passed on to the
-   *  customer, in this currency's minor unit. Meaningless while
-   *  fundingAvailable is false, but kept ready for the same reason as the
-   *  top-up bounds above. */
-  feeCapMinor: number;
   /** Whether Xencodes can actually accept a top-up in this currency right
    *  now, computed live from whether a real provider is connected — never
    *  an admin-settable flag, so this can never say "available" when nothing
@@ -85,7 +79,6 @@ interface StoredOverride {
   usdRate?: number;
   minTopUpMinor?: number;
   maxTopUpMinor?: number;
-  feeCapMinor?: number;
 }
 
 function readOverride(row: unknown): StoredOverride {
@@ -95,7 +88,6 @@ function readOverride(row: unknown): StoredOverride {
     usdRate: typeof r.usdRate === "number" && r.usdRate > 0 ? r.usdRate : undefined,
     minTopUpMinor: typeof r.minTopUpMinor === "number" ? r.minTopUpMinor : undefined,
     maxTopUpMinor: typeof r.maxTopUpMinor === "number" ? r.maxTopUpMinor : undefined,
-    feeCapMinor: typeof r.feeCapMinor === "number" ? r.feeCapMinor : undefined,
   };
 }
 
@@ -108,8 +100,11 @@ function readOverride(row: unknown): StoredOverride {
  * carrying that already-tuned rate forward rather than resetting it to a
  * placeholder.
  */
-export async function readCurrencyConfig(): Promise<CurrencyConfigEntry[]> {
-  const settings = await readSettings();
+export async function readCurrencyConfig(
+  /** Settings already read in this request, to avoid reading them again. */
+  preloaded?: Record<string, string>,
+): Promise<CurrencyConfigEntry[]> {
+  const settings = preloaded ?? (await readSettings());
   const raw = settings[SETTING_KEYS.currencyConfig];
 
   let ngnOverride: StoredOverride = {};
@@ -131,7 +126,6 @@ export async function readCurrencyConfig(): Promise<CurrencyConfigEntry[]> {
   } else {
     ngnOverride = {
       usdRate: readNumber(settings, SETTING_KEYS.usdToNgnRate, DEFAULT_USD_TO_NGN_RATE),
-      feeCapMinor: readNumber(settings, SETTING_KEYS.topupFeeCapKobo, DEFAULT_TOPUP_FEE_CAP_KOBO),
     };
   }
 
@@ -140,7 +134,6 @@ export async function readCurrencyConfig(): Promise<CurrencyConfigEntry[]> {
     usdRate: ngnOverride.usdRate ?? DEFAULT_USD_TO_NGN_RATE,
     minTopUpMinor: ngnOverride.minTopUpMinor ?? NGN_DEFAULTS.minTopUpMinor,
     maxTopUpMinor: ngnOverride.maxTopUpMinor ?? NGN_DEFAULTS.maxTopUpMinor,
-    feeCapMinor: ngnOverride.feeCapMinor ?? DEFAULT_TOPUP_FEE_CAP_KOBO,
     fundingAvailable: isKorapayConfigured(),
     fundingProvider: "korapay",
   };
@@ -151,7 +144,6 @@ export async function readCurrencyConfig(): Promise<CurrencyConfigEntry[]> {
     usdRate: 1,
     minTopUpMinor: usdOverride.minTopUpMinor ?? USD_DEFAULTS.minTopUpMinor,
     maxTopUpMinor: usdOverride.maxTopUpMinor ?? USD_DEFAULTS.maxTopUpMinor,
-    feeCapMinor: usdOverride.feeCapMinor ?? 0,
     // No USD-capable payment provider exists in this codebase yet. This
     // must never become a stored admin toggle: the day a real adapter is
     // wired in below, this line changes to check it, the same way NGN's
@@ -167,7 +159,7 @@ export async function readCurrencyConfig(): Promise<CurrencyConfigEntry[]> {
  *  silently ignored for USD, since it is never anything but 1. */
 export async function updateCurrencySettings(
   code: CurrencyCode,
-  patch: Partial<Pick<CurrencyConfigEntry, "usdRate" | "minTopUpMinor" | "maxTopUpMinor" | "feeCapMinor">>,
+  patch: Partial<Pick<CurrencyConfigEntry, "usdRate" | "minTopUpMinor" | "maxTopUpMinor">>,
 ): Promise<void> {
   const settings = await readSettings();
   const raw = settings[SETTING_KEYS.currencyConfig];
@@ -190,7 +182,6 @@ export async function updateCurrencySettings(
     ...(code === "NGN" && patch.usdRate !== undefined ? { usdRate: patch.usdRate } : {}),
     ...(patch.minTopUpMinor !== undefined ? { minTopUpMinor: patch.minTopUpMinor } : {}),
     ...(patch.maxTopUpMinor !== undefined ? { maxTopUpMinor: patch.maxTopUpMinor } : {}),
-    ...(patch.feeCapMinor !== undefined ? { feeCapMinor: patch.feeCapMinor } : {}),
   };
 
   await writeSetting(SETTING_KEYS.currencyConfig, JSON.stringify(stored));

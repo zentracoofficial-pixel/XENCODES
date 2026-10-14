@@ -420,3 +420,47 @@ test("a Naira payment is blocked when no approved fee decision exists", async ()
   const fee = await resolveFundingFee("NGN", 1_000_000);
   assert.equal(fee.status, "blocked");
 });
+
+test("a Naira top-up with a fee is credited when KoraPay reports the full amount it charged (amount + fee)", async () => {
+  await setFee("NGN", { percent: 1.5 });
+  const before = await balance();
+  const row = await createPendingTopUp(userId, 1_000_000, "NGN", 10_000, 100_000_000, 15_000);
+  charge = { status: "success", amount: 10_150, currency: "NGN" }; // numeric, total charged
+  assert.equal((await verifyAndSettleTopUp(row.providerReference!)).state, "credited");
+  assert.equal(await balance(), before + 1_000_000);
+
+  // and a numeric amount that is neither is still refused
+  const other = await createPendingTopUp(userId, 1_000_000, "NGN", 10_000, 100_000_000, 15_000);
+  charge = { status: "success", amount: 9_000, currency: "NGN" };
+  assert.deepEqual(await verifyAndSettleTopUp(other.providerReference!), {
+    state: "still_pending",
+    reason: "amount_mismatch",
+  });
+});
+
+test("saving fees for different currencies at the same moment keeps every change", async () => {
+  await clearFees();
+  await Promise.all([
+    setFee("GHS", { percent: 1 }),
+    setFee("KES", { percent: 2 }),
+    setFee("XAF", { percent: 3 }),
+    setFee("NGN", { percent: 1.5 }),
+  ]);
+  for (const [code, pct] of [["GHS", 1], ["KES", 2], ["XAF", 3], ["NGN", 1.5]] as const) {
+    const fee = await resolveFundingFee(code, 10_000);
+    assert.equal(fee.status, "applied", code);
+    assert.equal(fee.status === "applied" && fee.policy.percent, pct, code);
+  }
+});
+
+test("saving funding switches for different currencies at the same moment keeps every change", async () => {
+  await Promise.all([setFee("GHS"), setFee("KES")]);
+  await Promise.all([
+    saveFundingState("GHS", { enabled: true, usdRate: 15, minMinor: 1000, maxMinor: 1_000_000 }),
+    saveFundingState("KES", { enabled: true, usdRate: 129, minMinor: 1000, maxMinor: 1_000_000 }),
+  ]);
+  const states = await readFundingStates();
+  assert.equal(states.GHS.enabled, true);
+  assert.equal(states.KES.enabled, true);
+  await saveFundingState("KES", { enabled: false, usdRate: 129, minMinor: 1000, maxMinor: 1_000_000 });
+});

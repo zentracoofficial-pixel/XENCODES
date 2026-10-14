@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "@/app/dashboard/activation-logo";
 import { UserActions } from "./user-actions";
+import { CountryForm } from "./country-form";
 import {
   ACTIVATION_STATUS_VARIANT,
   ORDER_STATUS_LABEL,
@@ -136,6 +137,8 @@ export default async function AdminUserDetailPage({
         />
         <Metric label="Orders" value={user._count.activations} />
       </MetricGrid>
+
+      <CountryForm userId={user.id} country={user.country} displayCurrency={user.displayCurrency} />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">

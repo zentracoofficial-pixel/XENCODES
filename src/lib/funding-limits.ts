@@ -79,7 +79,7 @@ export function validateTopUpAmount(
  *
  * Modelled as percent-with-a-cap because that is how KoraPay's own
  * published rate actually works (1.5% capped at NGN 2,000, see
- * DEFAULT_TOPUP_FEE_PERCENT/DEFAULT_TOPUP_FEE_CAP_KOBO in settings.ts), not
+ * the approved fee policy in src/lib/fee-policy.ts), not
  * because this codebase invented that shape. There is no supported way to
  * have KoraPay itself add its real fee at checkout for the hosted
  * Checkout Redirect product this integration uses (its documented request

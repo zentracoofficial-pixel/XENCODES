@@ -45,7 +45,7 @@ export async function setDisplayCurrencyAction(code: string | null): Promise<Dis
 
   const session = await auth();
   if (session?.user?.id) {
-    await prisma.user.update({
+    await prisma.user.updateMany({
       where: { id: session.user.id },
       data: { displayCurrency: code },
     });

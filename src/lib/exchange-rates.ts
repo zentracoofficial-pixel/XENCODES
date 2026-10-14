@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma";
 import { readSettings, writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { readFundingStates } from "@/lib/funding-config";
@@ -70,10 +71,38 @@ export function parseRateTable(body: unknown): StoredRates["rates"] | null {
  * Fetches a fresh table and stores it. Always records the attempt time so a
  * failing source is not hammered. Never throws.
  */
-export async function refreshDisplayRates(): Promise<{ ok: boolean; reason?: string }> {
-  const settings = await readSettings();
-  const previous = parseStored(settings[SETTING_KEYS.displayRates]);
+export async function refreshDisplayRates(
+  options: { onlyIfDue?: boolean } = {},
+): Promise<{ ok: boolean; reason?: string }> {
+  const row = await prisma.setting.findUnique({ where: { key: SETTING_KEYS.displayRates } });
+  const previous = parseStored(row?.value);
   const now = new Date().toISOString();
+
+  // Claim the refresh before fetching: the first request to flip
+  // attemptedAt (a compare-and-swap on the stored value) is the only one
+  // that goes on to call the source, so a burst of page views after the
+  // table goes stale makes one outbound request, not dozens.
+  if (options.onlyIfDue) {
+    if (!isDue(previous, Date.now())) return { ok: false, reason: "not_due" };
+    const claim: StoredRates = {
+      fetchedAt: previous?.fetchedAt ?? new Date(0).toISOString(),
+      attemptedAt: now,
+      rates: previous?.rates ?? {},
+    };
+    try {
+      if (row) {
+        const claimed = await prisma.setting.updateMany({
+          where: { key: SETTING_KEYS.displayRates, value: row.value },
+          data: { value: JSON.stringify(claim) },
+        });
+        if (claimed.count !== 1) return { ok: false, reason: "claimed_elsewhere" };
+      } else {
+        await prisma.setting.create({ data: { key: SETTING_KEYS.displayRates, value: JSON.stringify(claim) } });
+      }
+    } catch {
+      return { ok: false, reason: "claimed_elsewhere" };
+    }
+  }
 
   let rates: StoredRates["rates"] | null = null;
   let reason: string | undefined;
@@ -97,6 +126,14 @@ export async function refreshDisplayRates(): Promise<{ ok: boolean; reason?: str
   );
   if (!rates) console.error(`[rates] display rate refresh failed: ${reason}`);
   return rates ? { ok: true } : { ok: false, reason };
+}
+
+function isDue(stored: StoredRates | null, nowMs: number): boolean {
+  if (!stored) return true;
+  return (
+    nowMs - new Date(stored.fetchedAt).getTime() > REFRESH_AFTER_MS &&
+    nowMs - new Date(stored.attemptedAt).getTime() > RETRY_AFTER_MS
+  );
 }
 
 /** Pure part of getDisplayRates(), for tests: how stored rates, the Naira
@@ -128,23 +165,20 @@ export function assembleRates(input: {
  * stored table is old (without making this request wait for it).
  */
 export async function getDisplayRates(): Promise<DisplayRates> {
-  const [settings, currencies, funding] = await Promise.all([
-    readSettings(),
-    readCurrencyConfig(),
-    readFundingStates().catch(() => null),
+  // One read of the settings table for everything below.
+  const settings = await readSettings();
+  const [currencies, funding] = await Promise.all([
+    readCurrencyConfig(settings),
+    readFundingStates(settings).catch(() => null),
   ]);
   const ngn = currencies.find((c) => c.code === "NGN");
   const stored = parseStored(settings[SETTING_KEYS.displayRates]);
 
   const now = Date.now();
-  const needsRefresh =
-    !stored ||
-    (now - new Date(stored.fetchedAt).getTime() > REFRESH_AFTER_MS &&
-      now - new Date(stored.attemptedAt).getTime() > RETRY_AFTER_MS);
-  if (needsRefresh) {
+  if (isDue(stored, now)) {
     try {
       const { after } = await import("next/server");
-      after(() => refreshDisplayRates());
+      after(() => refreshDisplayRates({ onlyIfDue: true }));
     } catch {
       // Not inside a request (a script or test): the cron and the admin
       // refresh button are the other ways this table gets updated.

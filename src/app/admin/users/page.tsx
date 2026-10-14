@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
+import { countryName } from "@/lib/countries";
 import { formatMoney } from "@/lib/currency";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -215,6 +216,7 @@ export default async function AdminUsersPage({
                   <th className="px-3 py-2.5 text-right font-medium">Balance</th>
                   <th className="px-3 py-2.5 text-right font-medium">Orders</th>
                   <th className="px-3 py-2.5 text-right font-medium">Total spent</th>
+                  <th className="px-3 py-2.5 font-medium">Country</th>
                   <th className="px-3 py-2.5 font-medium">Joined</th>
                   <th className="px-5 py-2.5 font-medium">Status</th>
                 </tr>
@@ -250,6 +252,9 @@ export default async function AdminUsersPage({
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
                       {formatMoney(spentByUser.get(user.id) ?? 0, user.currency)}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground" title={countryName(user.country) ?? undefined}>
+                      {user.country ?? "—"}
                     </td>
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {user.createdAt.toLocaleDateString("en-NG", {

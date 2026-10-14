@@ -56,10 +56,15 @@ export function LocalFunding({
   useEffect(() => {
     if (!inRange) return;
     const timer = setTimeout(() => {
-      previewLocalFundingAction(code, amountMinor, country).then((answer) => {
-        if (latest.current !== amountMinor) return;
-        setResult({ amountMinor, quote: answer.quote ?? null, error: answer.error ?? null });
-      });
+      previewLocalFundingAction(code, amountMinor, country)
+        .catch(() => ({
+          quote: undefined,
+          error: "We could not work out the total just now. Check your connection and try again.",
+        }))
+        .then((answer) => {
+          if (latest.current !== amountMinor) return;
+          setResult({ amountMinor, quote: answer.quote ?? null, error: answer.error ?? null });
+        });
     }, 350);
     latest.current = amountMinor;
     return () => clearTimeout(timer);

@@ -68,9 +68,15 @@ async function evaluate(
     return { error: localFundingErrorCopy("wallet_currency", code) };
   }
 
+  // Only the country saved on the account counts. A customer with none saves
+  // it first (saveCountryAction, set once); a country sent by the browser is
+  // never trusted here, so it cannot be swapped per request to reach a
+  // currency meant for another country.
+  void claimedCountry;
+  if (!user.country) return { error: localFundingErrorCopy("country_required", code) };
   const result = await quoteLocalFunding({
     savedCountry: user.country,
-    claimedCountry: typeof claimedCountry === "string" ? claimedCountry : null,
+    claimedCountry: null,
     currency,
     amountMinor: typeof amountMinor === "number" ? amountMinor : Number.NaN,
   });

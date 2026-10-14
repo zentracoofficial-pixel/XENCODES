@@ -10,6 +10,7 @@ import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { formatMoney } from "@/lib/currency";
 import { useDisplayMoney } from "@/components/currency/currency-provider";
+import { DisplayAmount } from "@/components/currency/display-amount";
 import {
   purchaseNumberAction,
   type PurchaseError,
@@ -469,7 +470,8 @@ export function BuyPanel({
   // with ≈); what is actually charged is always Naira, disclosed beside the
   // final price below.
   const displayMoney = useDisplayMoney();
-  const priceText = (kobo: number) => (displayMoney ? displayMoney.format(kobo) : formatMoney(kobo, currency));
+  const priceText = (kobo: number) =>
+    displayMoney && currency === "NGN" ? displayMoney.format(kobo) : formatMoney(kobo, currency);
 
   const serviceOptions: ComboboxOption[] = services.map((item) => ({
     value: item.slug,
@@ -590,7 +592,7 @@ export function BuyPanel({
           </span>
           <span className="flex items-center gap-3">
             <span className="text-sm font-semibold tabular-nums">
-              {formatMoney(walletBalanceKobo, currency)}
+              <DisplayAmount kobo={walletBalanceKobo} currency={currency} naira="inline" />
             </span>
             <Link
               href={walletHref}
@@ -786,7 +788,7 @@ export function BuyPanel({
       {signedIn && priceKobo !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            Add {formatMoney(priceKobo - walletBalanceKobo, currency)} to your wallet to
+            Add {displayMoney && currency === "NGN" ? displayMoney.withNaira(priceKobo - walletBalanceKobo) : formatMoney(priceKobo - walletBalanceKobo, currency)} to your wallet to
             buy this number.
           </p>
           <Button href={walletHref} size="sm" variant="outline">

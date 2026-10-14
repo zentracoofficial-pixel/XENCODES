@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { DisplayAmount } from "@/components/currency/display-amount";
 import { Suspense } from "react";
 import {
   ArrowDownLeft,
@@ -12,7 +13,6 @@ import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/currency";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { getFundingOptions } from "@/lib/funding-config";
-import { formatNgnForDisplay } from "@/lib/display-currency";
 import { getDisplayContext } from "@/lib/display-preference";
 import { FundWallet, type LocalOption } from "./fund-wallet";
 import {
@@ -67,7 +67,9 @@ export default async function WalletPage() {
   const currency =
     (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
   const displayContext = await getDisplayContext();
-  const fundingOptions = await getFundingOptions(user.country);
+  // Every enabled currency; the grid greys out the ones for other countries
+  // and the server enforces the country again on every quote.
+  const fundingOptions = await getFundingOptions(null);
   const localOptions: LocalOption[] = fundingOptions.map(({ code, state }) => ({
     code,
     name: FUNDING_CURRENCIES[code].name,
@@ -88,15 +90,19 @@ export default async function WalletPage() {
 
       <div className="rounded-2xl bg-forest px-6 py-5">
         <p className="text-xs uppercase tracking-[0.14em] text-white/50">
-          Current balance
+          Wallet balance
         </p>
         <p className="mt-1.5 text-4xl font-semibold tabular-nums text-white">
-          {formatMoney(user.walletBalanceKobo, user.currency)}
+          <DisplayAmount
+            kobo={user.walletBalanceKobo}
+            currency={user.currency}
+            nairaClassName="mt-1 text-sm text-white/60"
+          />
         </p>
         {displayContext.display !== "NGN" && user.currency === "NGN" ? (
           <p className="mt-1 text-xs text-white/60">
-            {formatNgnForDisplay(user.walletBalanceKobo, displayContext.display, displayContext.rates)} in{" "}
-            {displayContext.display}, for reference. Your wallet is held and charged in Naira.
+            Your wallet is held and charged in Naira. Amounts in {displayContext.display} are converted at
+            today&apos;s rate.
           </p>
         ) : null}
       </div>
@@ -183,8 +189,12 @@ export default async function WalletPage() {
                           : "shrink-0 text-sm font-semibold tabular-nums text-muted-foreground"
                     }
                   >
-                    {settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
-                    {formatMoney(Math.abs(tx.amountKobo), tx.currency)}
+                    <DisplayAmount
+                      kobo={Math.abs(tx.amountKobo)}
+                      currency={tx.currency}
+                      sign={settled ? (tx.amountKobo >= 0 ? "+" : "-") : ""}
+                      align="end"
+                    />
                   </span>
                 </li>
               );
