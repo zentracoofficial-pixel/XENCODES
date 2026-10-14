@@ -12,20 +12,24 @@ import {
  *
  * A customer's wallet is held in their own currency, so their balance is
  * shown exactly as stored and never moves with exchange rates. Number prices
- * are worked out in Naira and converted (stored amount -> USD at the
- * platform's own rate -> the customer's currency at the market rate in
- * `DisplayRates`); a purchase is converted once, when it is bought, and that
- * exact amount is what leaves the wallet.
+ * are worked out in Naira and converted at market rates, so a Naira amount
+ * keeps its real value in every currency; a purchase is converted once, when
+ * it is bought, and that exact amount is what leaves the wallet.
  */
 
 /** Units of each currency per 1 USD, plus how fresh they are. */
 export interface DisplayRates {
-  /** Units per 1 USD. NGN is the platform's own rate; the others come from
-   *  the exchange-rate source. A currency with no rate is simply absent. */
+  /** Units per 1 USD, from the exchange-rate source (NGN falls back to the
+   *  platform's own rate). A currency with no rate is simply absent. */
   perUsd: Partial<Record<DisplayCurrencyCode, number>>;
   /** ISO timestamp of the newest rate used, or null when only the platform
    *  rate exists. */
   asOf: string | null;
+  /** The market Naira rate (units per 1 USD), present only when fresh; then
+   *  `perUsd.NGN` is this same rate. Without it, `perUsd.NGN` falls back to
+   *  the platform's own pricing rate, which is fine for showing a price but
+   *  never used to move money (see convertMoneyMinor()). */
+  marketNgnPerUsd?: number;
   /** True when the non-Naira rates are older than the freshness window. */
   stale: boolean;
 }
@@ -40,7 +44,7 @@ export function canDisplay(code: DisplayCurrencyCode, rates: DisplayRates): bool
 }
 
 /** Units of `code` per 1 USD, or null when there is no rate. USD is always
- *  1; NGN is the platform's own rate. */
+ *  1; NGN is the market rate when fresh (see DisplayRates). */
 function unitsPerUsd(code: string, rates: DisplayRates): number | null {
   if (code === "USD") return 1;
   const rate = rates.perUsd[code as DisplayCurrencyCode];
@@ -64,6 +68,25 @@ export function convertMinor(
   if (!fromPerUsd || !toPerUsd) return null;
   const usd = amountMinor / minorUnitDivisor(from) / fromPerUsd;
   return Math.round(usd * toPerUsd * minorUnitDivisor(to));
+}
+
+/**
+ * Money (a balance, a payment, a refund) converted between currencies at
+ * market rates, Naira included, so it keeps its real value. Null when a rate
+ * is missing, including when no fresh market Naira rate is available: money
+ * is never moved at the platform's pricing rate.
+ */
+export function convertMoneyMinor(
+  amountMinor: number,
+  from: string,
+  to: string,
+  rates: DisplayRates,
+): number | null {
+  if (from === to) return amountMinor;
+  return convertMinor(amountMinor, from, to, {
+    ...rates,
+    perUsd: { ...rates.perUsd, NGN: rates.marketNgnPerUsd },
+  });
 }
 
 /**

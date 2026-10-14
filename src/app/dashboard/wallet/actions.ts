@@ -12,7 +12,7 @@ import {
 import { resolveFundingFee } from "@/lib/fee-policy";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
-import { convertMinor } from "@/lib/display-currency";
+import { convertMoneyMinor } from "@/lib/display-currency";
 import { getDisplayRates } from "@/lib/exchange-rates";
 import { walletCurrencyOf } from "@/lib/wallet-currency";
 
@@ -26,7 +26,7 @@ async function walletCreditFor(
 ): Promise<{ amountMinor: number; currency: string } | null> {
   const wallet = walletCurrencyOf(walletCurrency);
   if (wallet === paidIn) return { amountMinor, currency: wallet };
-  const converted = convertMinor(amountMinor, paidIn, wallet, await getDisplayRates());
+  const converted = convertMoneyMinor(amountMinor, paidIn, wallet, await getDisplayRates());
   return converted !== null && converted > 0 ? { amountMinor: converted, currency: wallet } : null;
 }
 

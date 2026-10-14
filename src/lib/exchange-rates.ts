@@ -40,6 +40,9 @@ export function parseRateTable(body: unknown): StoredRates["rates"] | null {
     if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) return null;
     out[code] = rate;
   }
+  // The market Naira rate, used when money (not a price) changes currency.
+  const ngn = rates.NGN;
+  if (typeof ngn === "number" && Number.isFinite(ngn) && ngn > 0) out.NGN = ngn;
   return out;
 }
 
@@ -100,16 +103,28 @@ export async function refreshDisplayRates(
   await writeSetting(SETTING_KEYS.displayRates, JSON.stringify(next)).catch((error) =>
     console.error("[rates] could not store display rates:", error),
   );
-  if (!rates) console.error(`[rates] display rate refresh failed: ${reason}`);
-  return rates ? { ok: true } : { ok: false, reason };
+  if (!rates) {
+    console.error(`[rates] display rate refresh failed: ${reason}`);
+    return { ok: false, reason };
+  }
+  // With a fresh market Naira rate now stored, make good any money that was
+  // converted at the pricing rate before it existed (a no-op once done).
+  try {
+    const { correctUnderpaidMoves } = await import("@/lib/wallet-currency");
+    const corrected = await correctUnderpaidMoves();
+    if (corrected > 0) console.log(`[rates] credited ${corrected} customer(s) the market-rate difference`);
+  } catch (error) {
+    console.error("[rates] market-rate correction failed:", error);
+  }
+  return { ok: true };
 }
 
 function isDue(stored: StoredRates | null, nowMs: number): boolean {
   if (!stored) return true;
-  return (
-    nowMs - new Date(stored.fetchedAt).getTime() > REFRESH_AFTER_MS &&
-    nowMs - new Date(stored.attemptedAt).getTime() > RETRY_AFTER_MS
-  );
+  const retryOk = nowMs - new Date(stored.attemptedAt).getTime() > RETRY_AFTER_MS;
+  // A table stored before the market Naira rate was kept is refreshed now.
+  if (!stored.rates.NGN) return retryOk;
+  return nowMs - new Date(stored.fetchedAt).getTime() > REFRESH_AFTER_MS && retryOk;
 }
 
 /** Pure part of getDisplayRates(), for tests: how stored rates, the Naira
@@ -129,10 +144,19 @@ export function assembleRates(input: {
     else if (fallback) perUsd[code] = fallback;
   }
   const usingFeed = Boolean(input.stored && Object.keys(input.stored.rates).length > 0);
+  const stale = usingFeed ? input.nowMs - fetchedMs > RATE_FRESH_MS : false;
+  // Naira converts to other currencies at the market rate while it is fresh,
+  // so a Naira amount (a price or a balance) keeps its real value in cedis or
+  // dollars. Money is only ever moved at that fresh market rate; prices fall
+  // back to the platform's own rate when there is none.
+  const marketNgn = input.stored?.rates.NGN;
+  const freshMarketNgn = marketNgn && usingFeed && !stale ? marketNgn : undefined;
+  if (freshMarketNgn) perUsd.NGN = freshMarketNgn;
   return {
     perUsd,
+    ...(freshMarketNgn ? { marketNgnPerUsd: freshMarketNgn } : {}),
     asOf: usingFeed ? input.stored!.fetchedAt : null,
-    stale: usingFeed ? input.nowMs - fetchedMs > RATE_FRESH_MS : false,
+    stale,
   };
 }
 

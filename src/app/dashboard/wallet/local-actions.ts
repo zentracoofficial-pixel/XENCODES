@@ -12,7 +12,7 @@ import {
 } from "@/lib/funding-currencies";
 import { initializeKorapayCharge, KorapayError } from "@/lib/korapay";
 import { changeOwnCountry } from "@/lib/user-country";
-import { convertMinor } from "@/lib/display-currency";
+import { convertMoneyMinor } from "@/lib/display-currency";
 import { getDisplayRates } from "@/lib/exchange-rates";
 import { walletCurrencyOf } from "@/lib/wallet-currency";
 
@@ -51,7 +51,7 @@ async function walletCredit(
   const wallet = walletCurrencyOf(walletCurrency);
   if (wallet === quote.currency) return { amountMinor: quote.amountMinor, currency: wallet };
   if (wallet === "NGN") return { amountMinor: quote.creditKobo, currency: wallet };
-  const converted = convertMinor(quote.creditKobo, "NGN", wallet, await getDisplayRates());
+  const converted = convertMoneyMinor(quote.creditKobo, "NGN", wallet, await getDisplayRates());
   return converted !== null && converted > 0 ? { amountMinor: converted, currency: wallet } : null;
 }
 

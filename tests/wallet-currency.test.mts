@@ -10,21 +10,26 @@ process.env.KORAPAY_SECRET_KEY = "sk_test_stub";
 process.env.KORAPAY_ENCRYPTION_KEY = "enc_test_stub";
 
 const { prisma } = await import("../src/lib/prisma");
-const { convertMinor } = await import("../src/lib/display-currency");
+const { convertMinor, convertMoneyMinor } = await import("../src/lib/display-currency");
 const { getDisplayRates } = await import("../src/lib/exchange-rates");
-const { alignWalletCurrency, creditBalanceInTx, chargeOf, WALLET_CONVERSIONS_PER_DAY } = await import(
+const { alignWalletCurrency, creditBalanceInTx, chargeOf, correctUnderpaidMoves, WALLET_CONVERSIONS_PER_DAY } = await import(
   "../src/lib/wallet-currency"
 );
 const { creditWallet } = await import("../src/lib/wallet");
 const { createPendingTopUp, verifyAndSettleTopUp } = await import("../src/lib/funding");
 const { SETTING_KEYS } = await import("../src/lib/settings");
+const { parseRateTable, assembleRates } = await import("../src/lib/exchange-rates");
 
 const realFetch = globalThis.fetch;
 let charge: { status: string; amount?: number; currency?: string } = { status: "pending" };
 let savedRates: string | null = null;
 const userIds: string[] = [];
 
-async function setRates(rates: Record<string, number>) {
+// Market rates: ₦50,000 = GH₵438.56.
+const MARKET = { NGN: 1338.47, GHS: 11.74, KES: 129.63, XAF: 586.05, XOF: 586.05, EGP: 52.8, TZS: 2633.76 };
+
+async function setRates(over: Record<string, number> = {}) {
+  const rates = { ...MARKET, ...over };
   const value = JSON.stringify({ fetchedAt: new Date().toISOString(), attemptedAt: new Date().toISOString(), rates });
   await prisma.setting.upsert({
     where: { key: SETTING_KEYS.displayRates },
@@ -60,7 +65,7 @@ before(async () => {
     return realFetch(input as RequestInfo);
   }) as typeof fetch;
   savedRates = (await prisma.setting.findUnique({ where: { key: SETTING_KEYS.displayRates } }))?.value ?? null;
-  await setRates({ GHS: 12, KES: 130, XAF: 600, XOF: 600, EGP: 50, TZS: 2600 });
+  await setRates();
 });
 
 after(async () => {
@@ -84,9 +89,9 @@ test("convertMinor converts through USD, and the same currency is returned uncha
 
 test("a balance stays exactly the same when exchange rates move", async () => {
   const user = await newUser("GHS", 10_000);
-  await setRates({ GHS: 20, KES: 130, XAF: 600, XOF: 600, EGP: 50, TZS: 2600 });
+  await setRates({ GHS: 20 });
   assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 10_000 });
-  await setRates({ GHS: 12, KES: 130, XAF: 600, XOF: 600, EGP: 50, TZS: 2600 });
+  await setRates();
   assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 10_000 });
 });
 
@@ -177,12 +182,12 @@ test("a Naira payment into a cedi wallet credits exactly the cedi amount fixed w
   assert.equal(row.paymentAmountMinor, 507_500);
 
   // Rates move while the customer is paying: the credit does not.
-  await setRates({ GHS: 30, KES: 130, XAF: 600, XOF: 600, EGP: 50, TZS: 2600 });
+  await setRates({ GHS: 30 });
   charge = { status: "success", amount: 5_075, currency: "NGN" };
   const outcome = await verifyAndSettleTopUp(row.providerReference!);
   assert.deepEqual(outcome, { state: "credited" });
   assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 4_000 });
-  await setRates({ GHS: 12, KES: 130, XAF: 600, XOF: 600, EGP: 50, TZS: 2600 });
+  await setRates();
 });
 
 test("a Naira payment for the wrong amount is not credited to a cedi wallet", async () => {
@@ -195,4 +200,92 @@ test("a Naira payment for the wrong amount is not credited to a cedi wallet", as
   const outcome = await verifyAndSettleTopUp(row.providerReference!);
   assert.equal(outcome.state, "still_pending");
   assert.equal((await balanceOf(user.id)).walletBalanceKobo, 0);
+});
+
+test("money moves at the market Naira rate: ₦50,000 is GH₵438.56", async () => {
+  const user = await newUser("NGN", 5_000_000);
+  const result = await alignWalletCurrency(user, "GHS", { convertBalance: true });
+  assert.deepEqual(result, { ok: true, currency: "GHS", changed: true });
+  assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 43_856 });
+});
+
+test("money is never moved at the pricing rate when there is no fresh market Naira rate", () => {
+  const pricingOnly = { perUsd: { NGN: 1600, USD: 1, GHS: 11.74 }, asOf: null, stale: false };
+  assert.equal(convertMoneyMinor(5_000_000, "NGN", "GHS", pricingOnly), null);
+  assert.equal(convertMoneyMinor(1_000, "GHS", "KES", pricingOnly), null); // no KES rate
+  assert.equal(convertMoneyMinor(1_000, "GHS", "GHS", pricingOnly), 1_000);
+  // A price can still be shown at the pricing rate.
+  assert.equal(convertMinor(160_000, "NGN", "GHS", pricingOnly), 1_174);
+});
+
+test("the market Naira rate is kept from the feed and used for Naira while fresh", () => {
+  const table = parseRateTable({ result: "success", rates: { ...MARKET, USD: 1 } });
+  assert.equal(table?.NGN, 1338.47);
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  const fresh = assembleRates({
+    ngnPerUsd: 1600,
+    stored: { fetchedAt: "2026-10-14T00:00:00Z", attemptedAt: "2026-10-14T00:00:00Z", rates: table! },
+    fundingFallback: {},
+    nowMs: now,
+  });
+  assert.equal(fresh.perUsd.NGN, 1338.47);
+  assert.equal(fresh.marketNgnPerUsd, 1338.47);
+  const stale = assembleRates({
+    ngnPerUsd: 1600,
+    stored: { fetchedAt: "2026-09-01T00:00:00Z", attemptedAt: "2026-09-01T00:00:00Z", rates: table! },
+    fundingFallback: {},
+    nowMs: now,
+  });
+  assert.equal(stale.perUsd.NGN, 1600);
+  assert.equal(stale.marketNgnPerUsd, undefined);
+});
+
+test("balances moved at the pricing rate are made good once, at the market rate", async () => {
+  const user = await newUser("GHS", 36_660);
+  // What the earlier release recorded: ₦50,000 moved to GH₵366.60 at ₦1,600 per USD.
+  const move = await prisma.auditLog.create({
+    data: {
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "wallet.currency.convert",
+      targetType: "user",
+      targetId: user.id,
+      metadata: { from: "NGN", to: "GHS", fromMinor: 5_000_000, toMinor: 36_660 },
+    },
+  });
+  // A Naira payment credited at the pricing rate too: ₦10,000 → GH₵73.32.
+  const topUp = await prisma.walletTransaction.create({
+    data: {
+      userId: user.id,
+      type: "TOPUP",
+      status: "SUCCESSFUL",
+      amountKobo: 7_332,
+      currency: "GHS",
+      paymentCurrency: "NGN",
+      paymentAmountMinor: 1_000_000,
+      paymentFeeMinor: 0,
+      providerTransactionId: "test",
+      description: "Wallet top up",
+    },
+  });
+  await prisma.user.update({ where: { id: user.id }, data: { walletBalanceKobo: { increment: 7_332 } } });
+
+  const credited = await correctUnderpaidMoves();
+  assert.ok(credited >= 1);
+  // GH₵438.56 for the move, GH₵87.71 for the payment.
+  assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 43_856 + 8_771 });
+
+  // Running it again changes nothing.
+  await correctUnderpaidMoves();
+  assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 43_856 + 8_771 });
+  const marks = await prisma.auditLog.count({ where: { action: "wallet.currency.correct", targetId: user.id } });
+  assert.equal(marks, 2);
+  assert.ok(move.id && topUp.id);
+});
+
+test("a move already made at the market rate is not corrected", async () => {
+  const user = await newUser("NGN", 5_000_000);
+  await alignWalletCurrency(user, "GHS", { convertBalance: true });
+  await correctUnderpaidMoves();
+  assert.deepEqual(await balanceOf(user.id), { currency: "GHS", walletBalanceKobo: 43_856 });
 });
