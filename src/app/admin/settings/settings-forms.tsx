@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   saveMarginSettingsAction,
+  previewTierPriceAction,
   saveTopupFeeSettingsAction,
   saveRecoverySettingsAction,
   saveAnnouncementAction,
@@ -12,7 +13,7 @@ import {
   type SettingsState,
   type TestEmailState,
 } from "./actions";
-import { multiplierToMarginPercent } from "@/lib/price-multiplier";
+import { PriceInput } from "@/components/admin/price-input";
 import { RECOVERY_TEMPLATE_VARIABLES } from "@/lib/recovery-template-vars";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
 import { AnnouncementModal } from "@/components/announcement-modal";
@@ -35,69 +36,41 @@ export function MarginForm({
     saveMarginSettingsAction,
     initial,
   );
-  const [standard, setStandard] = useState(String(defaultMultiplier));
-  const [exclusive, setExclusive] = useState(String(exclusiveMultiplier));
-
-  // Only a hint: the multiple is what is saved and what prices are built
-  // from. The margin percent is what that multiple works out to.
-  const marginHint = (value: string) => {
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? `${multiplierToMarginPercent(n)}% margin` : "";
-  };
 
   return (
-    <form action={formAction} className="space-y-4">
-      <div className="grid max-w-md gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="defaultMultiplier">
-            Standard price
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              id="defaultMultiplier"
-              name="defaultMultiplier"
-              type="number"
-              step="0.01"
-              min="1"
-              max="100"
-              value={standard}
-              onChange={(e) => setStandard(e.target.value)}
-              className={inputClass}
-            />
-            <span className="whitespace-nowrap text-sm text-muted-foreground">x cost</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{marginHint(standard)}</p>
-        </div>
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="exclusiveMultiplier">
-            Exclusive tier price
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              id="exclusiveMultiplier"
-              name="exclusiveMultiplier"
-              type="number"
-              step="0.01"
-              min="1"
-              max="100"
-              value={exclusive}
-              onChange={(e) => setExclusive(e.target.value)}
-              className={inputClass}
-            />
-            <span className="whitespace-nowrap text-sm text-muted-foreground">x cost</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{marginHint(exclusive)}</p>
-        </div>
+    <form action={formAction} className="space-y-5">
+      <div className="space-y-1.5">
+        <label className={labelClass} htmlFor="standardValue">
+          Standard price
+        </label>
+        <PriceInput
+          name="standard"
+          initialMultiplier={defaultMultiplier}
+          ariaLabel="Standard price, as a multiple of provider cost or a margin percent"
+          preview={(raw, unit) => previewTierPriceAction("standard", raw, unit)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className={labelClass} htmlFor="exclusiveValue">
+          Exclusive tier price
+        </label>
+        <PriceInput
+          name="exclusive"
+          initialMultiplier={exclusiveMultiplier}
+          ariaLabel="Exclusive tier price, as a multiple of provider cost or a margin percent"
+          preview={(raw, unit) => previewTierPriceAction("exclusive", raw, unit)}
+        />
       </div>
 
       <p className="max-w-xl text-xs text-muted-foreground">
-        The customer pays the provider&apos;s cost times this number: at 3x, a number the
-        provider bills NGN 1,000 for sells for NGN 3,000. The margin percent is only shown
-        for reference.
+        Type either one: a multiple of the provider&apos;s cost (at 3x, a number the provider bills
+        NGN 1,000 for sells for NGN 3,000) or a margin percent (3x is 66.7%). The table shows what
+        the change would do to prices before you save, and the change is recorded in the activity log.
+        Services with a price of their own on the Services page are not affected.
       </p>
 
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
+      {state.success ? <p className="text-sm text-success">{state.summary ?? "Saved."}</p> : null}
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save prices"}

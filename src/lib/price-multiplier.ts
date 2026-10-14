@@ -29,3 +29,40 @@ export function marginPercentToMultiplier(percent: number): number {
 export function formatMultiplier(multiplier: number): string {
   return `${Number(multiplier.toFixed(2))}x`;
 }
+
+/** Which way an admin typed a price rule: as a multiple of cost ("x") or as a
+ *  margin percent ("%"). Both mean the same thing; 3x is 66.7%. */
+export type PriceUnit = "x" | "%";
+
+export type ParsedPrice = { multiplier: number } | { error: string };
+
+/**
+ * Turns what an admin typed, in either unit, into the multiplier that is
+ * stored and used for pricing. A percent becomes the multiple it is
+ * equivalent to (60% is 2.5x, 80% is 5x, 95% is 20x), kept to two decimals.
+ */
+export function parsePriceInput(raw: string, unit: PriceUnit): ParsedPrice {
+  const value = Number(raw.trim());
+  if (!raw.trim() || !Number.isFinite(value)) return { error: "Enter a number." };
+
+  if (unit === "%") {
+    if (value < 0 || value > 99) return { error: "A margin percent must be between 0 and 99." };
+    return { multiplier: Math.round(marginPercentToMultiplier(value) * 100) / 100 };
+  }
+
+  if (value < MIN_PRICE_MULTIPLIER || value > MAX_PRICE_MULTIPLIER) {
+    return { error: `A multiple must be between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}, for example 3.` };
+  }
+  return { multiplier: Math.round(value * 100) / 100 };
+}
+
+/** What a price change looks like on a few sample provider costs. */
+export interface PricePreview {
+  currency: string;
+  /** The multiple in force now and the one that would apply, "x". */
+  beforeMultiplier: number;
+  afterMultiplier: number;
+  rows: { costKobo: number; beforeKobo: number; afterKobo: number }[];
+}
+
+export type PricePreviewResult = { preview: PricePreview } | { error: string };

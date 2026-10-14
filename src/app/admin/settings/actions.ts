@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
-import { MIN_PRICE_MULTIPLIER, MAX_PRICE_MULTIPLIER } from "@/lib/pricing";
+import { loadMarginRules } from "@/lib/pricing";
+import { formatMultiplier, multiplierToMarginPercent, parsePriceInput, type PricePreviewResult, type PriceUnit } from "@/lib/price-multiplier";
+import { previewPriceChange } from "@/lib/pricing-preview";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, EmailDeliveryError, emailFromAddress } from "@/lib/email";
 import { renderEmail } from "@/lib/email-template";
@@ -22,15 +24,31 @@ function refresh() {
 export interface SettingsState {
   error?: string;
   success?: boolean;
+  /** What a save changed, in words, where that is worth saying. */
+  summary?: string;
+}
+
+/** Before saving: what a new standard or exclusive price would do to a few
+ *  sample provider costs. */
+export async function previewTierPriceAction(
+  tier: "standard" | "exclusive",
+  raw: string,
+  unit: PriceUnit,
+): Promise<PricePreviewResult> {
+  await requireAdmin();
+  const parsed = parsePriceInput(raw, unit);
+  if ("error" in parsed) return { error: parsed.error };
+  return { preview: await previewPriceChange({ kind: tier }, parsed.multiplier) };
 }
 
 /**
- * The two price multiples every price falls back to (the customer pays this
- * many times the provider's cost).
+ * The two prices every service falls back to, each typed either as a multiple
+ * of the provider's cost or as a margin percent (they mean the same thing).
  *
- * Validated to a sane band rather than accepted blindly: below 1 sells under
+ * Validated to a sane band rather than accepted blindly: below 1x sells under
  * cost, which is the exact outcome the pricing engine exists to prevent, and
- * the top of the band is the most the cost ceiling in pricing.ts allows.
+ * the top of the band is the most the cost ceiling in pricing.ts allows. The
+ * before and after go in the activity log.
  */
 export async function saveMarginSettingsAction(
   _prev: SettingsState,
@@ -38,31 +56,44 @@ export async function saveMarginSettingsAction(
 ): Promise<SettingsState> {
   const admin = await requireAdmin();
 
-  const defaultMultiplier = Math.round(Number(formData.get("defaultMultiplier")) * 100) / 100;
-  const exclusiveMultiplier = Math.round(Number(formData.get("exclusiveMultiplier")) * 100) / 100;
+  const read = (name: string) => {
+    const unit: PriceUnit = formData.get(`${name}Unit`) === "%" ? "%" : "x";
+    return parsePriceInput(String(formData.get(`${name}Value`) ?? ""), unit);
+  };
+  const standard = read("standard");
+  const exclusive = read("exclusive");
+  if ("error" in standard) return { error: `Standard price: ${standard.error}` };
+  if ("error" in exclusive) return { error: `Exclusive tier price: ${exclusive.error}` };
 
-  for (const value of [defaultMultiplier, exclusiveMultiplier]) {
-    if (!Number.isFinite(value) || value < MIN_PRICE_MULTIPLIER || value > MAX_PRICE_MULTIPLIER) {
-      return {
-        error: `Enter a multiple between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}, for example 3.`,
-      };
-    }
-  }
-
+  const before = await loadMarginRules();
   await Promise.all([
-    writeSetting(SETTING_KEYS.defaultPriceMultiplier, String(defaultMultiplier)),
-    writeSetting(SETTING_KEYS.exclusivePriceMultiplier, String(exclusiveMultiplier)),
+    writeSetting(SETTING_KEYS.defaultPriceMultiplier, String(standard.multiplier)),
+    writeSetting(SETTING_KEYS.exclusivePriceMultiplier, String(exclusive.multiplier)),
   ]);
   await recordAudit({
     actor: admin,
     action: "settings.update",
     targetType: "settings",
     targetId: "price-multipliers",
-    metadata: { defaultMultiplier, exclusiveMultiplier },
+    metadata: {
+      standardBefore: before.defaultMultiplier,
+      standardAfter: standard.multiplier,
+      exclusiveBefore: before.exclusiveMultiplier,
+      exclusiveAfter: exclusive.multiplier,
+    },
   });
 
+  const describe = (m: number) => `${formatMultiplier(m)} (${multiplierToMarginPercent(m)}% margin)`;
+  const parts: string[] = [];
+  if (Math.abs(before.defaultMultiplier - standard.multiplier) >= 0.005) {
+    parts.push(`Standard price ${describe(before.defaultMultiplier)} to ${describe(standard.multiplier)}.`);
+  }
+  if (Math.abs(before.exclusiveMultiplier - exclusive.multiplier) >= 0.005) {
+    parts.push(`Exclusive tier ${describe(before.exclusiveMultiplier)} to ${describe(exclusive.multiplier)}.`);
+  }
+
   refresh();
-  return { success: true };
+  return { success: true, summary: parts.length ? `Saved. ${parts.join(" ")}` : "Saved. No change." };
 }
 
 /**
