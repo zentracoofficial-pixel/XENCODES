@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Wordmark } from "@/components/layout/wordmark";
 import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
+import { CurrencySelector } from "@/components/currency/currency-selector";
 import { logoutAction } from "./actions";
 
 const links = [
@@ -121,6 +122,9 @@ export function DashboardSidebar({
       </nav>
 
       <div className="border-t border-border p-3">
+        <div className="px-3 pb-2">
+          <CurrencySelector variant="field" align="left" direction="up" showName={false} />
+        </div>
         <Link
           href="/dashboard/settings"
           className="flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-mint-soft hover:text-forest"
@@ -156,6 +160,7 @@ export function DashboardTopBar({
           <Wordmark className="text-base" />
         </Link>
         <div className="flex items-center gap-1">
+          <CurrencySelector />
           <NotificationBell
             notifications={notifications}
             unreadCount={unreadCount}

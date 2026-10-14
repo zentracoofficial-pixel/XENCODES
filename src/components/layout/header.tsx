@@ -6,6 +6,7 @@ import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/layout/wordmark";
+import { CurrencySelector } from "@/components/currency/currency-selector";
 
 const navLinks = [
   { href: "/services", label: "Services" },
@@ -37,6 +38,7 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
         </nav>
 
         <div className="hidden items-center gap-2 md:flex">
+          <CurrencySelector />
           <Button href={signedIn ? "/dashboard" : "/login"} variant="ghost" size="sm">
             {signedIn ? "Dashboard" : "Log in"}
           </Button>
@@ -49,15 +51,18 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
           </Button>
         </div>
 
+        <div className="-mr-1 flex items-center gap-1 md:hidden">
+        <CurrencySelector />
         <button
           type="button"
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
-          className="-mr-2 inline-flex h-10 w-10 items-center justify-center rounded-lg text-foreground hover:bg-mint-soft md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-foreground hover:bg-mint-soft"
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
+        </div>
       </div>
 
       <div

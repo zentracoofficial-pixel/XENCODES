@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   saveMarginSettingsAction,
   previewTierPriceAction,
-  saveTopupFeeSettingsAction,
   saveRecoverySettingsAction,
   saveAnnouncementAction,
   sendTestEmailAction,
@@ -74,51 +73,6 @@ export function MarginForm({
 
       <Button type="submit" disabled={pending}>
         {pending ? "Saving" : "Save prices"}
-      </Button>
-    </form>
-  );
-}
-
-export function TopupFeeForm({ feePercent }: { feePercent: number }) {
-  const [state, formAction, pending] = useActionState(saveTopupFeeSettingsAction, initial);
-
-  return (
-    <form action={formAction} className="space-y-4">
-      <div className="max-w-xs space-y-1.5">
-        <label className={labelClass} htmlFor="feePercent">
-          Percentage fee
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            id="feePercent"
-            name="feePercent"
-            type="number"
-            step="0.01"
-            min="0"
-            max="20"
-            defaultValue={feePercent}
-            className={inputClass}
-          />
-          <span className="text-sm text-muted-foreground">%</span>
-        </div>
-      </div>
-
-      <p className="max-w-xl text-xs text-muted-foreground">
-        Added on top of every wallet top-up, so KoraPay&apos;s processing
-        cost is paid by the customer rather than absorbed here. The wallet
-        is still credited exactly the amount the customer asked for; only
-        what they are charged at checkout includes this fee. Defaults to
-        KoraPay&apos;s own published rate (1.5%) — only change this if
-        KoraPay quotes this account a different negotiated rate. The cap on
-        this fee is set per currency on Currencies, since a sensible cap
-        varies by currency the way the percentage does not.
-      </p>
-
-      {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-success">Saved.</p> : null}
-
-      <Button type="submit" disabled={pending}>
-        {pending ? "Saving" : "Save fee"}
       </Button>
     </form>
   );

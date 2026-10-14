@@ -10,14 +10,10 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/currency";
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_TOPUP_FEE_PERCENT,
-} from "@/lib/settings";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { getFundingOptions } from "@/lib/funding-config";
+import { formatNgnForDisplay } from "@/lib/display-currency";
+import { getDisplayContext } from "@/lib/display-preference";
 import { FundWallet, type LocalOption } from "./fund-wallet";
 import {
   FUNDING_CURRENCIES,
@@ -54,7 +50,7 @@ export default async function WalletPage() {
   // every time.
   await reconcileStalePendingTopUpsAction();
 
-  const [user, transactions, settings] = await Promise.all([
+  const [user, transactions] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     // A top-up the customer never actually completed (abandoned, or the
     // checkout link expired without a payment attempt) is recorded as
@@ -66,11 +62,11 @@ export default async function WalletPage() {
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
-    readSettings(),
   ]);
 
   const currency =
     (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+  const displayContext = await getDisplayContext();
   const fundingOptions = await getFundingOptions(user.country);
   const localOptions: LocalOption[] = fundingOptions.map(({ code, state }) => ({
     code,
@@ -80,7 +76,6 @@ export default async function WalletPage() {
     minMinor: state.minMinor,
     maxMinor: state.maxMinor,
   }));
-  const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
 
   return (
     <div className="space-y-6">
@@ -98,6 +93,12 @@ export default async function WalletPage() {
         <p className="mt-1.5 text-4xl font-semibold tabular-nums text-white">
           {formatMoney(user.walletBalanceKobo, user.currency)}
         </p>
+        {displayContext.display !== "NGN" && user.currency === "NGN" ? (
+          <p className="mt-1 text-xs text-white/60">
+            {formatNgnForDisplay(user.walletBalanceKobo, displayContext.display, displayContext.rates)} in{" "}
+            {displayContext.display}, for reference. Your wallet is held and charged in Naira.
+          </p>
+        ) : null}
       </div>
 
       <Suspense fallback={null}>
@@ -105,12 +106,11 @@ export default async function WalletPage() {
           walletCurrency={user.currency}
           options={localOptions}
           savedCountry={user.country}
+          detectedCountry={displayContext.country}
           naira={{
             currency: currency.code,
             minTopUpMinor: currency.minTopUpMinor,
             maxTopUpMinor: currency.maxTopUpMinor,
-            feePercent,
-            feeCapKobo: currency.feeCapMinor,
             fundingProvider: currency.fundingProvider,
           }}
         />

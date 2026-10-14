@@ -6,16 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { createPendingTopUp, settleFailedTopUp, reconcileTopUp } from "@/lib/funding";
 import {
   validateTopUpAmount,
-  calculateTopupFeeKobo,
   fundingErrorCopy,
   type FundingError,
 } from "@/lib/funding-limits";
-import {
-  readSettings,
-  readNumber,
-  SETTING_KEYS,
-  DEFAULT_TOPUP_FEE_PERCENT,
-} from "@/lib/settings";
+import { resolveFundingFee } from "@/lib/fee-policy";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
 import { initializeKorapayCharge, isKorapayConfigured, KorapayError } from "@/lib/korapay";
 
@@ -85,26 +79,27 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     };
   }
 
+  // The fee comes only from the admin-approved fee policy (see
+  // src/lib/fee-policy.ts), resolved here on the server. No approved policy
+  // means no checkout rather than a guessed fee. WalletTransaction.amountKobo
+  // is what completeTopUp() credits once verified and stays exactly what the
+  // customer asked for; the fee only affects what KoraPay is asked to charge,
+  // and is recorded on the row.
+  const fee = await resolveFundingFee("NGN", amountKobo);
+  if (fee.status === "blocked") {
+    return { error: "Wallet funding is not available right now. Please try again later." };
+  }
+  const feeKobo = fee.feeMinor;
+
   const pending = await createPendingTopUp(
     user.id,
     amountKobo,
     currency.code,
     currency.minTopUpMinor,
     currency.maxTopUpMinor,
+    feeKobo,
   );
   const reference = pending.providerReference ?? undefined;
-
-  // The fee is computed at charge time, not stored on the pending row:
-  // WalletTransaction.amountKobo is what completeTopUp() credits to the
-  // wallet once verified, and must stay exactly what the customer asked
-  // for. The fee only ever affects what KoraPay is asked to charge at
-  // checkout, never what lands in the balance. The percent is still a
-  // single platform-wide setting (KoraPay's own rate does not vary by
-  // currency); the cap is per-currency, from this account's own currency
-  // config, the same way the top-up bounds above are.
-  const settings = await readSettings();
-  const feePercent = readNumber(settings, SETTING_KEYS.topupFeePercent, DEFAULT_TOPUP_FEE_PERCENT);
-  const feeKobo = calculateTopupFeeKobo(pending.amountKobo, feePercent, currency.feeCapMinor);
   const totalChargedKobo = pending.amountKobo + feeKobo;
 
   if (!isKorapayConfigured() || !reference) {
@@ -142,6 +137,34 @@ export async function startTopUpAction(amountKobo: number): Promise<StartTopUpRe
     revalidatePath("/dashboard/wallet");
     return { error: "We could not start checkout. Nothing was charged; please try again." };
   }
+}
+
+export interface TopUpPreview {
+  error?: string;
+  /** The admin-approved fee, 0 when none applies (then none is shown). */
+  feeKobo?: number;
+  totalKobo?: number;
+}
+
+/**
+ * The fee and total for a Naira top-up, for the summary shown before the
+ * customer pays. The browser never works a fee out itself: it shows exactly
+ * what this returns, and startTopUpAction() resolves the same fee again when
+ * the payment is actually started.
+ */
+export async function previewTopUpAction(amountKobo: number): Promise<TopUpPreview> {
+  const user = await getActiveUser();
+  if (!user) return { error: fundingErrorCopy("not_authenticated", "NGN", 0, 0) };
+  const currency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+  const invalid = validateTopUpAmount(amountKobo, currency.minTopUpMinor, currency.maxTopUpMinor);
+  if (invalid) {
+    return { error: fundingErrorCopy(invalid, currency.code, currency.minTopUpMinor, currency.maxTopUpMinor) };
+  }
+  const fee = await resolveFundingFee("NGN", amountKobo);
+  if (fee.status === "blocked") {
+    return { error: "Wallet funding is not available right now. Please try again later." };
+  }
+  return { feeKobo: fee.feeMinor, totalKobo: amountKobo + fee.feeMinor };
 }
 
 export interface TopUpStatus {

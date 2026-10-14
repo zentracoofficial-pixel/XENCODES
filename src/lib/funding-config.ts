@@ -1,9 +1,11 @@
-import { readSettings, writeSetting, SETTING_KEYS, DEFAULT_TOPUP_FEE_PERCENT } from "@/lib/settings";
+import { readSettings, writeSetting, SETTING_KEYS } from "@/lib/settings";
+import { isFundingFeeConfigured, resolveFundingFee } from "@/lib/fee-policy";
 import { minorUnitDivisor } from "@/lib/currency";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { isKorapayConfigured } from "@/lib/korapay";
 import {
   FUNDING_CURRENCIES,
+  fundingStepMinor,
   FUNDING_CURRENCY_CODES,
   computeFundingQuote,
   currencySupportsCountry,
@@ -29,8 +31,6 @@ export interface FundingCurrencyState {
   usdRate: number | null;
   /** When the rate was last set, so a stale one is visible. ISO string. */
   rateUpdatedAt: string | null;
-  /** Processing fee percent added on top of the amount. */
-  feePercent: number;
   minMinor: number;
   maxMinor: number;
 }
@@ -44,7 +44,6 @@ function defaultState(code: FundingCurrencyCode): FundingCurrencyState {
     enabled: false,
     usdRate: null,
     rateUpdatedAt: null,
-    feePercent: DEFAULT_TOPUP_FEE_PERCENT,
     minMinor: Math.round(meta.defaultMinMajor * divisor),
     maxMinor: Math.round(meta.defaultMaxMajor * divisor),
   };
@@ -78,9 +77,6 @@ export async function readFundingStates(): Promise<FundingStates> {
       enabled: row.enabled === true,
       usdRate: rate !== undefined && rate > 0 ? rate : null,
       rateUpdatedAt: typeof row.rateUpdatedAt === "string" ? row.rateUpdatedAt : null,
-      feePercent: num(row.feePercent) !== undefined && (row.feePercent as number) >= 0 && (row.feePercent as number) <= 50
-        ? (row.feePercent as number)
-        : base.feePercent,
       minMinor: Math.round(num(row.minMinor) ?? base.minMinor),
       maxMinor: Math.round(num(row.maxMinor) ?? base.maxMinor),
     };
@@ -103,14 +99,13 @@ export function isRateStale(state: FundingCurrencyState, nowMs: number = Date.no
 export interface FundingStatePatch {
   enabled: boolean;
   usdRate: number;
-  feePercent: number;
   minMinor: number;
   maxMinor: number;
 }
 
 export type FundingStateError =
   | "rate_required"
-  | "fee_invalid"
+  | "fee_not_approved"
   | "limits_invalid";
 
 /** Validates and stores one currency's settings. A rate is required to enable. */
@@ -119,7 +114,9 @@ export async function saveFundingState(
   patch: FundingStatePatch,
 ): Promise<{ ok: true } | { ok: false; error: FundingStateError }> {
   if (patch.enabled && !(patch.usdRate > 0)) return { ok: false, error: "rate_required" };
-  if (!(patch.feePercent >= 0 && patch.feePercent <= 50)) return { ok: false, error: "fee_invalid" };
+  // A currency is only switched on once its fee has been decided and approved
+  // (even if the decision is "no fee"): see src/lib/fee-policy.ts.
+  if (patch.enabled && !(await isFundingFeeConfigured(code))) return { ok: false, error: "fee_not_approved" };
   if (!(patch.minMinor > 0 && patch.maxMinor >= patch.minMinor)) return { ok: false, error: "limits_invalid" };
 
   const states = await readFundingStates();
@@ -129,7 +126,6 @@ export async function saveFundingState(
     enabled: patch.enabled,
     usdRate: patch.usdRate > 0 ? patch.usdRate : null,
     rateUpdatedAt: rateChanged ? new Date().toISOString() : previous.rateUpdatedAt,
-    feePercent: patch.feePercent,
     minMinor: Math.round(patch.minMinor),
     maxMinor: Math.round(patch.maxMinor),
   };
@@ -163,6 +159,7 @@ export async function getFundingOptions(country: string | null | undefined): Pro
     const state = states[code];
     if (!isFundingStateUsable(state) || state.usdRate === null) continue;
     if (known && !currencySupportsCountry(code, known)) continue;
+    if (!(await isFundingFeeConfigured(code))) continue;
     options.push({ code, state, ngnPerUnit: ngn.usdRate / state.usdRate });
   }
   return options;
@@ -175,6 +172,7 @@ export type LocalFundingError =
   | "country_required"
   | "unsupported_country"
   | LocalAmountError
+  | "fee_not_configured"
   | "rate_unavailable";
 
 export type LocalFundingQuoteResult =
@@ -210,15 +208,21 @@ export async function quoteLocalFunding(input: {
   if (!currencySupportsCountry(code, country)) return { ok: false, error: "unsupported_country" };
 
   const limits = { minMinor: state.minMinor, maxMinor: state.maxMinor };
-  const amountError = validateLocalAmount(input.amountMinor, state.minMinor, state.maxMinor);
+  const amountError = validateLocalAmount(input.amountMinor, state.minMinor, state.maxMinor, fundingStepMinor(code));
   if (amountError) return { ok: false, error: amountError, limits };
+
+  // The fee comes only from an approved policy, resolved here on the server.
+  // No approved policy means the payment does not proceed; nothing is
+  // assumed. An approved but disabled policy means no fee.
+  const fee = await resolveFundingFee(code, input.amountMinor);
+  if (fee.status === "blocked") return { ok: false, error: "fee_not_configured", limits };
 
   const quote = computeFundingQuote({
     currency: code,
     amountMinor: input.amountMinor,
     currencyUsdRate: state.usdRate,
     ngnUsdRate: ngn.usdRate,
-    feePercent: state.feePercent,
+    approvedFeeMinor: fee.feeMinor,
   });
   if (!quote) return { ok: false, error: "rate_unavailable" };
   return { ok: true, quote, limits };

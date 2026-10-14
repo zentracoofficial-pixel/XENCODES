@@ -179,10 +179,8 @@ function Summary({ quote }: { quote: LocalQuoteSummary }) {
   return (
     <dl className="mt-4 max-w-sm divide-y divide-border rounded-xl border border-border bg-background text-sm">
       <Row label="You pay" value={formatFundingAmount(quote.totalMinor, code)} strong />
-      <Row
-        label="Processing fee"
-        value={quote.feeMinor > 0 ? formatFundingAmount(quote.feeMinor, code) : "None"}
-      />
+      {/* Shown only when an admin-approved fee applies to this payment. */}
+      {quote.feeMinor > 0 ? <Row label="Processing fee" value={formatFundingAmount(quote.feeMinor, code)} /> : null}
       <Row
         label="Exchange rate"
         value={`1 ${code} = ${formatMoney(Math.round(quote.ngnPerUnit * 100), "NGN")}`}

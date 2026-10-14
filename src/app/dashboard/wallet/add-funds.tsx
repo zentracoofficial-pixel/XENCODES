@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Info, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMoney, majorToMinor, minorUnitDivisor } from "@/lib/currency";
-import { calculateTopupFeeKobo } from "@/lib/funding-limits";
-import { startTopUpAction, checkTopUpStatusAction } from "./actions";
+import { startTopUpAction, checkTopUpStatusAction, previewTopUpAction } from "./actions";
 import { ExactAmount } from "./exact-amount";
 
 /**
@@ -33,8 +32,6 @@ export function AddFunds({
   currency,
   minTopUpMinor,
   maxTopUpMinor,
-  feePercent,
-  feeCapKobo,
   fundingProvider,
 }: {
   /** ISO 4217, the account's own currency. Every amount here is in this
@@ -42,9 +39,6 @@ export function AddFunds({
   currency: string;
   minTopUpMinor: number;
   maxTopUpMinor: number;
-  /** From admin Settings. Defaults to KoraPay's own published rate. */
-  feePercent: number;
-  feeCapKobo: number;
   /** Which payment provider actually handles this currency's funding, or
    *  null when none does. Null means no code path anywhere can process a
    *  real payment in this currency yet, so the form itself is not shown at
@@ -99,12 +93,31 @@ export function AddFunds({
     Math.min(minTopUpMinor * m, maxTopUpMinor),
   );
 
-  // Live preview only, so the customer sees the real total before they
-  // commit. The server recomputes this itself in startTopUpAction() from
-  // the same settings and is what actually decides what KoraPay charges;
-  // this can never be the source of truth for money moving.
-  const previewFeeKobo = valid ? calculateTopupFeeKobo(amountKobo, feePercent, feeCapKobo) : 0;
+  // The fee shown here is whatever the server says is approved for this
+  // amount (see previewTopUpAction()); the browser never works one out. The
+  // server resolves it again when the payment is started, and that is what
+  // KoraPay is asked to charge.
+  const [preview, setPreview] = useState<{
+    amountKobo: number;
+    feeKobo: number;
+    error: string | null;
+  } | null>(null);
+  const latestPreview = useRef(0);
+  useEffect(() => {
+    if (!valid) return;
+    const timer = setTimeout(() => {
+      previewTopUpAction(amountKobo).then((answer) => {
+        if (latestPreview.current !== amountKobo) return;
+        setPreview({ amountKobo, feeKobo: answer.feeKobo ?? 0, error: answer.error ?? null });
+      });
+    }, 300);
+    latestPreview.current = amountKobo;
+    return () => clearTimeout(timer);
+  }, [amountKobo, valid]);
+  const currentPreview = valid && preview?.amountKobo === amountKobo ? preview : null;
+  const previewFeeKobo = currentPreview?.feeKobo ?? 0;
   const hasFee = previewFeeKobo > 0;
+  const previewReady = currentPreview !== null && !currentPreview.error;
 
   function submit() {
     setError(null);
@@ -293,7 +306,7 @@ export function AddFunds({
               setError(null);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && valid && !isPending) submit();
+              if (e.key === "Enter" && previewReady && !isPending) submit();
             }}
             className="h-12 w-full rounded-xl border border-border bg-background pl-12 pr-3.5 text-sm tabular-nums outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
@@ -317,7 +330,7 @@ export function AddFunds({
         ))}
       </div>
 
-      {valid ? (
+      {previewReady ? (
         <ExactAmount
           totalMinor={amountKobo + previewFeeKobo}
           creditedMinor={amountKobo}
@@ -325,11 +338,12 @@ export function AddFunds({
         />
       ) : null}
 
+      {currentPreview?.error ? <p className="mt-3 text-sm text-danger">{currentPreview.error}</p> : null}
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
       <Button
         className="mt-4"
-        disabled={!valid || isPending}
+        disabled={!previewReady || isPending}
         onClick={submit}
       >
         {isPending

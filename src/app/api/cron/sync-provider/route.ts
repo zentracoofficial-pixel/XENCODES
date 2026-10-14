@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runProviderSync } from "@/lib/provider-sync";
 import { sweepPendingTopUps } from "@/lib/funding";
+import { refreshDisplayRates } from "@/lib/exchange-rates";
 import { sweepPendingActivations } from "@/lib/activation-lifecycle";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +71,15 @@ export async function GET(request: Request) {
     await sweepPendingActivations();
   } catch (error) {
     console.error("[cron] pending activation sweep failed:", error);
+  }
+
+  // Keeps the display-only exchange rates fresh even when nobody has browsed
+  // for a while. A failed refresh keeps the previous rates (see
+  // refreshDisplayRates()) and never fails the cron.
+  try {
+    await refreshDisplayRates();
+  } catch (error) {
+    console.error("[cron] display rate refresh failed:", error);
   }
 
   return NextResponse.json(result, { status: result.ok ? 200 : 502 });

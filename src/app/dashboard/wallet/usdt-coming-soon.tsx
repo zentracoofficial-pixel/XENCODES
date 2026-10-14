@@ -1,4 +1,7 @@
 import { Coins } from "lucide-react";
+import { USDT_FUNDING } from "@/lib/usdt";
+
+const USDT_OPTION = USDT_FUNDING;
 
 /**
  * USDT funding, announced but not built.
@@ -9,15 +12,6 @@ import { Coins } from "lucide-react";
  * by one options object, so that when USDT is actually built the card can be
  * switched on in one place without touching the fiat flow.
  */
-
-export const USDT_OPTION = {
-  code: "USDT",
-  name: "Tether",
-  /** Flip to true only together with a real, tested USDT deposit flow. */
-  enabled: false,
-  comingSoonMessage:
-    "USDT funding is coming soon. We're working to make Xencodes accessible to more countries.",
-} as const;
 
 export function UsdtCard() {
   return (

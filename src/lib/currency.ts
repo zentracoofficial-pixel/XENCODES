@@ -15,6 +15,8 @@
  * with its actual currency, which is what formatMoney() below is for.
  */
 
+import { CURRENCY_META, isDisplayCurrencyCode } from "@/lib/currency-meta";
+
 /** How many minor units make one major unit of a currency (100 for NGN,
  *  GHS, USD, EUR...; 0 for a handful of currencies with no subdivision
  *  such as JPY; 3 for a few such as KWD). Derived from the JS engine's own
@@ -88,6 +90,19 @@ export function formatMoney(amountMinor: number, currency: string): string {
   const divisor = minorUnitDivisor(currency);
   const major = amountMinor / divisor;
   const hasFraction = amountMinor % divisor !== 0;
+
+  // The currencies Xencodes shows (see src/lib/currency-meta.ts) use one
+  // house format everywhere: "₦5,000", "GH₵50", "$5.00", "5,000 XAF".
+  if (isDisplayCurrencyCode(currency)) {
+    const meta = CURRENCY_META[currency];
+    const decimals = meta.fixedDecimals ?? (hasFraction ? Math.log10(divisor) : 0);
+    const text = Math.abs(major).toLocaleString("en", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+    const sign = major < 0 ? "-" : "";
+    return meta.placement === "prefix" ? `${sign}${meta.symbol}${text}` : `${sign}${text} ${meta.symbol}`;
+  }
 
   try {
     return new Intl.NumberFormat("en", {

@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin, bootstrapAdminEmails } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { readSettings, readNumber, SETTING_KEYS, DEFAULT_TOPUP_FEE_PERCENT } from "@/lib/settings";
+import { readSettings } from "@/lib/settings";
 import { loadMarginRules } from "@/lib/pricing";
 import { getEnabledProviders, getNumberProvider } from "@/lib/provider";
 import { formatMoney } from "@/lib/currency";
@@ -15,7 +15,7 @@ import { isKorapayConfigured } from "@/lib/korapay";
 import { isEmailConfigured, emailFromAddress, isProductionSenderUnsafe } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { getRecoverySettings } from "@/lib/recovery";
-import { MarginForm, TopupFeeForm, TestEmailButton, RecoverySettingsForm, AnnouncementForm } from "./settings-forms";
+import { MarginForm, TestEmailButton, RecoverySettingsForm, AnnouncementForm } from "./settings-forms";
 import { getAnnouncement } from "@/lib/announcement";
 import { Megaphone } from "lucide-react";
 
@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettingsPage() {
   const admin = await requireAdmin();
 
-  const [settings, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings, announcement] =
+  const [, rules, admins, resolved, enabledProviders, enabledCurrencies, recoverySettings, announcement] =
     await Promise.all([
       readSettings(),
       loadMarginRules(),
@@ -229,31 +229,13 @@ export default async function AdminSettingsPage() {
           Customers enter their own amount inside their currency&apos;s bounds.
           There are no fixed funding packages.
         </p>
-        <div className="mt-5 border-t border-border pt-5">
-          <h3 className="text-sm font-semibold">Processing fee</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            KoraPay&apos;s hosted checkout has no API option to bill its own
-            fee to the customer directly (that field exists only on
-            KoraPay&apos;s separate direct charge APIs, and using it here
-            broke checkout in a real test), so this fee is added to the
-            amount requested at checkout instead, matching KoraPay&apos;s
-            own published rate by default below. The cap on this fee is set
-            per currency on{" "}
-            <Link href="/admin/currencies" className="text-forest hover:underline">
-              Currencies
-            </Link>
-            .
-          </p>
-          <div className="mt-3">
-            <TopupFeeForm
-              feePercent={readNumber(
-                settings,
-                SETTING_KEYS.topupFeePercent,
-                DEFAULT_TOPUP_FEE_PERCENT,
-              )}
-            />
-          </div>
-        </div>
+        <p className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground">
+          The funding processing fee is approved per currency on{" "}
+          <Link href="/admin/currencies" className="text-forest hover:underline">
+            Currencies
+          </Link>
+          ; only an approved, enabled fee is ever shown or charged.
+        </p>
       </Card>
 
       <Card className="p-5">

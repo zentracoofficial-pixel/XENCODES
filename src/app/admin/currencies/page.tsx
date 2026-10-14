@@ -6,6 +6,8 @@ import { readCurrencyConfig } from "@/lib/currency-config";
 import { minorUnitDivisor } from "@/lib/currency";
 import { CurrencyForm } from "./currency-form";
 import { FundingCurrencyForm } from "./funding-currency-form";
+import { FeePolicyForm } from "./fee-policy-form";
+import { readFeePolicy } from "@/lib/fee-policy";
 import { readFundingStates, isFundingStateUsable, isRateStale } from "@/lib/funding-config";
 import { FUNDING_CURRENCY_CODES, FUNDING_CURRENCIES } from "@/lib/funding-currencies";
 import { isKorapayConfigured } from "@/lib/korapay";
@@ -32,6 +34,8 @@ export default async function AdminCurrenciesPage() {
   const [config, fundingStates] = await Promise.all([readCurrencyConfig(), readFundingStates()]);
   const ngnRate = config.find((c) => c.code === "NGN")?.usdRate ?? 0;
   const korapay = isKorapayConfigured();
+  const feeCodes = ["NGN", ...FUNDING_CURRENCY_CODES] as const;
+  const feePolicies = await Promise.all(feeCodes.map((code) => readFeePolicy("wallet_funding", code)));
 
   return (
     <div className="space-y-5">
@@ -79,12 +83,54 @@ export default async function AdminCurrenciesPage() {
                   usdRate: entry.usdRate,
                   minTopUp: entry.minTopUpMinor / minorUnitDivisor(entry.code),
                   maxTopUp: entry.maxTopUpMinor / minorUnitDivisor(entry.code),
-                  feeCap: entry.feeCapMinor / minorUnitDivisor(entry.code),
                 }}
               />
             </div>
           </Card>
         ))}
+      </div>
+
+
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold tracking-tight">Funding fees</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          The only place a fee on a wallet top-up comes from. A fee is shown to customers and added to the payment
+          only when it is approved and switched on here; the server checks this on every quote, so nothing in the
+          browser can add or skip one. A currency with no approved decision is not offered at all. Number prices
+          are not fees and are set under Services.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {feeCodes.map((code, index) => {
+          const policy = feePolicies[index];
+          const divisor = minorUnitDivisor(code);
+          const state = !policy ? "Not decided: funding unavailable" : !policy.approved ? "Draft: funding unavailable" : policy.enabled ? "Fee charged" : "Approved: no fee";
+          return (
+            <Card key={`fee-${code}`} className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold">{code} funding fee</h3>
+                <Badge variant={policy?.approved ? "success" : "warning"}>{state}</Badge>
+              </div>
+              <div className="mt-3">
+                <FeePolicyForm
+                  currency={code}
+                  values={{
+                    exists: Boolean(policy),
+                    model: policy?.model ?? "percent",
+                    percent: policy?.percent ?? 0,
+                    fixed: (policy?.fixedMinor ?? 0) / divisor,
+                    cap: policy?.capMinor != null ? policy.capMinor / divisor : null,
+                    approved: policy?.approved ?? false,
+                    enabled: policy?.enabled ?? false,
+                    approvedBy: policy?.approvedBy ?? null,
+                    approvedAt: policy?.approvedAt ?? null,
+                  }}
+                />
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       <div className="pt-2">
@@ -133,7 +179,6 @@ export default async function AdminCurrenciesPage() {
                   values={{
                     enabled: state.enabled,
                     usdRate: state.usdRate,
-                    feePercent: state.feePercent,
                     minAmount: state.minMinor / divisor,
                     maxAmount: state.maxMinor / divisor,
                   }}

@@ -201,6 +201,15 @@ export interface ChargeStatusResult {
   paidAmountMinor?: number;
   /** How the customer paid, as KoraPay reports it, for the ledger. */
   paymentMethod?: string;
+  /**
+   * What KoraPay says it charged Xencodes for this payment (its own fee and
+   * the VAT on it) and the total it says it charged the customer, in the
+   * minor unit of the charge's currency. Each is undefined when the response
+   * does not carry a clean figure; none is ever estimated.
+   */
+  providerFeeMinor?: number;
+  providerVatMinor?: number;
+  providerChargedMinor?: number;
 }
 
 /**
@@ -218,6 +227,9 @@ export async function verifyKorapayCharge(reference: string): Promise<ChargeStat
     amount?: number | string;
     currency?: string;
     payment_method?: string;
+    fee?: number | string;
+    vat?: number | string;
+    amount_charged?: number | string;
   }>("GET", `/charges/${encodeURIComponent(reference)}`);
 
   const status = result.data.status as KorapayChargeStatus;
@@ -233,6 +245,9 @@ export async function verifyKorapayCharge(reference: string): Promise<ChargeStat
       typeof result.data.payment_method === "string" && result.data.payment_method
         ? result.data.payment_method.slice(0, 40)
         : undefined,
+    providerFeeMinor: parseMinorAmount(result.data.fee, divisor),
+    providerVatMinor: parseMinorAmount(result.data.vat, divisor),
+    providerChargedMinor: parseMinorAmount(result.data.amount_charged, divisor),
   };
 }
 

@@ -54,6 +54,10 @@ model User {
   /// local-currency wallet funding (see src/lib/funding-currencies.ts); it
   /// never decides the wallet currency, which stays NGN. Null when unknown.
   country                   String?
+  /// The currency the customer chose to see prices in (one of the eight
+  /// display currencies), or null to use the default for their country.
+  /// Display only: never the wallet's currency and never a payment permission.
+  displayCurrency           String?
   walletBalanceKobo         Int        @default(0)
   twoFactorSecret           String?
   twoFactorEnabled          Boolean    @default(false)
@@ -475,6 +479,14 @@ model WalletTransaction {
   /// How KoraPay says the customer paid (for example "mobile_money"),
   /// recorded when the payment is verified.
   paymentMethod             String?
+  /// What KoraPay itself charged Xencodes for this payment, as reported by
+  /// its verify call, in the payment's own currency minor unit. Null when
+  /// KoraPay did not report it (separate from the fee charged to the
+  /// customer in paymentFeeMinor).
+  providerFeeMinor          Int?
+  providerVatMinor          Int?
+  /// The total KoraPay says it charged the customer, when reported.
+  providerChargedMinor      Int?
   createdAt                 DateTime                 @default(now())
   /// When a verification (webhook, page-view check, admin recheck, or the
   /// reconciliation sweep) last actually asked KoraPay about this reference.

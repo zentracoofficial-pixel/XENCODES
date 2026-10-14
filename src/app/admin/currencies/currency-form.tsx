@@ -26,7 +26,7 @@ export function CurrencyForm({
    *  USD, so USD's row shows it read-only rather than accepting an edit
    *  that would be silently ignored on save. */
   editableRate: boolean;
-  values: { usdRate: number; minTopUp: number; maxTopUp: number; feeCap: number };
+  values: { usdRate: number; minTopUp: number; maxTopUp: number };
 }) {
   const [state, formAction, pending] = useActionState(saveCurrencyAction, initial);
 
@@ -34,7 +34,7 @@ export function CurrencyForm({
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="code" value={code} />
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <label className={labelClass} htmlFor={`usdRate-${code}`}>
             Units per USD
@@ -77,21 +77,6 @@ export function CurrencyForm({
             step="0.01"
             min="0"
             defaultValue={values.maxTopUp}
-            required
-            className={inputClass}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className={labelClass} htmlFor={`feeCap-${code}`}>
-            Fee cap
-          </label>
-          <input
-            id={`feeCap-${code}`}
-            name="feeCap"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={values.feeCap}
             required
             className={inputClass}
           />

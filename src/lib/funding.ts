@@ -57,6 +57,9 @@ export async function createPendingTopUp(
   currency: string,
   minTopUpMinor: number,
   maxTopUpMinor: number,
+  /** The admin-approved fee passed on to the customer for this payment (0
+   *  when none applies), recorded so the ledger shows what was charged. */
+  feeMinor = 0,
 ): Promise<WalletTransaction> {
   const invalid = validateTopUpAmount(amountKobo, minTopUpMinor, maxTopUpMinor);
   if (invalid) throw new Error(invalid);
@@ -71,6 +74,8 @@ export async function createPendingTopUp(
       provider: FUNDING_PROVIDER.id,
       providerReference: newReference(),
       description: "Wallet top up",
+      paymentFeeMinor: feeMinor,
+      paymentAmountMinor: amountKobo + feeMinor,
     },
   });
 }
@@ -128,8 +133,14 @@ export async function createPendingLocalTopUp(
 export async function completeTopUp(
   providerReference: string,
   providerTransactionId?: string,
-  /** How the customer paid, when the provider says. Recorded on the row. */
-  paymentMethod?: string,
+  /** What the provider reported about the payment, recorded on the row
+   *  alongside the credit. Never affects whether or how much is credited. */
+  details?: {
+    paymentMethod?: string;
+    providerFeeMinor?: number;
+    providerVatMinor?: number;
+    providerChargedMinor?: number;
+  },
 ): Promise<{ credited: boolean; reason?: string }> {
   const result = await prisma.$transaction(async (tx) => {
     const row = await tx.walletTransaction.findUnique({
@@ -153,7 +164,10 @@ export async function completeTopUp(
         status: "SUCCESSFUL",
         completedAt: new Date(),
         providerTransactionId: providerTransactionId ?? row.providerTransactionId,
-        ...(paymentMethod ? { paymentMethod } : {}),
+        ...(details?.paymentMethod ? { paymentMethod: details.paymentMethod } : {}),
+        ...(details?.providerFeeMinor !== undefined ? { providerFeeMinor: details.providerFeeMinor } : {}),
+        ...(details?.providerVatMinor !== undefined ? { providerVatMinor: details.providerVatMinor } : {}),
+        ...(details?.providerChargedMinor !== undefined ? { providerChargedMinor: details.providerChargedMinor } : {}),
       },
     });
 
@@ -276,6 +290,15 @@ export async function voidUnverifiedTopup(
   });
 }
 
+function providerDetails(charge: Awaited<ReturnType<typeof verifyKorapayCharge>>) {
+  return {
+    paymentMethod: charge.paymentMethod,
+    providerFeeMinor: charge.providerFeeMinor,
+    providerVatMinor: charge.providerVatMinor,
+    providerChargedMinor: charge.providerChargedMinor,
+  };
+}
+
 export type TopUpOutcome =
   | { state: "credited" }
   | { state: "failed" }
@@ -340,7 +363,7 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
         );
         return { state: "still_pending", reason: "amount_mismatch" };
       }
-      const local = await completeTopUp(providerReference, charge.providerTransactionId, charge.paymentMethod);
+      const local = await completeTopUp(providerReference, charge.providerTransactionId, providerDetails(charge));
       return { state: local.credited || local.reason === "already_credited" ? "credited" : "failed" };
     }
 
@@ -364,7 +387,7 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
       return { state: "still_pending", reason: "currency_mismatch" };
     }
 
-    const result = await completeTopUp(providerReference, charge.providerTransactionId);
+    const result = await completeTopUp(providerReference, charge.providerTransactionId, providerDetails(charge));
     return { state: result.credited || result.reason === "already_credited" ? "credited" : "failed" };
   }
   if (charge.status === "failed") {
