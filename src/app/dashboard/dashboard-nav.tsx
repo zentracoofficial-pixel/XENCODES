@@ -123,7 +123,7 @@ export function DashboardSidebar({
 
       <div className="border-t border-border p-3">
         <div className="px-3 pb-2">
-          <CurrencySelector variant="field" align="left" direction="up" showName={false} />
+          <CurrencySelector variant="field" align="left" direction="up" />
         </div>
         <Link
           href="/dashboard/settings"

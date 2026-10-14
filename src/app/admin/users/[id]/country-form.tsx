@@ -10,7 +10,7 @@ import { setUserCountryAction, type UserCountryState } from "../actions";
 
 const initial: UserCountryState = {};
 
-/** Lets an admin correct the country on a customer's account. */
+/** Lets an admin set or correct the country on a customer's account. */
 export function CountryForm({
   userId,
   country,
@@ -81,7 +81,7 @@ export function CountryForm({
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          The country decides which local funding currency they can use. Payments already requested keep the amounts
+          Customers can also change this themselves in Settings. It sets their default currency. Payments already requested keep the amounts
           they were quoted; the wallet balance does not change.
         </p>
         <div className="flex items-center gap-3">

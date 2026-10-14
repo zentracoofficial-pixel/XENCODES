@@ -12,21 +12,19 @@ import { useDisplayMoney } from "./currency-provider";
  * The currency control: the current currency (code and symbol) as a button,
  * opening a list of every display currency. The same component is used in
  * the site header, the dashboard bars and the settings page, so they can
- * never disagree. Choosing a currency only changes how prices are shown.
+ * never disagree. Choosing a currency changes how prices are shown and which
+ * currency the wallet's funding card starts on; it never moves a balance.
  */
 export function CurrencySelector({
   className,
   align = "right",
   variant = "compact",
   direction = "down",
-  showName = true,
 }: {
   className?: string;
   align?: "left" | "right";
   /** Which way the list opens; "up" for a control at the bottom of a sidebar. */
   direction?: "down" | "up";
-  /** Whether the "field" variant spells out the currency's name. */
-  showName?: boolean;
   /** "compact" is the bar button; "field" is a full-width control for forms. */
   variant?: "compact" | "field";
 }) {
@@ -87,9 +85,8 @@ export function CurrencySelector({
         )}
       >
         <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <CurrencyMark code={current.code} active />
           <span className="tabular-nums">{current.code}</span>
-          <span className="text-muted-foreground">{current.symbol}</span>
-          {variant === "field" && showName ? <span className="whitespace-nowrap text-muted-foreground">· {current.name}</span> : null}
         </span>
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
       </button>
@@ -99,7 +96,7 @@ export function CurrencySelector({
           role="listbox"
           aria-label="Display currency"
           className={cn(
-            "absolute z-50 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-1.5 shadow-[var(--shadow-panel)]",
+            "absolute z-50 w-60 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-1.5 shadow-[var(--shadow-panel)]",
             align === "right" ? "right-0" : "left-0",
             direction === "up" ? "bottom-full mb-2" : "mt-2",
           )}
@@ -116,6 +113,7 @@ export function CurrencySelector({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                aria-label={`${code}, ${meta.name}${available ? "" : ", rate unavailable"}`}
                 disabled={!available || pending}
                 onClick={() => choose(code)}
                 className={cn(
@@ -124,17 +122,12 @@ export function CurrencySelector({
                   !available && "cursor-not-allowed opacity-50 hover:bg-transparent",
                 )}
               >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="w-12 shrink-0 font-semibold tabular-nums">{code}</span>
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {meta.name}
-                    {!available ? " (rate unavailable)" : ""}
-                  </span>
+                <span className="flex min-w-0 items-center gap-2.5" title={meta.name}>
+                  <CurrencyMark code={code} active={selected} />
+                  <span className="font-semibold tabular-nums">{code}</span>
+                  {!available ? <span className="text-[11px] text-muted-foreground">No rate yet</span> : null}
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-muted-foreground">{meta.symbol}</span>
-                  {selected ? <Check className="h-4 w-4 text-forest" /> : null}
-                </span>
+                {selected ? <Check className="h-4 w-4 shrink-0 text-forest" /> : null}
               </button>
             );
           })}
@@ -162,8 +155,7 @@ export function CurrencySelector({
 
           <div className="mt-1 border-t border-border px-2.5 pb-1.5 pt-2 text-[11px] leading-relaxed text-muted-foreground">
             <p>
-              Only changes how prices are shown. Your wallet stays in Naira (₦), and numbers are charged in Naira.
-              Other currencies are converted estimates (≈).
+              Prices and funding switch to this currency. Your balance is held in ₦; converted amounts are marked ≈.
             </p>
             {context.rates.stale ? (
               <p className="mt-1 text-warning">
@@ -175,5 +167,25 @@ export function CurrencySelector({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A currency's mark: its symbol in a small round badge ("₦", "GH₵", "$").
+ * The two CFA francs show their usual abbreviations, "FCFA" (Central) and
+ * "CFA" (West), so they can be told apart.
+ */
+function CurrencyMark({ code, active = false }: { code: keyof typeof CURRENCY_META; active?: boolean }) {
+  const symbol = code === "XAF" ? "FCFA" : code === "XOF" ? "CFA" : CURRENCY_META[code].symbol;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-none",
+        active ? "bg-forest text-white" : "bg-mint-soft text-forest",
+      )}
+    >
+      {symbol}
+    </span>
   );
 }

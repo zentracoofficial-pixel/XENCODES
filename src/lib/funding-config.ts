@@ -1,5 +1,5 @@
 import { readSettings, updateSettingAtomically, SETTING_KEYS } from "@/lib/settings";
-import { isFundingFeeConfigured, readFeePolicyMap, resolveFee, resolveFundingFee } from "@/lib/fee-policy";
+import { isFundingFeeConfigured, readFeePolicy, readFeePolicyMap, resolveFee } from "@/lib/fee-policy";
 import { minorUnitDivisor } from "@/lib/currency";
 import { readCurrencyConfig } from "@/lib/currency-config";
 import { isKorapayConfigured } from "@/lib/korapay";
@@ -8,9 +8,7 @@ import {
   fundingStepMinor,
   FUNDING_CURRENCY_CODES,
   computeFundingQuote,
-  currencySupportsCountry,
   isFundingCurrencyCode,
-  normalizeCountry,
   validateLocalAmount,
   type FundingCurrencyCode,
   type FundingQuote,
@@ -151,13 +149,13 @@ export interface FundingOption {
 }
 
 /**
- * The local currencies a customer can be offered right now: switched on and
- * configured by an admin, KoraPay connected, and for this customer's country.
- * A customer whose country is known only ever sees currencies for that
- * country; one whose country is unknown can pick any enabled currency (the
- * server then holds them to the country they pick, see quoteLocalFunding()).
+ * The local currencies a customer can pay in right now: switched on and
+ * configured by an admin, with an approved fee decision, and KoraPay
+ * connected. Any customer may pay in any of them, whatever their country:
+ * the currency they choose is the currency they pay in, and the wallet is
+ * credited in Naira at the admin's rate either way.
  */
-export async function getFundingOptions(country: string | null | undefined): Promise<FundingOption[]> {
+export async function getFundingOptions(): Promise<FundingOption[]> {
   if (!isKorapayConfigured()) return [];
   // One read of the settings table for the rates, the switches and the fees.
   const settings = await readSettings();
@@ -166,12 +164,10 @@ export async function getFundingOptions(country: string | null | undefined): Pro
   const ngn = currencies.find((c) => c.code === "NGN");
   if (!ngn) return [];
 
-  const known = normalizeCountry(country);
   const options: FundingOption[] = [];
   for (const code of FUNDING_CURRENCY_CODES) {
     const state = states[code];
     if (!isFundingStateUsable(state) || state.usdRate === null) continue;
-    if (known && !currencySupportsCountry(code, known)) continue;
     if (resolveFee(fees.get(code) ?? null, 1).status === "blocked") continue;
     options.push({ code, state, ngnPerUnit: ngn.usdRate / state.usdRate });
   }
@@ -182,8 +178,6 @@ export type LocalFundingError =
   | "not_connected"
   | "unsupported_currency"
   | "currency_unavailable"
-  | "country_required"
-  | "unsupported_country"
   | LocalAmountError
   | "fee_not_configured"
   | "rate_unavailable";
@@ -194,14 +188,13 @@ export type LocalFundingQuoteResult =
 
 /**
  * The server-side gate for every local funding request, preview and real
- * alike: currency known, switched on and configured, KoraPay connected, the
- * customer's country on that currency's list, the amount inside the limits.
- * `country` is the customer's saved country when they have one; `claimed` is
- * the country they chose on the form, used only when none is saved.
+ * alike: currency one of the six, switched on and configured, KoraPay
+ * connected, an approved fee decision, the amount inside the limits (and a
+ * whole number of the currency's step). Everything is read here from the
+ * server's own settings; nothing the browser sends but the currency and the
+ * amount is used.
  */
 export async function quoteLocalFunding(input: {
-  savedCountry: string | null | undefined;
-  claimedCountry?: string | null;
   currency: unknown;
   amountMinor: number;
 }): Promise<LocalFundingQuoteResult> {
@@ -209,16 +202,13 @@ export async function quoteLocalFunding(input: {
   if (!isFundingCurrencyCode(input.currency)) return { ok: false, error: "unsupported_currency" };
   const code = input.currency;
 
-  const [states, currencies] = await Promise.all([readFundingStates(), readCurrencyConfig()]);
+  const settings = await readSettings();
+  const [states, currencies] = await Promise.all([readFundingStates(settings), readCurrencyConfig(settings)]);
   const state = states[code];
   const ngn = currencies.find((c) => c.code === "NGN");
   if (!ngn || !isFundingStateUsable(state) || state.usdRate === null) {
     return { ok: false, error: "currency_unavailable" };
   }
-
-  const country = normalizeCountry(input.savedCountry) ?? normalizeCountry(input.claimedCountry);
-  if (!country) return { ok: false, error: "country_required" };
-  if (!currencySupportsCountry(code, country)) return { ok: false, error: "unsupported_country" };
 
   const limits = { minMinor: state.minMinor, maxMinor: state.maxMinor };
   const amountError = validateLocalAmount(input.amountMinor, state.minMinor, state.maxMinor, fundingStepMinor(code));
@@ -227,7 +217,7 @@ export async function quoteLocalFunding(input: {
   // The fee comes only from an approved policy, resolved here on the server.
   // No approved policy means the payment does not proceed; nothing is
   // assumed. An approved but disabled policy means no fee.
-  const fee = await resolveFundingFee(code, input.amountMinor);
+  const fee = resolveFee(await readFeePolicy("wallet_funding", code, settings), input.amountMinor);
   if (fee.status === "blocked") return { ok: false, error: "fee_not_configured", limits };
 
   const quote = computeFundingQuote({

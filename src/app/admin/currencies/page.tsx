@@ -9,7 +9,8 @@ import { FundingCurrencyForm } from "./funding-currency-form";
 import { FeePolicyForm } from "./fee-policy-form";
 import { readFeePolicy } from "@/lib/fee-policy";
 import { readFundingStates, isFundingStateUsable, isRateStale } from "@/lib/funding-config";
-import { FUNDING_CURRENCY_CODES, FUNDING_CURRENCIES } from "@/lib/funding-currencies";
+import { FUNDING_CURRENCY_CODES, FUNDING_CURRENCIES, fundingRateDeviationPercent } from "@/lib/funding-currencies";
+import { getDisplayRates } from "@/lib/exchange-rates";
 import { isKorapayConfigured } from "@/lib/korapay";
 
 export const metadata: Metadata = { title: "Admin: Currencies" };
@@ -34,6 +35,9 @@ export default async function AdminCurrenciesPage() {
   const [config, fundingStates] = await Promise.all([readCurrencyConfig(), readFundingStates()]);
   const ngnRate = config.find((c) => c.code === "NGN")?.usdRate ?? 0;
   const korapay = isKorapayConfigured();
+  // Market rates (from the exchange-rate feed) to compare the funding rates
+  // against; only used when the feed has actually supplied them.
+  const market = await getDisplayRates();
   const feeCodes = ["NGN", ...FUNDING_CURRENCY_CODES] as const;
   const feePolicies = await Promise.all(feeCodes.map((code) => readFeePolicy("wallet_funding", code)));
 
@@ -155,6 +159,8 @@ export default async function AdminCurrenciesPage() {
           const divisor = minorUnitDivisor(code);
           const live = korapay && isFundingStateUsable(state);
           const stale = isRateStale(state);
+          const deviation =
+            market.asOf && state.usdRate ? fundingRateDeviationPercent(state.usdRate, market.perUsd[code]) : null;
           return (
             <Card key={code} className="p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -173,6 +179,13 @@ export default async function AdminCurrenciesPage() {
                 {state.rateUpdatedAt ? ` Rate set ${new Date(state.rateUpdatedAt).toLocaleDateString("en-GB")}.` : ""}
                 {stale ? " This rate is over a week old; check it against the market." : ""}
               </p>
+              {deviation !== null && Math.abs(deviation) >= 3 ? (
+                <p className={deviation > 0 ? "mt-1 text-xs font-medium text-danger" : "mt-1 text-xs text-warning"}>
+                  {deviation > 0
+                    ? `Customers get ${deviation.toFixed(1)}% more Naira per ${code} than the market rate (${market.perUsd[code]} per USD). Anyone can pay in ${code}, so check this rate.`
+                    : `Customers get ${Math.abs(deviation).toFixed(1)}% less Naira per ${code} than the market rate (${market.perUsd[code]} per USD).`}
+                </p>
+              ) : null}
               <div className="mt-3">
                 <FundingCurrencyForm
                   code={code}

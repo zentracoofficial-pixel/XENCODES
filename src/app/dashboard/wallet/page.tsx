@@ -67,9 +67,9 @@ export default async function WalletPage() {
   const currency =
     (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
   const displayContext = await getDisplayContext();
-  // Every enabled currency; the grid greys out the ones for other countries
-  // and the server enforces the country again on every quote.
-  const fundingOptions = await getFundingOptions(null);
+  // Every currency an admin has switched on; any customer may pay in any of
+  // them, and the server checks the currency again on every quote.
+  const fundingOptions = await getFundingOptions();
   const localOptions: LocalOption[] = fundingOptions.map(({ code, state }) => ({
     code,
     name: FUNDING_CURRENCIES[code].name,
@@ -111,8 +111,7 @@ export default async function WalletPage() {
         <FundWallet
           walletCurrency={user.currency}
           options={localOptions}
-          savedCountry={user.country}
-          detectedCountry={displayContext.country}
+          country={displayContext.country}
           naira={{
             currency: currency.code,
             minTopUpMinor: currency.minTopUpMinor,

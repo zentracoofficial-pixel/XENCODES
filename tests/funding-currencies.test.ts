@@ -5,7 +5,7 @@ import {
   FUNDING_CURRENCY_CODES,
   FUNDING_CURRENCIES,
   computeFundingQuote,
-  currencySupportsCountry,
+  fundingRateDeviationPercent,
   fundingCurrencyForCountry,
   isFundingCurrencyCode,
   localFundingErrorCopy,
@@ -33,14 +33,6 @@ test("each country maps to its currency; Nigeria and unknown countries map to no
   assert.equal(fundingCurrencyForCountry("US"), null);
   assert.equal(fundingCurrencyForCountry(null), null);
   assert.equal(fundingCurrencyForCountry("GHA"), null);
-});
-
-test("a currency only supports its own country", () => {
-  assert.equal(currencySupportsCountry("GHS", "GH"), true);
-  assert.equal(currencySupportsCountry("GHS", "KE"), false);
-  assert.equal(currencySupportsCountry("XAF", "CI"), false);
-  assert.equal(currencySupportsCountry("XOF", "CI"), true);
-  assert.equal(currencySupportsCountry("KES", null), false);
 });
 
 test("quote: an approved fee goes on top and is never credited", () => {
@@ -112,8 +104,6 @@ test("customer-facing wording exists for every refusal", () => {
     "not_connected",
     "unsupported_currency",
     "currency_unavailable",
-    "country_required",
-    "unsupported_country",
     "amount_invalid",
     "amount_too_low",
     "amount_too_high",
@@ -157,4 +147,13 @@ test("webhook signature: valid with either key, invalid otherwise", () => {
   assert.equal(verifyKorapayWebhookSignature(data, sign("someone_else")), false);
   assert.equal(verifyKorapayWebhookSignature(data, null), false);
   assert.equal(verifyKorapayWebhookSignature({ ...data, status: "failed" }, sign("enc_test_key")), false);
+});
+
+test("funding rate deviation flags rates that credit more Naira than the market", () => {
+  assert.equal(fundingRateDeviationPercent(15, 15), 0);
+  // admin says 10 GHS per USD, market 15: each GHS credits 50% more Naira
+  assert.equal(Math.round(fundingRateDeviationPercent(10, 15)!), 50);
+  assert.ok(fundingRateDeviationPercent(16, 15)! < 0);
+  assert.equal(fundingRateDeviationPercent(15, undefined), null);
+  assert.equal(fundingRateDeviationPercent(0, 15), null);
 });

@@ -208,11 +208,10 @@ export interface UserCountryState {
 }
 
 /**
- * Corrects (or clears) the country on a customer's account. The country
- * decides which local funding currency they are offered and their default
- * display currency, and customers can only set it once themselves, so this is
- * where a wrong one is fixed. Payments already requested keep the amounts
- * they were quoted; only new funding attempts follow the new country. Their
+ * Sets (or clears) the country on a customer's account on their behalf.
+ * Customers can change it themselves in Settings too. The country sets their
+ * default display currency and which payment currency is suggested first;
+ * payments already requested keep the amounts they were quoted, and their
  * own display-currency choice, if they made one, is left alone.
  */
 export async function setUserCountryAction(

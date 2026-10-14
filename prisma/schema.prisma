@@ -48,11 +48,11 @@ model User {
   /// writes this column, so there is no code path that could change it
   /// later.
   currency                  String     @default("NGN")
-  /// ISO 3166 alpha-2 country the account holder says they are in, saved at
-  /// registration from the request's detected location and changeable by the
-  /// customer on the wallet page. Only ever used to recommend and restrict
-  /// local-currency wallet funding (see src/lib/funding-currencies.ts); it
-  /// never decides the wallet currency, which stays NGN. Null when unknown.
+  /// ISO 3166 alpha-2 country the account holder says they are in, set and
+  /// changed by the customer in Settings (or by an admin). Only sets defaults:
+  /// the starting display currency and the suggested payment currency. It
+  /// never limits which currency they may pay in and never decides the wallet
+  /// currency, which stays NGN. Null when unknown.
   country                   String?
   /// The currency the customer chose to see prices in (one of the eight
   /// display currencies), or null to use the default for their country.

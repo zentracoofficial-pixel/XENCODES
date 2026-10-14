@@ -6,14 +6,12 @@ import { cn } from "@/lib/utils";
 import {
   FUNDING_CURRENCIES,
   FUNDING_CURRENCY_CODES,
-  currencySupportsCountry,
   fundingCurrencyForCountry,
   type FundingCurrencyCode,
 } from "@/lib/funding-currencies";
 import { CURRENCY_COUNTRIES } from "@/lib/currency-meta";
-import { countryName } from "@/lib/countries";
 import { USDT_FUNDING } from "@/lib/usdt";
-import { CountryPicker } from "@/components/currency/country-picker";
+import { useDisplayMoney } from "@/components/currency/currency-provider";
 import { AddFunds } from "./add-funds";
 import { LocalFunding } from "./local-funding";
 import { UsdtComingSoonNotice } from "./usdt-coming-soon";
@@ -23,11 +21,11 @@ import { UsdtComingSoonNotice } from "./usdt-coming-soon";
  * the available ones selectable, the rest shown greyed out with the reason
  * when tapped.
  *
- * Naira funding is the original flow and always available. A local currency
- * is selectable only when an admin has switched it on (server decided, see
- * getFundingOptions()) and it is for the customer's own country; the server
- * checks both again on every quote, so this grid is only a convenience. USDT
- * is a "coming soon" card and nothing more.
+ * The currency the customer picked in the currency selector is the one
+ * selected here, so choosing GHS up top means paying in GHS. Naira funding is
+ * the original flow. A local currency is selectable when an admin has
+ * switched it on (server decided, see getFundingOptions()); the server checks
+ * it again on every quote. USDT is a "coming soon" card and nothing more.
  */
 
 export interface LocalOption {
@@ -39,7 +37,7 @@ export interface LocalOption {
   maxMinor: number;
 }
 
-type CardStatus = "available" | "needs_country" | "other_country" | "unavailable" | "coming_soon";
+type CardStatus = "available" | "unavailable" | "coming_soon";
 
 interface CardModel {
   id: string;
@@ -54,22 +52,24 @@ export function FundWallet({
   naira,
   walletCurrency,
   options,
-  savedCountry,
-  detectedCountry,
+  country,
 }: {
   naira: ComponentProps<typeof AddFunds>;
   walletCurrency: string;
-  /** Every local currency currently switched on by an admin, whatever the
-   *  customer's country; the country check happens here and on the server. */
+  /** Every local currency currently switched on by an admin. */
   options: LocalOption[];
-  savedCountry: string | null;
-  /** Country detected from the request, only ever a preselected suggestion. */
-  detectedCountry: string | null;
+  /** Saved account country, or the detected one: only used to suggest a
+   *  currency when the display currency is not one you can pay in. */
+  country: string | null;
 }) {
   const searchParams = useSearchParams();
-  const [country, setCountry] = useState<string | null>(savedCountry);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const money = useDisplayMoney();
+  const display = money?.display ?? "NGN";
+  // A manual pick is remembered only for the display currency it was made
+  // under: choosing a new currency in the selector moves funding to it.
+  const [picked, setPicked] = useState<{ id: string; forDisplay: string } | null>(null);
+  // Same for the "why is this greyed out" message.
+  const [tapNotice, setTapNotice] = useState<{ text: string | null; forDisplay: string } | null>(null);
 
   // Coming back from KoraPay (either kind of payment): only the status card.
   // Also the plain case for a wallet that is not in Naira.
@@ -78,7 +78,6 @@ export function FundWallet({
   }
 
   const enabled = new Map(options.map((option) => [option.code, option]));
-  const recommended = fundingCurrencyForCountry(country);
 
   const cards: CardModel[] = [
     {
@@ -89,24 +88,16 @@ export function FundWallet({
       methods: "Card, bank transfer",
       status: naira.fundingProvider ? "available" : "unavailable",
     },
-    ...FUNDING_CURRENCY_CODES.map((code): CardModel => {
-      const meta = FUNDING_CURRENCIES[code];
-      const status: CardStatus = !enabled.has(code)
-        ? "unavailable"
-        : country === null
-          ? "needs_country"
-          : currencySupportsCountry(code, country)
-            ? "available"
-            : "other_country";
-      return {
+    ...FUNDING_CURRENCY_CODES.map(
+      (code): CardModel => ({
         id: code,
         chip: CURRENCY_COUNTRIES[code][0],
         code,
-        name: meta.name,
-        methods: meta.methods.join(", "),
-        status,
-      };
-    }),
+        name: FUNDING_CURRENCIES[code].name,
+        methods: FUNDING_CURRENCIES[code].methods.join(", "),
+        status: enabled.has(code) ? "available" : "unavailable",
+      }),
+    ),
     {
       id: USDT_FUNDING.code,
       chip: "₮",
@@ -116,31 +107,35 @@ export function FundWallet({
       status: "coming_soon",
     },
   ];
+  const isAvailable = (id: string | null | undefined) =>
+    Boolean(id && cards.some((c) => c.id === id && c.status === "available"));
 
-  const availableLocal = cards.filter((c) => c.id !== "NGN" && c.status === "available");
-  const fallback =
-    (recommended && availableLocal.find((c) => c.id === recommended)?.id) ?? (cards[0].status === "available" ? "NGN" : null);
-  const active =
-    selected && cards.some((c) => c.id === selected && c.status === "available") ? selected : fallback;
+  // Default: the currency the customer chose to see prices in, when they can
+  // pay in it; otherwise their country's currency; otherwise Naira.
+  const fromCountry = fundingCurrencyForCountry(country);
+  const preferred = isAvailable(display) ? display : isAvailable(fromCountry) ? fromCountry : isAvailable("NGN") ? "NGN" : null;
+  const active = picked && picked.forDisplay === display && isAvailable(picked.id) ? picked.id : preferred;
   const activeCard = cards.find((c) => c.id === active) ?? null;
   const activeOption = active && active !== "NGN" ? enabled.get(active as FundingCurrencyCode) : undefined;
 
-  const needsCountry = country === null;
-  const showUsdtNotice = country !== null && country !== "NG" && availableLocal.length === 0;
+  const displayNote =
+    display === "USD"
+      ? "Prices are shown in US dollars, but dollars are not a payment option. Pay in Naira or a local currency below; USDT is coming soon."
+      : display !== "NGN" && !isAvailable(display)
+        ? `${display} payments are not available yet, so ${activeCard ? `you can pay in ${activeCard.code}` : "please check back soon"}. Your prices still show in ${display}.`
+        : null;
+  const notice = tapNotice && tapNotice.forDisplay === display ? tapNotice.text : null;
+  const noLocal = !cards.some((c) => c.id !== "NGN" && c.status === "available");
+  const showUsdtNotice = display === "USD" || (noLocal && display !== "NGN" && country !== "NG");
 
   function reasonFor(card: CardModel): string | null {
-    const where = FUNDING_CURRENCIES[card.code as FundingCurrencyCode]?.countries.map((c) => c.name).join(", ");
     switch (card.status) {
       case "coming_soon":
         return USDT_FUNDING.comingSoonMessage;
-      case "needs_country":
-        return `Tell us your country above to pay in ${card.code}.`;
-      case "other_country":
-        return `${card.code} payments are for customers in ${where}. Your account country is ${countryName(country) ?? country}. Contact support if that is wrong.`;
       case "unavailable":
         return card.id === "NGN"
           ? "Naira payments are not connected right now. Please check back soon."
-          : `${card.code} payments are not available yet.`;
+          : `${card.code} payments are not available yet. Please choose another currency.`;
       default:
         return null;
     }
@@ -149,12 +144,6 @@ export function FundWallet({
   return (
     <section className="rounded-xl border border-border bg-surface p-5">
       <h2 className="font-semibold">Fund wallet</h2>
-
-      {needsCountry ? (
-        <div className="mt-4">
-          <CountryPicker id="funding-country" suggested={detectedCountry} onSaved={setCountry} />
-        </div>
-      ) : null}
 
       <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         Select payment currency
@@ -173,10 +162,10 @@ export function FundWallet({
               title={usable ? card.methods : (reasonFor(card) ?? undefined)}
               onClick={() => {
                 if (usable) {
-                  setSelected(card.id);
-                  setNotice(null);
+                  setPicked({ id: card.id, forDisplay: display });
+                  setTapNotice(null);
                 } else {
-                  setNotice(reasonFor(card));
+                  setTapNotice({ text: reasonFor(card), forDisplay: display });
                 }
               }}
               className={cn(
@@ -214,13 +203,12 @@ export function FundWallet({
         <p role="status" className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">
           {notice}
         </p>
-      ) : activeCard ? (
+      ) : displayNote ? (
+        <p className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">{displayNote}</p>
+      ) : null}
+      {activeCard ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          Pay with {activeCard.methods}.
-          {activeCard.id === recommended || (activeCard.id === "NGN" && country === "NG")
-            ? ` Recommended for ${countryName(country)}.`
-            : ""}{" "}
-          Your wallet is credited in Naira once the payment is confirmed.
+          Pay with {activeCard.methods}. Your wallet is credited in Naira once the payment is confirmed.
         </p>
       ) : null}
 
@@ -233,7 +221,6 @@ export function FundWallet({
             name={activeOption.name}
             minMinor={activeOption.minMinor}
             maxMinor={activeOption.maxMinor}
-            country={country}
           />
         ) : active === "NGN" ? (
           <AddFunds {...naira} embedded />
