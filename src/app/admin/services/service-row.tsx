@@ -5,6 +5,7 @@ import { ServiceLogo } from "@/components/marketing/service-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/currency";
+import { formatMultiplier, multiplierToMarginPercent } from "@/lib/price-multiplier";
 import {
   setServiceEnabledAction,
   setServiceMarginAction,
@@ -23,10 +24,10 @@ export function ServiceRow({
   cheapestCostKobo,
   cheapestCustomerPriceKobo,
   enabled,
-  /** The service's own margin, or null when it follows the platform rules. */
-  overridePercent,
+  /** The service's own multiple, or null when it follows the platform rules. */
+  overrideMultiplier,
   /** What actually applies right now, after the rules are resolved. */
-  effectivePercent,
+  effectiveMultiplier,
   ruleLabel,
 }: {
   slug: string;
@@ -49,8 +50,8 @@ export function ServiceRow({
    *  the real price; never used to charge anyone. */
   cheapestCustomerPriceKobo: number | null;
   enabled: boolean;
-  overridePercent: number | null;
-  effectivePercent: number;
+  overrideMultiplier: number | null;
+  effectiveMultiplier: number;
   ruleLabel: string;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -95,21 +96,25 @@ export function ServiceRow({
         </Badge>
       </td>
       <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums">
-        {effectivePercent}%
+        {formatMultiplier(effectiveMultiplier)}
+        <span className="block text-xs font-normal text-muted-foreground">
+          {multiplierToMarginPercent(effectiveMultiplier)}% margin
+        </span>
       </td>
       <td className="px-3 py-3">
         <form action={formAction} className="flex items-center justify-end gap-2">
           <input
-            name="grossMarginPercent"
+            name="priceMultiplier"
             type="number"
-            step="1"
-            min="0"
-            max="99"
-            defaultValue={overridePercent ?? ""}
+            step="0.01"
+            min="1"
+            max="100"
+            defaultValue={overrideMultiplier === null ? "" : Number(overrideMultiplier.toFixed(2))}
             placeholder="auto"
-            aria-label={`${name} gross margin percent`}
+            aria-label={`${name} price as a multiple of provider cost`}
             className="h-10 w-20 rounded-lg border border-border bg-surface px-2 text-right text-sm tabular-nums outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
+          <span className="text-sm text-muted-foreground">x</span>
           <Button type="submit" variant="outline" size="sm" disabled={formPending}>
             {formPending ? "Saving" : "Save"}
           </Button>

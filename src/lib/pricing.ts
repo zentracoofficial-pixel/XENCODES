@@ -1,9 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import {
   SETTING_KEYS,
-  DEFAULT_GROSS_MARGIN_PERCENT,
-  EXCLUSIVE_GROSS_MARGIN_PERCENT,
+  DEFAULT_PRICE_MULTIPLIER,
+  EXCLUSIVE_PRICE_MULTIPLIER,
 } from "@/lib/settings";
+import {
+  MIN_PRICE_MULTIPLIER,
+  MAX_PRICE_MULTIPLIER,
+  multiplierToMarginPercent,
+  marginPercentToMultiplier,
+  formatMultiplier,
+} from "@/lib/price-multiplier";
 import {
   convertUsdCentsToCurrencyMinor,
   type CurrencyConfigEntry,
@@ -17,16 +24,12 @@ import {
  * compute a price slightly differently, one of them is eventually wrong in
  * the direction that loses money.
  *
- * MARGIN, NOT MARKUP. These are different numbers and confusing them is
- * the specific mistake this module is written to prevent:
- *
- *   markup  = profit as a share of COST   ->  price = cost x (1 + m)
- *   margin  = profit as a share of PRICE  ->  price = cost / (1 - m)
- *
- * A "50% markup" earns a 33.3% margin. Xencodes prices on margin, so a 50%
- * target means the customer pays twice the cost and half of what they pay
- * is profit. There is no multiply-by-1.5 anywhere in this file, and there
- * should never be one.
+ * MULTIPLIER FIRST. A price is the provider's cost times a multiplier:
+ * a 3x rule means the customer pays three times what the supplier bills.
+ * That is the number an admin sets and reads. The margin percent that goes
+ * with it (profit as a share of the price: 3x is 66.7%, 2x is 50%) is
+ * worked out from the multiplier for display and for the order record, and
+ * is never an input.
  */
 
 /**
@@ -52,6 +55,14 @@ const PRICE_STEP_KOBO = 100;
  */
 export const MAX_MARGIN_PERCENT = 99;
 
+export {
+  MIN_PRICE_MULTIPLIER,
+  MAX_PRICE_MULTIPLIER,
+  multiplierToMarginPercent,
+  marginPercentToMultiplier,
+  formatMultiplier,
+};
+
 /**
  * Services on the exclusive tier, priced at a deliberately thinner margin.
  *
@@ -71,7 +82,11 @@ export interface PriceQuote {
   customerPriceKobo: number;
   /** customerPriceKobo minus providerCostKobo. Never negative. */
   grossProfitKobo: number;
-  /** The margin the rule asked for. */
+  /** The multiplier of cost this price works out to. For a rule price it is
+   *  the rule's own multiplier; once a profit band, minimum price or fixed
+   *  price has moved the price it is price divided by cost. */
+  multiplier: number;
+  /** The margin percent that goes with it, whole, as recorded on the order. */
   targetMarginPercent: number;
   /**
    * The margin this exact price actually earns, to one decimal place.
@@ -86,9 +101,9 @@ export interface PriceQuote {
 }
 
 export interface MarginRules {
-  defaultPercent: number;
-  exclusivePercent: number;
-  /** Explicit per-service margins set by an admin. */
+  defaultMultiplier: number;
+  exclusiveMultiplier: number;
+  /** Explicit per-service multipliers set by an admin. */
   serviceOverrides: Map<string, number>;
 }
 
@@ -98,62 +113,66 @@ export async function loadMarginRules(): Promise<MarginRules> {
     prisma.setting.findMany({
       where: {
         key: {
-          in: [
-            SETTING_KEYS.defaultGrossMarginPercent,
-            SETTING_KEYS.exclusiveGrossMarginPercent,
-          ],
+          in: [SETTING_KEYS.defaultPriceMultiplier, SETTING_KEYS.exclusivePriceMultiplier],
         },
       },
     }),
-    prisma.serviceSetting.findMany({ where: { grossMarginPercent: { not: null } } }),
+    prisma.serviceSetting.findMany({
+      where: { OR: [{ priceMultiplier: { not: null } }, { grossMarginPercent: { not: null } }] },
+    }),
   ]);
 
   const byKey = new Map(settings.map((row) => [row.key, Number(row.value)]));
   const read = (key: string, fallback: number) => {
     const value = byKey.get(key);
-    return value !== undefined && Number.isFinite(value) ? value : fallback;
+    return value !== undefined &&
+      Number.isFinite(value) &&
+      value >= MIN_PRICE_MULTIPLIER &&
+      value <= MAX_PRICE_MULTIPLIER
+      ? value
+      : fallback;
   };
 
   return {
-    defaultPercent: read(
-      SETTING_KEYS.defaultGrossMarginPercent,
-      DEFAULT_GROSS_MARGIN_PERCENT,
-    ),
-    exclusivePercent: read(
-      SETTING_KEYS.exclusiveGrossMarginPercent,
-      EXCLUSIVE_GROSS_MARGIN_PERCENT,
-    ),
+    defaultMultiplier: read(SETTING_KEYS.defaultPriceMultiplier, DEFAULT_PRICE_MULTIPLIER),
+    exclusiveMultiplier: read(SETTING_KEYS.exclusivePriceMultiplier, EXCLUSIVE_PRICE_MULTIPLIER),
+    // A service set before multipliers existed carries a margin percent
+    // only; that percent is converted so its price does not move.
     serviceOverrides: new Map(
-      serviceSettings.flatMap((row) =>
-        row.grossMarginPercent === null ? [] : [[row.slug, row.grossMarginPercent]],
-      ),
+      serviceSettings.flatMap((row): [string, number][] => {
+        if (row.priceMultiplier !== null) return [[row.slug, row.priceMultiplier]];
+        if (row.grossMarginPercent !== null) {
+          return [[row.slug, marginPercentToMultiplier(row.grossMarginPercent)]];
+        }
+        return [];
+      }),
     ),
   };
 }
 
-/** Most specific rule wins: an explicit per-service margin, then the
+/** Most specific rule wins: an explicit per-service multiplier, then the
  *  exclusive tier, then the platform default. */
-export function resolveMargin(
+export function resolveMultiplier(
   rules: MarginRules,
   serviceSlug: string,
-): { percent: number; rule: PricingRuleId; ruleLabel: string } {
+): { multiplier: number; rule: PricingRuleId; ruleLabel: string } {
   const override = rules.serviceOverrides.get(serviceSlug);
   if (override !== undefined) {
-    return { percent: override, rule: "service", ruleLabel: "Service override" };
+    return { multiplier: override, rule: "service", ruleLabel: "Service override" };
   }
 
   if (EXCLUSIVE_SERVICE_SLUGS.has(serviceSlug)) {
     return {
-      percent: rules.exclusivePercent,
+      multiplier: rules.exclusiveMultiplier,
       rule: "exclusive",
       ruleLabel: "Exclusive tier",
     };
   }
 
   return {
-    percent: rules.defaultPercent,
+    multiplier: rules.defaultMultiplier,
     rule: "default",
-    ruleLabel: "Standard margin",
+    ruleLabel: "Standard price",
   };
 }
 
@@ -242,30 +261,31 @@ export function isUsableUsdCost(usdCents: number | null | undefined): usdCents i
  */
 export function quotePrice(
   providerCostKobo: number,
-  targetMarginPercent: number,
+  multiplier: number,
   rule: PricingRuleId = "default",
-  ruleLabel = "Standard margin",
+  ruleLabel = "Standard price",
 ): PriceQuote {
   if (!isUsableCost(providerCostKobo)) {
     throw new Error(`Refusing to price from an unusable cost: ${providerCostKobo}`);
   }
   if (
-    !Number.isFinite(targetMarginPercent) ||
-    targetMarginPercent < 0 ||
-    targetMarginPercent > MAX_MARGIN_PERCENT
+    !Number.isFinite(multiplier) ||
+    multiplier < MIN_PRICE_MULTIPLIER ||
+    multiplier > MAX_PRICE_MULTIPLIER
   ) {
     throw new Error(
-      `Refusing to price at a ${targetMarginPercent}% margin, outside 0 to ${MAX_MARGIN_PERCENT}.`,
+      `Refusing to price at ${multiplier}x the cost, outside ${MIN_PRICE_MULTIPLIER}x to ${MAX_PRICE_MULTIPLIER}x.`,
     );
   }
 
-  // price = cost / (1 - margin). The division is the whole difference
-  // between a margin and a markup.
-  const exact = providerCostKobo / (1 - targetMarginPercent / 100);
-  const rounded = Math.ceil(exact / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
+  // price = cost x multiplier, rounded up to the step. The small epsilon
+  // keeps a product that is mathematically exact from being pushed up a
+  // step by floating point.
+  const exact = providerCostKobo * multiplier;
+  const rounded = Math.ceil(exact / PRICE_STEP_KOBO - 1e-9) * PRICE_STEP_KOBO;
 
-  // With a non-negative margin this clamp never fires. It stays because a
-  // rule that ever resolves to something unexpected should degrade to
+  // With a multiplier of at least 1 this clamp never fires. It stays because
+  // a rule that ever resolves to something unexpected should degrade to
   // selling at cost, which is a bad day, rather than below it, which bills
   // the business once per order.
   const customerPriceKobo = Math.max(rounded, providerCostKobo);
@@ -275,7 +295,8 @@ export function quotePrice(
     providerCostKobo,
     customerPriceKobo,
     grossProfitKobo,
-    targetMarginPercent,
+    multiplier,
+    targetMarginPercent: Math.round((1 - 1 / multiplier) * 100),
     realisedMarginPercent:
       Math.round((grossProfitKobo / customerPriceKobo) * 1000) / 10,
     rule,
@@ -289,8 +310,8 @@ export function quoteFor(
   providerCostKobo: number,
   serviceSlug: string,
 ): PriceQuote {
-  const { percent, rule, ruleLabel } = resolveMargin(rules, serviceSlug);
-  return quotePrice(providerCostKobo, percent, rule, ruleLabel);
+  const { multiplier, rule, ruleLabel } = resolveMultiplier(rules, serviceSlug);
+  return quotePrice(providerCostKobo, multiplier, rule, ruleLabel);
 }
 
 /**
@@ -318,15 +339,7 @@ export function quoteForCurrency(
  */
 function withMinimumPrice(quote: PriceQuote, currency: CurrencyConfigEntry): PriceQuote {
   if (currency.code !== "NGN" || quote.customerPriceKobo >= MIN_PRICE_KOBO) return quote;
-  const margin = realisedMargin(MIN_PRICE_KOBO, quote.providerCostKobo);
-  return {
-    ...quote,
-    customerPriceKobo: MIN_PRICE_KOBO,
-    grossProfitKobo: MIN_PRICE_KOBO - quote.providerCostKobo,
-    targetMarginPercent: margin,
-    realisedMarginPercent: margin,
-    ruleLabel: `${quote.ruleLabel}, minimum price`,
-  };
+  return restate(quote, MIN_PRICE_KOBO, `${quote.ruleLabel}, minimum price`);
 }
 
 /**
@@ -390,15 +403,7 @@ export function setQuoteToPrice(
   const floor = Math.max(quote.providerCostKobo, currency.code === "NGN" ? MIN_PRICE_KOBO : 0);
   const price = Math.max(targetKobo, floor);
   if (price === quote.customerPriceKobo) return quote;
-  const margin = realisedMargin(price, quote.providerCostKobo);
-  return {
-    ...quote,
-    customerPriceKobo: price,
-    grossProfitKobo: price - quote.providerCostKobo,
-    targetMarginPercent: margin,
-    realisedMarginPercent: margin,
-    ruleLabel: `${quote.ruleLabel}, repeat listing price`,
-  };
+  return restate(quote, price, `${quote.ruleLabel}, repeat listing price`);
 }
 
 /** The lowest price anything is sold for (NGN 500), in kobo. */
@@ -417,12 +422,11 @@ function quoteBeforeMinimum(
   // The exclusive tier (Fiverr) is a deliberately thin margin and is left
   // alone. A number whose standard profit is already at or under the cap
   // is priced exactly as it always was.
-  const margin = standard.targetMarginPercent / 100;
+  const multiplier = standard.multiplier;
   if (
     currency.code !== "NGN" ||
     standard.rule === "exclusive" ||
-    margin <= 0 ||
-    margin >= 1 ||
+    multiplier <= 1 ||
     standard.grossProfitKobo <= MAX_PROFIT_KOBO
   ) {
     return standard;
@@ -432,20 +436,15 @@ function quoteBeforeMinimum(
   // large cost. The price stays where it was for the dearest number still at
   // the cap, until cost + TARGET_PROFIT_KOBO is higher, then follows that. So a dearer number is never cheaper than a
   // cheaper one, never below cost, and never above the standard price.
-  const capCostMinor = Math.floor((MAX_PROFIT_KOBO * (1 - margin)) / margin);
-  const priceAtCap = quotePrice(capCostMinor, standard.targetMarginPercent).customerPriceKobo;
+  // The cost at which the standard profit is exactly the cap: profit is
+  // cost x (multiplier - 1).
+  const capCostMinor = Math.floor(MAX_PROFIT_KOBO / (multiplier - 1));
+  const priceAtCap = quotePrice(capCostMinor, multiplier).customerPriceKobo;
   const targetPrice = Math.ceil((costMinor + TARGET_PROFIT_KOBO) / PRICE_STEP_KOBO) * PRICE_STEP_KOBO;
   const banded = Math.max(priceAtCap, targetPrice, costMinor);
   if (banded >= standard.customerPriceKobo) return standard;
 
-  return {
-    ...standard,
-    customerPriceKobo: banded,
-    grossProfitKobo: banded - costMinor,
-    targetMarginPercent: realisedMargin(banded, costMinor),
-    realisedMarginPercent: realisedMargin(banded, costMinor),
-    ruleLabel: `${standard.ruleLabel}, profit held down on expensive numbers`,
-  };
+  return restate(standard, banded, `${standard.ruleLabel}, profit held down on expensive numbers`);
 }
 
 /** The most profit (in kobo, NGN 5,000) a number earns at the standard
@@ -456,6 +455,24 @@ export const MAX_PROFIT_KOBO = 500_000;
 /** Once a number is expensive, its profit is held down toward this
  *  (NGN 3,500) instead of the full margin on a large cost. */
 export const TARGET_PROFIT_KOBO = 350_000;
+
+/** A quote whose price was moved by a band, the minimum or a fixed price:
+ *  the multiplier and margin are restated from the price actually charged. */
+function restate(quote: PriceQuote, priceKobo: number, ruleLabel: string): PriceQuote {
+  const margin = realisedMargin(priceKobo, quote.providerCostKobo);
+  return {
+    ...quote,
+    customerPriceKobo: priceKobo,
+    grossProfitKobo: priceKobo - quote.providerCostKobo,
+    multiplier:
+      quote.providerCostKobo > 0
+        ? Math.round((priceKobo / quote.providerCostKobo) * 100) / 100
+        : quote.multiplier,
+    targetMarginPercent: Math.round(margin),
+    realisedMarginPercent: margin,
+    ruleLabel,
+  };
+}
 
 /** Margin actually earned on a stored order, from the two exact figures
  *  recorded at purchase. Used by the admin rather than a stored duplicate,
