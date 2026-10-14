@@ -188,7 +188,14 @@ export default async function AdminOrderDetailPage({
                   value={formatMoney(order.grossProfitKobo, order.currency)}
                   tone={order.grossProfitKobo > 0 ? "success" : "danger"}
                 />
-                <Figure label="Gross margin" value={`${margin}%`} />
+                <Figure
+                  label="Price multiple"
+                  value={
+                    order.providerCostKobo > 0
+                      ? `${Number((order.priceKobo / order.providerCostKobo).toFixed(2))}x (${margin}% margin)`
+                      : `${margin}% margin`
+                  }
+                />
               </dl>
             ) : (
               <p className="px-5 py-5 text-sm text-muted-foreground">

@@ -36,8 +36,14 @@ function formatDay(key: string) {
   });
 }
 
+/** The price as a multiple of the provider's cost, with the margin percent
+ *  beside it for reference: "2.9x cost, 65.5% margin". */
 function margin(totals: SalesTotals) {
-  return totals.revenueMinor > 0 ? `${realisedMargin(totals.revenueMinor, totals.costMinor)}%` : "none";
+  if (totals.revenueMinor <= 0) return "none";
+  const percent = `${realisedMargin(totals.revenueMinor, totals.costMinor)}% margin`;
+  return totals.costMinor > 0
+    ? `${Number((totals.revenueMinor / totals.costMinor).toFixed(2))}x cost, ${percent}`
+    : percent;
 }
 
 /**
@@ -168,7 +174,7 @@ export default async function AdminSalesPage({
                   <dd className="mt-0.5 text-sm font-semibold tabular-nums">{money(period.totals.costMinor)}</dd>
                 </div>
               </dl>
-              <p className="mt-2 text-xs text-muted-foreground">Margin {margin(period.totals)}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{margin(period.totals)}</p>
             </Card>
           ))}
         </div>
@@ -219,11 +225,11 @@ export default async function AdminSalesPage({
             { label: "Revenue", value: money(rangeTotals.revenueMinor) },
             { label: "Provider cost", value: money(rangeTotals.costMinor) },
             { label: "Profit", value: money(rangeTotals.profitMinor), tone: "text-success" },
-            { label: "Margin", value: margin(rangeTotals) },
+            { label: "Price vs cost", value: margin(rangeTotals) },
           ].map((cell) => (
             <div key={cell.label} className="px-4 py-3.5">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{cell.label}</p>
-              <p className={cn("mt-1 text-lg font-semibold tabular-nums", cell.tone)}>{cell.value}</p>
+              <p className={cn("mt-1 font-semibold tabular-nums", cell.label === "Price vs cost" ? "text-sm" : "text-lg", cell.tone)}>{cell.value}</p>
             </div>
           ))}
         </Card>

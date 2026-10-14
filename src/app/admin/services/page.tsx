@@ -6,7 +6,8 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 import { getEnabledProviders, getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
-import { loadMarginRules, resolveMargin, quoteForCurrency, quotePrice } from "@/lib/pricing";
+import { loadMarginRules, resolveMultiplier, quoteForCurrency, quotePrice } from "@/lib/pricing";
+import { formatMultiplier, multiplierToMarginPercent } from "@/lib/price-multiplier";
 import { brandIcons } from "@/data/brand-icons";
 import { formatMoney } from "@/lib/currency";
 import { getDefaultCurrency, convertUsdCentsToCurrencyMinor } from "@/lib/currency-config";
@@ -144,15 +145,15 @@ export default async function AdminServicesPage({
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const exampleCostMinor = convertUsdCentsToCurrencyMinor(EXAMPLE_COST_USD_CENTS, defaultCurrency);
-  const exclusiveExample = quotePrice(exampleCostMinor, rules.exclusivePercent);
-  const defaultExample = quotePrice(exampleCostMinor, rules.defaultPercent);
+  const exclusiveExample = quotePrice(exampleCostMinor, rules.exclusiveMultiplier);
+  const defaultExample = quotePrice(exampleCostMinor, rules.defaultMultiplier);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Services</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          What Xencodes sells, and the margin each one earns.
+          What Xencodes sells, what the provider charges for it and what it sells for.
           {enabledProviders.length > 0
             ? ` Synchronized from ${enabledProviders.map((p) => p.label).join(", ")}`
             : ""}
@@ -167,8 +168,8 @@ export default async function AdminServicesPage({
       <Card className="p-5">
         <h2 className="text-sm font-semibold">Pricing rules</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Gross margin, as a share of what the customer pays. Not markup: at{" "}
-          {rules.defaultPercent}% the customer pays{" "}
+          The customer pays the provider&apos;s cost times a multiple: at{" "}
+          {formatMultiplier(rules.defaultMultiplier)} the customer pays{" "}
           {formatMoney(defaultExample.customerPriceKobo, defaultCurrency.code)} for a number that
           costs {formatMoney(exampleCostMinor, defaultCurrency.code)}, and{" "}
           {formatMoney(defaultExample.grossProfitKobo, defaultCurrency.code)} of that is profit.
@@ -176,10 +177,13 @@ export default async function AdminServicesPage({
         <dl className="mt-4 grid gap-2.5 sm:grid-cols-2">
           <div className="rounded-lg border border-border px-4 py-3">
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Standard margin
+              Standard price
             </dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {rules.defaultPercent}%
+              {formatMultiplier(rules.defaultMultiplier)}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {multiplierToMarginPercent(rules.defaultMultiplier)}% margin
+              </span>
             </dd>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {formatMoney(exampleCostMinor, defaultCurrency.code)} cost sells for{" "}
@@ -191,7 +195,10 @@ export default async function AdminServicesPage({
               Exclusive tier
             </dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {rules.exclusivePercent}%
+              {formatMultiplier(rules.exclusiveMultiplier)}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {multiplierToMarginPercent(rules.exclusiveMultiplier)}% margin
+              </span>
             </dd>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {formatMoney(exampleCostMinor, defaultCurrency.code)} cost sells for{" "}
@@ -204,7 +211,7 @@ export default async function AdminServicesPage({
           <Link href="/admin/settings" className="text-forest hover:underline">
             Settings
           </Link>
-          . A margin typed against a service below overrides them for that
+          . A multiple typed against a service below overrides them for that
           service only.
         </p>
       </Card>
@@ -213,7 +220,7 @@ export default async function AdminServicesPage({
         <p className="rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">
           {PROVIDER_UNAVAILABLE_COPY[resolved.reason]} The live catalog is
           empty until one is, so only services you have already configured are
-          listed. Margins set here apply as soon as numbers are back on sale.
+          listed. Prices set here apply as soon as numbers are back on sale.
         </p>
       )}
 
@@ -245,7 +252,7 @@ export default async function AdminServicesPage({
                   <th className="px-3 py-2.5 text-right font-medium">Provider cost</th>
                   <th className="px-3 py-2.5 text-right font-medium">Customer price</th>
                   <th className="px-3 py-2.5 font-medium">Pricing rule</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Margin</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Multiple</th>
                   <th className="px-3 py-2.5 text-right font-medium">Override</th>
                   <th className="px-5 py-2.5 text-right font-medium">Status</th>
                 </tr>
@@ -253,7 +260,7 @@ export default async function AdminServicesPage({
               <tbody>
                 {services.slice(0, PAGE_SIZE).map((service) => {
                   const setting = settingBySlug.get(service.slug);
-                  const resolvedRule = resolveMargin(rules, service.slug);
+                  const resolvedRule = resolveMultiplier(rules, service.slug);
                   // Shown in the platform's default currency: illustrative
                   // only, since the country picked at purchase decides the
                   // real price in the buyer's own currency.
@@ -277,8 +284,8 @@ export default async function AdminServicesPage({
                       cheapestCostKobo={quote?.providerCostKobo ?? null}
                       cheapestCustomerPriceKobo={quote?.customerPriceKobo ?? null}
                       enabled={setting?.enabled ?? true}
-                      overridePercent={setting?.grossMarginPercent ?? null}
-                      effectivePercent={resolvedRule.percent}
+                      overrideMultiplier={rules.serviceOverrides.get(service.slug) ?? null}
+                      effectiveMultiplier={resolvedRule.multiplier}
                       ruleLabel={resolvedRule.ruleLabel}
                     />
                   );

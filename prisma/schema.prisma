@@ -535,6 +535,11 @@ model ServiceSetting {
   /// price. Null rather than zero for "no override": zero is a real and
   /// very different instruction, namely sell at cost.
   grossMarginPercent Int?
+  /// Explicit price multiple for this service: the customer pays this many
+  /// times the provider's cost. Takes over from grossMarginPercent above,
+  /// which is only read for a service set before multipliers existed. Null
+  /// means no override.
+  priceMultiplier    Float?
   updatedAt          DateTime @updatedAt
 
   @@map("service_settings")

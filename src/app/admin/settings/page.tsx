@@ -63,8 +63,8 @@ export default async function AdminSettingsPage() {
           Pricing
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          The margins every price falls back to. Per-service overrides are set
-          on{" "}
+          How many times the provider&apos;s cost every price is, unless a service
+          has its own. Per-service overrides are set on{" "}
           <Link href="/admin/services" className="text-forest hover:underline">
             Services
           </Link>
@@ -72,8 +72,8 @@ export default async function AdminSettingsPage() {
         </p>
         <div className="mt-4">
           <MarginForm
-            defaultPercent={rules.defaultPercent}
-            exclusivePercent={rules.exclusivePercent}
+            defaultMultiplier={rules.defaultMultiplier}
+            exclusiveMultiplier={rules.exclusiveMultiplier}
           />
         </div>
       </Card>

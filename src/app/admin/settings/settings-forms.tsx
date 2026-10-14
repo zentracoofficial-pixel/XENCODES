@@ -12,6 +12,7 @@ import {
   type SettingsState,
   type TestEmailState,
 } from "./actions";
+import { multiplierToMarginPercent } from "@/lib/price-multiplier";
 import { RECOVERY_TEMPLATE_VARIABLES } from "@/lib/recovery-template-vars";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
 import { AnnouncementModal } from "@/components/announcement-modal";
@@ -24,70 +25,82 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 export function MarginForm({
-  defaultPercent,
-  exclusivePercent,
+  defaultMultiplier,
+  exclusiveMultiplier,
 }: {
-  defaultPercent: number;
-  exclusivePercent: number;
+  defaultMultiplier: number;
+  exclusiveMultiplier: number;
 }) {
   const [state, formAction, pending] = useActionState(
     saveMarginSettingsAction,
     initial,
   );
+  const [standard, setStandard] = useState(String(defaultMultiplier));
+  const [exclusive, setExclusive] = useState(String(exclusiveMultiplier));
+
+  // Only a hint: the multiple is what is saved and what prices are built
+  // from. The margin percent is what that multiple works out to.
+  const marginHint = (value: string) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 1 ? `${multiplierToMarginPercent(n)}% margin` : "";
+  };
 
   return (
     <form action={formAction} className="space-y-4">
       <div className="grid max-w-md gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="defaultMargin">
-            Standard gross margin
+          <label className={labelClass} htmlFor="defaultMultiplier">
+            Standard price
           </label>
           <div className="flex items-center gap-2">
             <input
-              id="defaultMargin"
-              name="defaultMargin"
+              id="defaultMultiplier"
+              name="defaultMultiplier"
               type="number"
-              step="1"
-              min="0"
-              max="99"
-              defaultValue={defaultPercent}
+              step="0.01"
+              min="1"
+              max="100"
+              value={standard}
+              onChange={(e) => setStandard(e.target.value)}
               className={inputClass}
             />
-            <span className="text-sm text-muted-foreground">%</span>
+            <span className="whitespace-nowrap text-sm text-muted-foreground">x cost</span>
           </div>
+          <p className="text-xs text-muted-foreground">{marginHint(standard)}</p>
         </div>
         <div className="space-y-1.5">
-          <label className={labelClass} htmlFor="exclusiveMargin">
-            Exclusive tier margin
+          <label className={labelClass} htmlFor="exclusiveMultiplier">
+            Exclusive tier price
           </label>
           <div className="flex items-center gap-2">
             <input
-              id="exclusiveMargin"
-              name="exclusiveMargin"
+              id="exclusiveMultiplier"
+              name="exclusiveMultiplier"
               type="number"
-              step="1"
-              min="0"
-              max="99"
-              defaultValue={exclusivePercent}
+              step="0.01"
+              min="1"
+              max="100"
+              value={exclusive}
+              onChange={(e) => setExclusive(e.target.value)}
               className={inputClass}
             />
-            <span className="text-sm text-muted-foreground">%</span>
+            <span className="whitespace-nowrap text-sm text-muted-foreground">x cost</span>
           </div>
+          <p className="text-xs text-muted-foreground">{marginHint(exclusive)}</p>
         </div>
       </div>
 
       <p className="max-w-xl text-xs text-muted-foreground">
-        Gross margin is profit as a share of what the customer pays, not a
-        markup on cost. At 50% the customer pays twice the provider cost. A
-        50% markup would only be a 33% margin, which is why these are entered
-        as margins everywhere.
+        The customer pays the provider&apos;s cost times this number: at 3x, a number the
+        provider bills NGN 1,000 for sells for NGN 3,000. The margin percent is only shown
+        for reference.
       </p>
 
       {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
       {state.success ? <p className="text-sm text-success">Saved.</p> : null}
 
       <Button type="submit" disabled={pending}>
-        {pending ? "Saving" : "Save margins"}
+        {pending ? "Saving" : "Save prices"}
       </Button>
     </form>
   );

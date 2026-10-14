@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
 import { writeSetting, SETTING_KEYS } from "@/lib/settings";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/announcement-limits";
-import { MAX_MARGIN_PERCENT } from "@/lib/pricing";
+import { MIN_PRICE_MULTIPLIER, MAX_PRICE_MULTIPLIER } from "@/lib/pricing";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, EmailDeliveryError, emailFromAddress } from "@/lib/email";
 import { renderEmail } from "@/lib/email-template";
@@ -25,11 +25,12 @@ export interface SettingsState {
 }
 
 /**
- * The two margins every price falls back to.
+ * The two price multiples every price falls back to (the customer pays this
+ * many times the provider's cost).
  *
- * Validated to a sane band rather than accepted blindly: a margin at or
- * above 100% is a division by zero, and a negative one sells below cost,
- * which is the exact outcome the pricing engine exists to prevent.
+ * Validated to a sane band rather than accepted blindly: below 1 sells under
+ * cost, which is the exact outcome the pricing engine exists to prevent, and
+ * the top of the band is the most the cost ceiling in pricing.ts allows.
  */
 export async function saveMarginSettingsAction(
   _prev: SettingsState,
@@ -37,30 +38,27 @@ export async function saveMarginSettingsAction(
 ): Promise<SettingsState> {
   const admin = await requireAdmin();
 
-  const defaultPercent = Number(formData.get("defaultMargin"));
-  const exclusivePercent = Number(formData.get("exclusiveMargin"));
+  const defaultMultiplier = Math.round(Number(formData.get("defaultMultiplier")) * 100) / 100;
+  const exclusiveMultiplier = Math.round(Number(formData.get("exclusiveMultiplier")) * 100) / 100;
 
-  for (const value of [defaultPercent, exclusivePercent]) {
-    if (!Number.isInteger(value) || value < 0 || value > MAX_MARGIN_PERCENT) {
+  for (const value of [defaultMultiplier, exclusiveMultiplier]) {
+    if (!Number.isFinite(value) || value < MIN_PRICE_MULTIPLIER || value > MAX_PRICE_MULTIPLIER) {
       return {
-        error: `Enter whole percents between 0 and ${MAX_MARGIN_PERCENT}.`,
+        error: `Enter a multiple between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}, for example 3.`,
       };
     }
   }
 
   await Promise.all([
-    writeSetting(SETTING_KEYS.defaultGrossMarginPercent, String(defaultPercent)),
-    writeSetting(
-      SETTING_KEYS.exclusiveGrossMarginPercent,
-      String(exclusivePercent),
-    ),
+    writeSetting(SETTING_KEYS.defaultPriceMultiplier, String(defaultMultiplier)),
+    writeSetting(SETTING_KEYS.exclusivePriceMultiplier, String(exclusiveMultiplier)),
   ]);
   await recordAudit({
     actor: admin,
     action: "settings.update",
     targetType: "settings",
-    targetId: "margins",
-    metadata: { defaultPercent, exclusivePercent },
+    targetId: "price-multipliers",
+    metadata: { defaultMultiplier, exclusiveMultiplier },
   });
 
   refresh();

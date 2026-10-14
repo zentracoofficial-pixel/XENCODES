@@ -13,10 +13,11 @@ import { prisma } from "@/lib/prisma";
  */
 
 export const SETTING_KEYS = {
-  /** Gross margin applied to a service with no rule of its own. */
-  defaultGrossMarginPercent: "default_gross_margin_percent",
-  /** Gross margin for services on the exclusive tier, such as Fiverr. */
-  exclusiveGrossMarginPercent: "exclusive_gross_margin_percent",
+  /** Multiple of the provider's cost charged for a service with no rule of
+   *  its own (3 means the customer pays 3x the cost). */
+  defaultPriceMultiplier: "default_price_multiplier",
+  /** The same, for services on the exclusive tier, such as Fiverr. */
+  exclusivePriceMultiplier: "exclusive_price_multiplier",
   /** Legacy single-provider selection, from before multiple providers could
    *  be enabled at once. Read only as a one-time fallback when providerConfig
    *  below has never been written; see src/lib/provider/config.ts. */
@@ -99,17 +100,15 @@ export const SETTING_KEYS = {
 export const DEFAULT_USD_TO_NGN_RATE = 1600;
 
 /**
- * Xencodes' standard gross margin, as a percentage of the customer price.
- *
- * Gross margin, not markup. At 50% the customer pays twice the supplier
- * cost; a 50% markup would be 1.5 times the cost and only a 33% margin.
- * See src/lib/pricing.ts, which is the only place this is applied.
+ * Xencodes' standard price, as a multiple of the provider's cost: the
+ * customer pays this many times what the supplier bills. See
+ * src/lib/pricing.ts, which is the only place this is applied.
  */
-export const DEFAULT_GROSS_MARGIN_PERCENT = 50;
+export const DEFAULT_PRICE_MULTIPLIER = 3;
 
-/** The exclusive tier: a deliberately thinner margin on a few services we
- *  want to be the cheapest place to buy. */
-export const EXCLUSIVE_GROSS_MARGIN_PERCENT = 30;
+/** The exclusive tier: a deliberately lower multiple on a few services we
+ *  want to be the cheapest place to buy (1.43x is about a 30% margin). */
+export const EXCLUSIVE_PRICE_MULTIPLIER = 1.43;
 
 /**
  * KoraPay's own published local rate for Nigeria: 1.5% per transaction,
