@@ -199,7 +199,7 @@ export function AddFunds({
         {returnState === "checking" ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Checking your payment with KoraPay…
+            Checking your payment…
           </p>
         ) : returnState === "credited" ? (
           <>
@@ -212,8 +212,9 @@ export function AddFunds({
           <>
             <h2 className="text-sm font-semibold">Still confirming</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              KoraPay hasn&apos;t confirmed this payment yet. Refresh this page
-              in a moment, or check your wallet history shortly.
+              This payment hasn&apos;t been confirmed yet. Crypto payments can take a few
+              minutes to confirm on the blockchain. Refresh this page in a moment, or check
+              your wallet history shortly.
             </p>
           </>
         ) : (

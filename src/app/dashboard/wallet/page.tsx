@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
+import { getCurrencyConfig, getDefaultCurrency, readCurrencyConfig } from "@/lib/currency-config";
+import { isCryptomusConfigured } from "@/lib/cryptomus";
 import { getFundingOptions } from "@/lib/funding-config";
 import { getDisplayContext } from "@/lib/display-preference";
 import { FundWallet, type LocalOption } from "./fund-wallet";
@@ -89,6 +90,7 @@ export default async function WalletPage() {
       : Promise.resolve([]),
   ]);
   const currency = currencyConfig ?? (await getDefaultCurrency());
+  const usdConfig = (await readCurrencyConfig()).find((c) => c.code === "USD")!;
   const shownPrices = new Map(
     shownRows.map((a) => [a.id, { currency: a.displayCurrency, minor: a.displayPriceMinor }]),
   );
@@ -127,6 +129,11 @@ export default async function WalletPage() {
           walletCurrency={user.currency}
           options={localOptions}
           country={displayContext.country}
+          usdt={{
+            enabled: isCryptomusConfigured(),
+            minCents: usdConfig.minTopUpMinor,
+            maxCents: usdConfig.maxTopUpMinor,
+          }}
           naira={{
             currency: currency.code,
             minTopUpMinor: currency.minTopUpMinor,

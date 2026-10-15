@@ -183,7 +183,7 @@ export async function saveFeePolicyAction(
   const admin = await requireAdmin();
 
   const currency = (formData.get("currency") as string)?.trim().toUpperCase();
-  if (currency !== "NGN" && !isFundingCurrencyCode(currency)) return { error: "Unknown currency." };
+  if (currency !== "NGN" && currency !== "USDT" && !isFundingCurrencyCode(currency)) return { error: "Unknown currency." };
 
   const model = formData.get("model") === "fixed" ? "fixed" : "percent";
   const percent = Number(formData.get("percent") || 0);

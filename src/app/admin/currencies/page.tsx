@@ -41,7 +41,7 @@ export default async function AdminCurrenciesPage() {
   // against; only used when the feed has actually supplied them.
   const market = await getDisplayRates();
   const marketForFunding = freshMarketRates(await readSettings());
-  const feeCodes = ["NGN", ...FUNDING_CURRENCY_CODES] as const;
+  const feeCodes = ["NGN", "USDT", ...FUNDING_CURRENCY_CODES] as const;
   const feePolicies = await Promise.all(feeCodes.map((code) => readFeePolicy("wallet_funding", code)));
 
   return (
@@ -75,12 +75,9 @@ export default async function AdminCurrenciesPage() {
             </div>
             {!entry.fundingAvailable ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                No payment provider is wired up for {entry.code} yet, so an
-                account in this currency can browse and be quoted prices but
-                cannot add funds. Nothing here can turn this on by itself:
-                it flips automatically the day a real {entry.code}-capable
-                provider is connected in code, the same way NGN did for
-                KoraPay.
+                {entry.code === "USD"
+                  ? "USD wallets are funded with USDT through Cryptomus. It switches on by itself once CRYPTOMUS_MERCHANT_ID and CRYPTOMUS_PAYMENT_API_KEY are set on Vercel; until then customers see USDT as coming soon."
+                  : `The ${entry.fundingProvider ?? "payment"} keys are not set on this deployment, so ${entry.code} cannot be funded right now.`}
               </p>
             ) : null}
             <div className="mt-3">

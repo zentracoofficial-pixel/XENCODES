@@ -284,15 +284,15 @@ export default async function AdminTransactionPage({
 const RESULT_LABEL: Record<PaymentVerificationResult, string> = {
   CREDITED: "Credited",
   ALREADY_CREDITED: "Already credited",
-  STILL_PENDING: "Still pending at KoraPay",
+  STILL_PENDING: "Still pending at the payment provider",
   FAILED: "Failed",
   MISMATCH: "Amount/currency mismatch — not credited",
-  PROVIDER_UNAVAILABLE: "KoraPay could not be reached",
+  PROVIDER_UNAVAILABLE: "The payment provider could not be reached",
   UNKNOWN_REFERENCE: "Unknown reference",
 };
 
 const TRIGGER_LABEL: Record<PaymentVerificationTrigger, string> = {
-  WEBHOOK: "KoraPay webhook",
+  WEBHOOK: "Payment provider webhook",
   RETURN_REDIRECT: "Customer returned from checkout",
   USER_VIEW: "Page view",
   ADMIN_MANUAL: "Manual admin recheck",
