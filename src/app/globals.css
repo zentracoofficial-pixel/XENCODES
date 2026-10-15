@@ -271,3 +271,43 @@
     }
   }
 }
+
+/*
+ * Admin console finish. Scoped to the admin shell and written against the
+ * plain markup the admin pages already use (page titles, tables, cards), so
+ * every screen gets the same polish without any page's own behaviour
+ * changing. In the components layer, so a page's own utility classes still
+ * win where they set something on purpose.
+ */
+@layer components {
+  .admin-shell main h1 {
+    letter-spacing: -0.025em;
+  }
+
+  /* Cards and table panels sit slightly above the page. */
+  .admin-shell main .rounded-xl.border.bg-surface,
+  .admin-shell main .rounded-2xl.border.bg-surface {
+    box-shadow: var(--shadow-subtle), 0 6px 20px -16px rgba(6, 59, 45, 0.22);
+  }
+
+  /* Table headers: a quiet tinted band with small, spaced labels. */
+  .admin-shell main thead th {
+    background-color: color-mix(in srgb, var(--mint-soft) 60%, var(--surface));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+
+  /* Rows: easy to follow across a wide table. */
+  .admin-shell main tbody tr {
+    transition: background-color 120ms ease;
+  }
+  .admin-shell main tbody tr:hover {
+    background-color: color-mix(in srgb, var(--mint-soft) 55%, transparent);
+  }
+  .admin-shell main td {
+    font-variant-numeric: tabular-nums;
+  }
+}

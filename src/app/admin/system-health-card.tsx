@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { HealthSignal } from "@/lib/system-health";
 
@@ -9,13 +10,20 @@ const DOT_COLOR: Record<HealthSignal["state"], string> = {
 };
 
 export function SystemHealthCard({ signals }: { signals: HealthSignal[] }) {
+  const problems = signals.filter((signal) => signal.state !== "ok").length;
+  const worst = signals.some((signal) => signal.state === "error") ? "danger" : "warning";
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-border px-5 py-3.5">
-        <h2 className="text-sm font-semibold">System health</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Live status of the connections and jobs the platform depends on.
-        </p>
+      <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+        <div>
+          <h2 className="text-sm font-semibold">System health</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Live status of the connections and jobs the platform depends on.
+          </p>
+        </div>
+        <Badge variant={problems === 0 ? "success" : worst}>
+          {problems === 0 ? "All working" : `${problems} need${problems === 1 ? "s" : ""} attention`}
+        </Badge>
       </div>
       <ul className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-y-0 sm:divide-x">
         {signals.map((signal) => (
