@@ -12,6 +12,7 @@ import { brandIcons } from "@/data/brand-icons";
 import { formatMoney } from "@/lib/currency";
 import { getDefaultCurrency, convertUsdCentsToCurrencyMinor } from "@/lib/currency-config";
 import { ServiceRow } from "./service-row";
+import { BlockedServicesCard } from "./blocked-services-card";
 
 export const metadata: Metadata = { title: "Admin: Services" };
 
@@ -215,6 +216,10 @@ export default async function AdminServicesPage({
           service only.
         </p>
       </Card>
+
+      <BlockedServicesCard
+        blocked={enabledProviders.flatMap(({ provider }) => provider.getBlockedServices?.() ?? [])}
+      />
 
       {resolved.connected ? null : (
         <p className="rounded-lg bg-warning-soft px-3.5 py-3 text-sm text-warning">

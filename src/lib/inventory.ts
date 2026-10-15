@@ -18,6 +18,7 @@ import {
   type PriceQuote,
 } from "@/lib/pricing";
 import { parseCountryVariant } from "@/lib/country-variant";
+import { isRestrictedService, splitRestricted } from "@/lib/restricted-services";
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
 import { expandServiceQuery } from "@/lib/search-aliases";
@@ -256,12 +257,14 @@ async function loadServiceCatalog(): Promise<ProviderService[] | null> {
       select: { serviceSlug: true, serviceName: true, serviceColor: true, category: true },
     });
     if (cached.length > 0) {
-      return cached.map((row) => ({
-        slug: row.serviceSlug,
-        name: row.serviceName,
-        color: row.serviceColor,
-        category: row.category,
-      }));
+      return withoutRestricted(
+        cached.map((row) => ({
+          slug: row.serviceSlug,
+          name: row.serviceName,
+          color: row.serviceColor,
+          category: row.category,
+        })),
+      );
     }
   }
 
@@ -299,7 +302,15 @@ async function loadServiceCatalog(): Promise<ProviderService[] | null> {
       if (!merged.has(service.slug)) merged.set(service.slug, service);
     }
   }
-  return merged.size > 0 ? Array.from(merged.values()) : null;
+  return merged.size > 0 ? withoutRestricted(Array.from(merged.values())) : null;
+}
+
+/** The catalog without the services this platform does not sell (forex,
+ *  gambling and betting, tobacco, alcohol, adult): see
+ *  src/lib/restricted-services.ts. The GrizzlySMS adapter already never lists
+ *  them; this covers the cached catalog and any other provider. */
+function withoutRestricted<T extends { slug: string; name: string }>(services: T[]): T[] {
+  return splitRestricted(services).allowed;
 }
 
 /**
@@ -392,10 +403,12 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   // providers both offer contributes both rows, and the cheapest naturally
   // wins since only the minimum price is kept.
   if (cacheFresh) {
-    const rows = await prisma.syncedOffer.findMany({
-      where: { serviceSlug: { notIn: [...disabled] } },
-      select: { serviceSlug: true, costUsdCents: true, countrySlug: true },
-    });
+    const rows = (
+      await prisma.syncedOffer.findMany({
+        where: { serviceSlug: { notIn: [...disabled] } },
+        select: { serviceSlug: true, serviceName: true, costUsdCents: true, countrySlug: true },
+      })
+    ).filter((row) => !isRestrictedService(row.serviceSlug, row.serviceName));
     if (rows.length > 0) {
       let startingPriceKobo: number | null = null;
       const countrySlugs = new Set<string>();
@@ -432,7 +445,7 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
     });
 
     for (const [slug, costUsdCents] of cheapestByService) {
-      if (disabled.has(slug) || !isUsableUsdCost(costUsdCents)) continue;
+      if (disabled.has(slug) || isRestrictedService(slug) || !isUsableUsdCost(costUsdCents)) continue;
       const quote = quoteForCurrency(rules, costUsdCents, slug, defaultCurrency);
       if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
         startingPriceKobo = quote.customerPriceKobo;
@@ -495,7 +508,7 @@ export async function getServiceCountries(
     getCountryQualityForService(serviceSlug),
     getPreferredPoolQualityForService(serviceSlug),
   ]);
-  if (serviceSetting?.enabled === false) return [];
+  if (serviceSetting?.enabled === false || isRestrictedService(serviceSlug)) return [];
 
   // Priced from cost read at read time, not from the price the sync wrote:
   // availability and cost only need to be as fresh as the last sync, but a
@@ -776,6 +789,8 @@ export async function quotePair(
 
   if (providers.length === 0) return { ok: false, reason: "no_provider" };
   if (serviceSetting?.enabled === false) return { ok: false, reason: "disabled" };
+  // Never sold, whatever any provider lists or an admin has switched on.
+  if (isRestrictedService(serviceSlug)) return { ok: false, reason: "disabled" };
 
   interface Candidate {
     providerId: string;
@@ -811,6 +826,7 @@ export async function quotePair(
 
     const service = services.find((row) => row.slug === serviceSlug);
     if (!offer || !service || offer.stock === "out_of_stock") continue;
+    if (isRestrictedService(service.slug, service.name)) continue;
 
     // No usable cost means no knowable margin, so there is no price to
     // quote and nothing to sell from this provider. Refused here rather

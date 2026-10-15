@@ -178,6 +178,11 @@ export interface NumberProvider {
 
   getServices(): Promise<ProviderService[]>;
 
+  /** Supplier services dropped because the platform does not sell them
+   *  (forex, gambling and betting, tobacco, alcohol, adult), for the admin to
+   *  check. Optional: an adapter that does not report them is simply silent. */
+  getBlockedServices?(): Array<{ name: string; slug: string; category: string; term: string }>;
+
   /**
    * The countries this one service can be bought in, priced. Pairs with no
    * stock are omitted rather than returned as unavailable, so a picker
