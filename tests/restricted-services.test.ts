@@ -102,6 +102,26 @@ test("every service the compliance review named is blocked, by name and by slug"
   }
 });
 
+test("services found in the live catalog review are blocked", () => {
+  for (const name of [
+    "Ace2Three", "Adda52", "Betflag", "BetOnRed", "Fastwin 2", "Gizbo", "Midnite", "Dangal365", "FDJ ParionsSport",
+    "ContiCazino", "Ftx", "KCEX", "Weex", "MoonPay", "WikiFX", "Freedom24", "Blued", "TheL", "Colombian Cupid",
+    "InternationalCupid", "Instamatch", "Photostrana", "FeetFinder", "Cityheaven", "Ero Me", "Winelab", "ZéDelivery",
+  ]) {
+    assert.notEqual(category(name), null, name);
+  }
+});
+
+test("everyday services from the live catalog stay available", () => {
+  for (const name of [
+    "BeReal", "Beboo", "Beget", "Bata", "KoronaPay", "Koin", "Lotus", "LOTTE Mart", "Hermes", "Puresmooth",
+    "Glovo", "Bit", "Booking.com", "Google, Gmail, Youtube", "Instagram + Threads", "Twitter / X", "Bolt", "OLX",
+    "Jumia", "Coca-Cola", "Monster Energy", "Pepsi", "Paysafecard", "Skrill", "Payoneer", "Remitly", "Wise",
+  ]) {
+    assert.equal(category(name), null, name);
+  }
+});
+
 test("look-alike Cyrillic letters do not hide a restricted name", () => {
   assert.equal(category("\u0421hampion\u0421asino"), "gambling");
   assert.equal(category("\u041crGreen"), "gambling");

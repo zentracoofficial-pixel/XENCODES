@@ -72,7 +72,7 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "blofin", "pionex", "nexo", "uphold", "trust wallet", "metamask", "uniswap", "pancakeswap", "opensea", "nft",
     // Added after the compliance review
     "~invest", "~crypto", "~coin", "^fx", "accuindex", "stormgain", "mudrex", "=nifty", "=vantage", "~exness",
-    "forex4you", "~bitcoin", "~blockchain", "~tradingview", "~stockbroker", "~cfd",
+    "forex4you", "~bitcoin", "~blockchain", "~tradingview", "~stockbroker", "~cfd", "~faucet", "~web3",
   ],
   gambling: [
     "~casino", "~gambl", "~betting", "~sportsbook", "~poker", "lotto", "~lottery", "~jackpot", "~roulette",
@@ -102,6 +102,7 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "$loto", "~teenpat", "~lottery", "~lotto", "~kasino", "~spinwin", "~winzo", "~iplwin", "~fantasy",
     "32red", "tipsport", "~tipsport", "~betting", "~sportsbet", "~parlay", "~poker", "~bingo", "~casino",
     "coin master", "coinmaster", "~realmoney", "~cashgame", "~rummy", "~satta", "~matka",
+    "^bet", "~cazino", "~fastwin", "~parionssport", "~fortunabet",
   ],
   tobacco: [
     "~tobacco", "cigar", "cigars", "~cigarette", "~vape", "~vaping", "~hookah", "~shisha", "~nicotine", "~snus", "~ecig",
@@ -154,6 +155,7 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "$dating", "~datingapp", "~swipeapp", "swipe app", "~love", "~znakom", "~flirt", "~singles",
     "~matrimon", "shaadi", "jeevansathi", "hornet", "scruff", "jackd", "planetromeo", "=romeo", "=feels",
     "~tinder", "~badoo", "~bumble", "~hinge", "~grindr", "~tantan", "~lovoo", "~hily", "~mamba",
+    "~cupid", "$match", "~lybvi", "~lyubvi",
   ],
 };
 
@@ -192,11 +194,45 @@ const COMPLIANCE_REMOVALS: Record<RestrictedCategory, string[]> = {
   ],
 };
 
+/**
+ * Found by reading the live public directory, name by name, after the
+ * compliance review: the same categories, under names the rules above do
+ * not recognise on their own.
+ */
+const CATALOG_REVIEW_REMOVALS: Record<RestrictedCategory, string[]> = {
+  trading: [
+    "Ftx", "Bitexen", "Icrypex", "Bankera", "KCEX", "Weex", "Zoomex", "Ourbit", "Pintu", "Roqqu", "Ripio",
+    "MoonPay", "Paybis", "Switchere", "Wirex", "Ziglu", "Nanovest", "Freedom24", "FreedomFinance", "Fasset",
+    "Hinance", "BitClout", "BlockDag", "Hooked Protocol", "RelicDAO", "ChaingeFinance", "Web3Auth",
+    "xworldwallet", "WikiFX", "TradeX", "Upland", "IndiaGold", "InFund", "OneAset", "GoerliFaucet", "Kaito",
+    "NiftyGateway", "Trustee Plus", "RedotPay", "Wert", "Ari10", "Socios", "Cumbuca", "Gemini", "MoneyControl",
+    "IncredMoney", "My Jar", "Siply",
+  ],
+  gambling: [
+    "Ace2Three", "Adda52", "ApostaGanha", "ArenaPlus", "Big Cash", "Boyaa", "Casa Pariurilor", "ContiCazino",
+    "Dabble", "Dangal365", "Govinda365", "FDJ ParionsSport", "Fastwin", "Fastwin 2", "FastPari", "Fliff",
+    "Fortuna", "FortunaSK", "FunCrash", "Gamezy", "Getmega", "Gizbo", "Goa games", "Hitnspin", "HOT51",
+    "HowZat", "Indiluck", "IndiaPlays", "KazandiRio", "Midnite", "PlayZone", "Pikkit", "ReddyBook", "STS",
+    "WPK", "Crickpe", "Cricmatch", "Elite Competitions", "Rush", "Sixer", "Netwin", "Betexc", "Betflag",
+    "Betine", "Betinin", "BETL", "betlive", "Betmartin", "BetMen", "BetOnRed", "Betorspin", "Betvet",
+    "Dreamcash", "DreamMoney", "FastEarn", "EarnEasy", "KickCash", "Hey Cash", "Cashmine",
+  ],
+  tobacco: [],
+  alcohol: ["Winelab", "ZéDelivery", "Zé Delivery"],
+  adult: ["Findom", "FeetFinder", "Cityheaven", "Ero Me", "Feabie", "PCMAX", "FANS"],
+  dating: [
+    "Blued", "TheL", "Pride Nearby", "Christian Filipina", "Colombian Cupid", "Cupid Match", "CupidMedia",
+    "FilipinoCupid", "InternationalCupid", "Instamatch", "EZMatch", "Fish Match", "Fotka", "Finya", "Singledk",
+    "Moteplassen", "MocoSpace", "Photostrana", "Linii Lybvi", "Inshallah", "Salams", "FRND", "Quack", "Michat",
+    "Wink", "LivU", "Bananatok", "This Fate",
+  ],
+};
+
 /** Whole names that contain a restricted word but are not that thing. */
 const ALLOWED_NAMES = new Set([
   "adult swim", "adult swim games", "essex", "sussex",
   // End in a restricted suffix ("bet", "88", "11") but are not betting.
-  "alphabet", "tibet", "1688", "7 eleven",
+  "alphabet", "tibet", "1688", "7 eleven", "betterhelp", "match masters",
 ]);
 
 interface Matcher {
@@ -231,7 +267,7 @@ function buildMatchers(): Matcher[] {
     }
   }
   for (const category of Object.keys(COMPLIANCE_REMOVALS) as RestrictedCategory[]) {
-    for (const name of COMPLIANCE_REMOVALS[category]) {
+    for (const name of [...COMPLIANCE_REMOVALS[category], ...CATALOG_REVIEW_REMOVALS[category]]) {
       matchers.push({ category, term: name, kind: "exact", value: compactOf(name) });
     }
   }
