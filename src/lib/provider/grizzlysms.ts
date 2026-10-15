@@ -269,8 +269,8 @@ export class GrizzlySmsProvider implements NumberProvider {
       );
     }
 
-    // Forex, gambling and betting, tobacco, alcohol and adult (18+) services
-    // are never sold (see src/lib/restricted-services.ts). Dropped here, at
+    // Trading, forex and investments, gambling and betting, tobacco, alcohol,
+    // adult (18+) and dating services are never sold (see src/lib/restricted-services.ts). Dropped here, at
     // the one place this adapter reads the supplier's service list, so every
     // path below (browse, quote, purchase, the catalog sync) simply never
     // sees them: an unknown service code is skipped everywhere else.
