@@ -16,12 +16,20 @@
  *    "Alphabet"; "sex" blocks "Sex Chat" but not "Essex");
  *  - a "~" word also matches inside a longer word ("~forex" blocks
  *    "Forex4You", "~casino" blocks "CasinoX");
- *  - a "=" word matches only when it is the whole name ("=match" blocks the
- *    dating app "Match" but not "Match Masters");
+ *  - a "=" word matches only when it is the whole name, ignoring spaces and
+ *    punctuation ("=match" blocks the dating app "Match" but not "Match
+ *    Masters"; "=tangome" blocks "Tango Me");
+ *  - a "$" word matches the end of the name ("$bet" blocks "Pusulabet") and a
+ *    "^" word its start ("^fx" blocks "FxPro");
  *  - a word of seven or more letters matches inside longer words too;
  *  - several words match as a phrase ("iq option").
  * Crypto exchanges, brokers and investment apps count as trading and
  * investments, and dating apps of every kind are blocked.
+ *
+ * Look-alike Cyrillic letters are read as Latin first, so "СhampionСasino"
+ * (with Cyrillic С) is caught like "ChampionCasino". Names a payment
+ * provider's compliance review asked us to remove are listed by name in
+ * COMPLIANCE_REMOVALS, on top of the rules.
  */
 
 export type RestrictedCategory = "trading" | "gambling" | "tobacco" | "alcohol" | "adult" | "dating";
@@ -62,6 +70,9 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "blockchain com", "coinmarketcap", "coingecko", "coinex", "lbank", "bingx", "phemex", "deribit", "bitmex",
     "poloniex", "wazirx", "coindcx", "coinswitch", "upbit", "bithumb", "bitflyer", "hitbtc", "bitrue",
     "blofin", "pionex", "nexo", "uphold", "trust wallet", "metamask", "uniswap", "pancakeswap", "opensea", "nft",
+    // Added after the compliance review
+    "~invest", "~crypto", "~coin", "^fx", "accuindex", "stormgain", "mudrex", "=nifty", "=vantage", "~exness",
+    "forex4you", "~bitcoin", "~blockchain", "~tradingview", "~stockbroker", "~cfd",
   ],
   gambling: [
     "~casino", "~gambl", "~betting", "~sportsbook", "~poker", "lotto", "~lottery", "~jackpot", "~roulette",
@@ -86,11 +97,19 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "=mpl", "=a23", "pocket52", "sweepstakes", "sweeps", "chumba", "pulsz", "mcluck", "funrize",
     "fortune coins", "skin gambling", "csgoempire", "hellcase", "keydrop", "key drop", "farmskins",
     "skinclub", "case opening", "case battle", "case battles", "play to earn", "earn money games",
+    // Added after the compliance review
+    "~ludo", "~777", "~888", "~jeet", "~slots", "$slot", "$bet", "$bets", "$exch", "~betexch", "$11", "$88",
+    "$loto", "~teenpat", "~lottery", "~lotto", "~kasino", "~spinwin", "~winzo", "~iplwin", "~fantasy",
+    "32red", "tipsport", "~tipsport", "~betting", "~sportsbet", "~parlay", "~poker", "~bingo", "~casino",
+    "coin master", "coinmaster", "~realmoney", "~cashgame", "~rummy", "~satta", "~matka",
   ],
   tobacco: [
     "~tobacco", "cigar", "cigars", "~cigarette", "~vape", "~vaping", "~hookah", "~shisha", "~nicotine", "~snus", "~ecig",
     "e cig", "e cigarette", "e cigarettes", "marlboro", "iqos", "juul", "ploom", "smoke shop", "smokeshop",
     "puff bar", "elf bar", "vuse", "lost mary", "hqd", "snuff", "chewing tobacco", "rolling papers",
+    // Added after the compliance review
+    "rothmans", "dunhill", "=bat", "winston", "=camel", "lucky strike", "pall mall", "philip morris",
+    "~philipmorris", "heets", "terea", "veev", "glo hyper", "~marlboro",
   ],
   alcohol: [
     "~alcohol", "liquor", "liquors", "~whisky", "~whiskey", "~vodka", "~brewery", "~winery", "~distillery",
@@ -99,6 +118,10 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "absolut", "johnnie walker", "jagermeister", "wine com", "minibar delivery", "saucey",
     "~tequila", "~champagne", "brandy", "~cognac", "bacardi", "carlsberg", "diageo", "pernod", "stella artois",
     "corona extra", "spirits delivery", "alcohol delivery",
+    // Added after the compliance review
+    "budweiser", "=brahma", "=corona", "~oktoberfest", "tennents", "~spaten", "~brewing", "~brewer", "lager",
+    "ambev", "abinbev", "ab inbev", "amstel", "desperados", "jameson", "baileys", "~jackdaniel", "=skol",
+    "~beerhouse", "~wineshop", "~bebida",
   ],
   adult: [
     "~porn", "~xxx", "~onlyfans", "~nsfw", "~erotic", "~camgirl", "~sexting", "~hentai", "~escort", "escorts",
@@ -113,6 +136,10 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "cam girls", "cam model", "webcam model", "~justforfans", "fanvue", "playboy", "sex shop", "~sexshop",
     "adult toys", "~bdsm", "kinky", "dominatrix", "threesome", "companionship services", "erotic massage",
     "sensual massage", "gonewild", "18 chat", "18 only",
+    // Added after the compliance review: escort and personals sites
+    "leolist", "locanto", "skipthegames", "listcrawler", "doublelist", "megapersonals", "backpage",
+    "=tryst", "eroticmonkey", "slixa", "adultsearch", "~cityxguide", "=3fun", "~onlyfan", "~escort",
+    "~sexy", "~xxx", "~hookup", "~nude",
   ],
   dating: [
     "dating", "singles", "mingle", "flirt", "~flirting", "tinder", "bumble", "badoo", "hinge", "okcupid",
@@ -123,17 +150,60 @@ const TERMS: Record<RestrictedCategory, string[]> = {
     "paktor", "dil mil", "dilmil", "trulymadly", "truly madly", "aisle", "hot or not", "omegle", "ome tv",
     "chatroulette", "=match", "=her", "=tagged", "=boo", "=lex", "datemyage", "date my age", "lavalife",
     "mingle2",
+    // Added after the compliance review
+    "$dating", "~datingapp", "~swipeapp", "swipe app", "~love", "~znakom", "~flirt", "~singles",
+    "~matrimon", "shaadi", "jeevansathi", "hornet", "scruff", "jackd", "planetromeo", "=romeo", "=feels",
+    "~tinder", "~badoo", "~bumble", "~hinge", "~grindr", "~tantan", "~lovoo", "~hily", "~mamba",
+  ],
+};
+
+/**
+ * Services a payment provider's compliance team named and asked us to
+ * remove, by category, matched as whole names (spaces and punctuation
+ * ignored). Many are already caught by the rules above; listing them
+ * by name makes sure none slips through a gap in the rules.
+ */
+const COMPLIANCE_REMOVALS: Record<RestrictedCategory, string[]> = {
+  trading: [
+    "Investro", "Mainvest", "Mudrex", "Nifty", "Stormgain", "Univest", "Vantage", "XP Investimentos",
+  ],
+  gambling: [
+    "IPLwin", "Jackaroo", "Jalwa Games", "Jeet11", "Jeetexch", "JojoBet", "Khelraja", "Kwiff", "Leon Club",
+    "Lootably", "Luck", "luckgood", "LuckyBike", "Ludo Ninja", "Ludo Winner", "Ludo11", "ludoplus", "Ludosupreme",
+    "Madslots", "MahaGames", "MrGreen", "MrQ", "NCA888", "NetBet", "Nice88", "OKbet", "Okwin", "OKVIP", "OPAP",
+    "ParlayPlay", "PeryaGame", "PH777", "PlayOJO", "Playerzpot", "PlayKaro", "Pocket Ludo", "POCKET PLAY",
+    "Porbet", "Probo", "Pusulabet", "Qbet", "QQPK", "Raja Games", "Riobet", "Royale", "Royaljeet", "RoyalWin",
+    "Sankes and Ladders", "Snakes and Ladders", "Sisal", "SisalFunClub", "SkyBet", "SNAI", "Solitaire Cash",
+    "Sorare", "Spincrush", "SpinWinner", "SportEfir", "SportGully", "Sportloto", "Sportsbuzz11", "Stanleybet",
+    "Stoiximan", "Super Ace", "Superbet", "SynotTip", "Tbigwin", "Teenpati joy", "Tiranga", "TopGun", "UWIN",
+    "ve88", "Veera", "Veergame", "Vision11", "Winclash", "WinGo", "WinMatch", "Winner", "WinzoGame", "WOG",
+    "Wolf777", "swerte88", "YN777", "Yono777", "YoWin", "YoHo", "Zupee", "ChampionCasino", "32Red",
+    "Tipsport Gamechanger", "51Exch", "8888.com",
+  ],
+  tobacco: ["Rothmans", "Dunhill", "BAT"],
+  alcohol: ["Budweiser", "Brahma", "Corona", "SpatenOktoberfest", "Tennents"],
+  adult: ["LeoList", "Locanto", "3Fun"],
+  dating: [
+    "PurePlatfrom", "PurePlatform", "Pure", "Hornet", "Scruff", "LoveRu", "Tantan", "Tango", "TangoMe", "Tangga",
+    "Sweetring", "Skout", "Smitten", "Yubo", "SayHi Chat", "SayHi", "QuackQuack Dating App", "QuackQuack",
+    "Pairs", "Omiai", "MirZnakomstv", "Meet Match", "Muzz", "Mylove", "LOVOO", "LoveAndSeek", "Jeevansathi",
+    "Justdating", "JD Dating", "Happypancake", "hily", "Her", "Hing Swipe App", "Luxy", "roomster", "SoulApp",
+    "Soul", "WooPlus", "Yik Yak", "Taki", "Tind Swipe App", "TeriMeriChoice", "Feels",
   ],
 };
 
 /** Whole names that contain a restricted word but are not that thing. */
-const ALLOWED_NAMES = new Set(["adult swim", "adult swim games", "essex", "sussex"]);
+const ALLOWED_NAMES = new Set([
+  "adult swim", "adult swim games", "essex", "sussex",
+  // End in a restricted suffix ("bet", "88", "11") but are not betting.
+  "alphabet", "tibet", "1688", "7 eleven",
+]);
 
 interface Matcher {
   category: RestrictedCategory;
   term: string;
   /** word: whole word; compact: inside the name with spaces removed; phrase: as consecutive words; exact: the whole name. */
-  kind: "word" | "compact" | "phrase" | "exact";
+  kind: "word" | "compact" | "phrase" | "exact" | "suffix" | "prefix";
   value: string;
 }
 
@@ -142,7 +212,11 @@ function buildMatchers(): Matcher[] {
   for (const category of Object.keys(TERMS) as RestrictedCategory[]) {
     for (const raw of TERMS[category]) {
       if (raw.startsWith("=")) {
-        matchers.push({ category, term: raw.slice(1), kind: "exact", value: raw.slice(1) });
+        matchers.push({ category, term: raw.slice(1), kind: "exact", value: compactOf(raw.slice(1)) });
+      } else if (raw.startsWith("$")) {
+        matchers.push({ category, term: raw.slice(1), kind: "suffix", value: raw.slice(1) });
+      } else if (raw.startsWith("^")) {
+        matchers.push({ category, term: raw.slice(1), kind: "prefix", value: raw.slice(1) });
       } else if (raw.startsWith("~")) {
         matchers.push({ category, term: raw.slice(1), kind: "compact", value: raw.slice(1) });
       } else if (raw.includes(" ")) {
@@ -156,14 +230,31 @@ function buildMatchers(): Matcher[] {
       }
     }
   }
+  for (const category of Object.keys(COMPLIANCE_REMOVALS) as RestrictedCategory[]) {
+    for (const name of COMPLIANCE_REMOVALS[category]) {
+      matchers.push({ category, term: name, kind: "exact", value: compactOf(name) });
+    }
+  }
   return matchers;
 }
 
 const MATCHERS = buildMatchers();
 
+/** Cyrillic letters that look like Latin ones, as suppliers sometimes type
+ *  them inside otherwise Latin names ("СhampionСasino", "163СOM"). */
+const LOOKALIKES: Record<string, string> = {
+  а: "a", в: "b", е: "e", ё: "e", к: "k", м: "m", н: "h", о: "o", р: "p", с: "c", т: "t", у: "y", х: "x",
+  і: "i", ј: "j", ѕ: "s", ԁ: "d", ԛ: "q", ԝ: "w",
+};
+
+function compactOf(text: string): string {
+  return normalize(text).replace(/ /g, "");
+}
+
 function normalize(text: string): string {
   return text
     .toLowerCase()
+    .replace(/[а-яёіјѕԁԛԝ]/g, (ch) => LOOKALIKES[ch] ?? ch)
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
@@ -193,10 +284,14 @@ export function restrictedMatch(...texts: Array<string | null | undefined>): Res
         m.kind === "word"
           ? words.has(m.value)
           : m.kind === "exact"
-            ? spaced === m.value
-            : m.kind === "compact"
-              ? compact.includes(m.value)
-              : padded.includes(` ${m.value} `);
+            ? compact === m.value
+            : m.kind === "suffix"
+              ? compact.endsWith(m.value)
+              : m.kind === "prefix"
+                ? compact.startsWith(m.value)
+                : m.kind === "compact"
+                  ? compact.includes(m.value)
+                  : padded.includes(` ${m.value} `);
       if (hit) return { category: m.category, term: m.term };
     }
   }
