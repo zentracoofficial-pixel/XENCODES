@@ -11,6 +11,7 @@ import { resolveBrandIcon } from "@/lib/brand-match";
 import {
   loadMarginRules,
   quoteForCurrency,
+  quoteForPair,
   isUsableUsdCost,
   variantPriceKobo,
   setQuoteToPrice,
@@ -661,7 +662,7 @@ export async function getServiceCountries(
     if (offer.successRate === undefined && baseMeasured?.successRatePercent === 0) continue;
     basePriceByCountry.set(
       variant.baseSlug,
-      quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency).customerPriceKobo,
+      quoteForPair(rules, offer.costUsdCents, serviceSlug, offer.country.slug, currency).customerPriceKobo,
     );
   }
 
@@ -669,7 +670,7 @@ export async function getServiceCountries(
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
-      let quote = quoteForCurrency(rules, offer.costUsdCents, serviceSlug, currency);
+      let quote = quoteForPair(rules, offer.costUsdCents, serviceSlug, offer.country.slug, currency);
       const variant = parseCountryVariant(offer.country.name);
       const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
       if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice, currency), currency);
@@ -909,7 +910,7 @@ export async function quotePair(
   const targetKobo = fixedPriceKobo ?? variantTargetKobo;
 
   const ladder = rungs.map((rung) => {
-    const own = quoteForCurrency(rules, rung.costUsdCents, serviceSlug, currency);
+    const own = quoteForPair(rules, rung.costUsdCents, serviceSlug, winner.offer.country.slug, currency);
     return {
       providerOfferId: rung.providerOfferId,
       costUsdCents: rung.costUsdCents,
