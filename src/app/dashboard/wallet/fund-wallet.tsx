@@ -107,14 +107,15 @@ export function FundWallet({
       chip: "₮",
       code: USDT_FUNDING.code,
       name: USDT_FUNDING.name,
-      methods: "USDT via Cryptomus",
+      methods: "USDT",
       status: usdt.enabled ? "available" : "coming_soon",
     },
   ];
   // A US dollar account pays with USDT.
   const displayPay = display === "USD" && usdt.enabled ? USDT_FUNDING.code : display;
-  // The customer's own currency first, then the rest, USDT last.
-  const rank = (id: string) => (id === displayPay ? 0 : id === USDT_FUNDING.code ? 2 : 1);
+  // The customer's own currency first and USDT second (first for a US dollar
+  // account, which pays with USDT), then the rest.
+  const rank = (id: string) => (id === displayPay ? 0 : id === USDT_FUNDING.code ? 1 : 2);
   const ordered = [...cards].sort((a, b) => rank(a.id) - rank(b.id));
   const isAvailable = (id: string | null | undefined) =>
     Boolean(id && cards.some((c) => c.id === id && c.status === "available"));
@@ -222,7 +223,7 @@ export function FundWallet({
       ) : displayNote ? (
         <p className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">{displayNote}</p>
       ) : null}
-      {activeCard ? (
+      {activeCard && activeCard.id !== USDT_FUNDING.code ? (
         <p className="mt-3 text-xs text-muted-foreground">
           Pay with {activeCard.methods}. Your balance goes up as soon as the payment is confirmed.
         </p>
