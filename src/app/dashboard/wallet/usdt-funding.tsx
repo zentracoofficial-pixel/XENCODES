@@ -59,12 +59,7 @@ export function UsdtFunding({ minCents, maxCents }: { minCents: number; maxCents
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground">
-        Enter how much to add in US dollars, between {formatMoney(minCents, "USD")} and {formatMoney(maxCents, "USD")}.
-        You pay the same amount in USDT on Cryptomus and choose the network there.
-      </p>
-
-      <div className="mt-4 max-w-xs">
+      <div className="max-w-xs">
         <label htmlFor="usdt-amount" className="text-xs font-medium text-muted-foreground">
           Amount
         </label>
@@ -86,6 +81,11 @@ export function UsdtFunding({ minCents, maxCents }: { minCents: number; maxCents
             className="h-12 w-full rounded-xl border border-border bg-background pl-8 pr-3.5 text-sm tabular-nums outline-none transition-colors focus:border-mint focus:ring-2 focus:ring-mint/25"
           />
         </div>
+        {amount.trim() && !valid ? (
+          <p className="mt-1.5 text-xs text-danger">
+            Enter between {formatMoney(minCents, "USD")} and {formatMoney(maxCents, "USD")}.
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -128,10 +128,7 @@ export function UsdtFunding({ minCents, maxCents }: { minCents: number; maxCents
       {current?.switchNote ? (
         <p className="mt-3 flex max-w-md items-start gap-2 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            {current.switchNote} Paying with USDT puts your account in US dollars: your balance, prices and purchases
-            will all be in USD.
-          </span>
+          <span>{current.switchNote}</span>
         </p>
       ) : null}
 
@@ -139,13 +136,9 @@ export function UsdtFunding({ minCents, maxCents }: { minCents: number; maxCents
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
       <Button className="mt-4" disabled={!ready || pending} onClick={start}>
-        {pending ? "Opening Cryptomus" : "Continue to Cryptomus"}
+        {pending ? "Opening payment" : "Continue to payment"}
         <ArrowRight className="h-4 w-4" />
       </Button>
-      <p className="mt-3 text-xs text-muted-foreground">
-        Send the exact amount shown on Cryptomus. Your balance goes up once the payment is confirmed on the
-        blockchain, usually within a few minutes.
-      </p>
     </div>
   );
 }
