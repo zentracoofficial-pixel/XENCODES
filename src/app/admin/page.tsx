@@ -16,6 +16,9 @@ import { Metric, MetricGrid } from "./metric";
 import { SystemHealthCard } from "./system-health-card";
 import { ProviderBalanceCard } from "./provider-balance-card";
 import { getRecentActivity } from "@/lib/admin-activity";
+import { addDays, getDailySales, lagosDateKey, sumDays } from "@/lib/sales-report";
+import { ProfitChart } from "./sales/profit-chart";
+import { buildChartPoints } from "./sales/chart-data";
 
 export const metadata: Metadata = { title: "Admin: Dashboard" };
 
@@ -25,6 +28,7 @@ export const metadata: Metadata = { title: "Admin: Dashboard" };
 export const dynamic = "force-dynamic";
 
 const ACTIVITY_LIMIT = 15;
+const TREND_DAYS = 14;
 
 export default async function AdminDashboardPage() {
   await requireAdmin();
@@ -33,6 +37,12 @@ export default async function AdminDashboardPage() {
   startOfToday.setHours(0, 0, 0, 0);
   const startOfWeek = new Date(startOfToday);
   startOfWeek.setDate(startOfWeek.getDate() - 6);
+
+  // Daily sales for the trend card, started now so it loads alongside the
+  // counts below.
+  const trendTo = lagosDateKey();
+  const trendFrom = addDays(trendTo, -(TREND_DAYS - 1));
+  const trendRowsPromise = getDailySales(trendFrom, trendTo);
 
   const [
     totalUsers,
@@ -93,6 +103,10 @@ export default async function AdminDashboardPage() {
   ]);
 
   const defaultCurrency = await getDefaultCurrency();
+  const trendRows = await trendRowsPromise;
+  const trendPoints = buildChartPoints(trendRows, defaultCurrency.code, trendFrom, trendTo);
+  const trendTotals = sumDays(trendRows, defaultCurrency.code, trendFrom, trendTo);
+  const todayTotals = sumDays(trendRows, defaultCurrency.code, trendTo, trendTo);
 
   const fundingRows = fundingAgg.map((row) => ({ currency: row.currency, amount: row._sum.amountKobo ?? 0 }));
   // Same RECEIVED-only source deliveredAgg already provides provider cost
@@ -221,6 +235,50 @@ export default async function AdminDashboardPage() {
           </Link>
         </Card>
       )}
+
+      <Card className="overflow-hidden">
+        <div className="grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+          <div className="flex flex-col justify-between gap-5 border-b border-border bg-gradient-to-br from-forest to-forest-dark p-5 text-white sm:p-6 lg:border-b-0 lg:border-r">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">Profit today</p>
+              <p className="mt-1.5 text-4xl font-semibold tracking-tight">{formatMoney(todayTotals.profitMinor, defaultCurrency.code)}</p>
+              <p className="mt-1 text-sm text-white/65">
+                {todayTotals.sales} {todayTotals.sales === 1 ? "sale" : "sales"} ·{" "}
+                {formatMoney(todayTotals.revenueMinor, defaultCurrency.code)} revenue
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-4 border-t border-white/10 pt-4 text-sm">
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.08em] text-white/50">{TREND_DAYS}-day profit</dt>
+                <dd className="mt-0.5 font-semibold">{formatMoney(trendTotals.profitMinor, defaultCurrency.code)}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.08em] text-white/50">{TREND_DAYS}-day sales</dt>
+                <dd className="mt-0.5 font-semibold">{trendTotals.sales}</dd>
+              </div>
+            </dl>
+            <Link
+              href="/admin/sales"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-mint underline-offset-4 hover:underline"
+            >
+              Full sales and profit report
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="p-5 sm:p-6">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold">Last {TREND_DAYS} days</h2>
+              <p className="text-xs text-muted-foreground">Completed sales, amounts in {defaultCurrency.code}</p>
+            </div>
+            <ProfitChart
+              points={trendPoints}
+              currency={defaultCurrency.code}
+              height={210}
+              emptyText={`No completed sales in the last ${TREND_DAYS} days.`}
+            />
+          </div>
+        </div>
+      </Card>
 
       <AttentionPanel items={attention} />
 
