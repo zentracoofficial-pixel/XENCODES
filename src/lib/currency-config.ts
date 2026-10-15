@@ -7,6 +7,7 @@ import {
 } from "@/lib/settings";
 import { majorToMinor } from "@/lib/currency";
 import { isKorapayConfigured } from "@/lib/korapay";
+import { isCryptomusConfigured } from "@/lib/cryptomus";
 
 /**
  * Xencodes sells in exactly one active currency right now: NGN. Every
@@ -59,7 +60,7 @@ export interface CurrencyConfigEntry {
   fundingAvailable: boolean;
   /** Which provider handles funding for this currency, or null when none
    *  does yet. Reporting only, for the admin panel and funding UI copy. */
-  fundingProvider: "korapay" | null;
+  fundingProvider: "korapay" | "cryptomus" | null;
 }
 
 const NGN_DEFAULTS = {
@@ -144,12 +145,10 @@ export async function readCurrencyConfig(
     usdRate: 1,
     minTopUpMinor: usdOverride.minTopUpMinor ?? USD_DEFAULTS.minTopUpMinor,
     maxTopUpMinor: usdOverride.maxTopUpMinor ?? USD_DEFAULTS.maxTopUpMinor,
-    // No USD-capable payment provider exists in this codebase yet. This
-    // must never become a stored admin toggle: the day a real adapter is
-    // wired in below, this line changes to check it, the same way NGN's
-    // does above, and not before.
-    fundingAvailable: false,
-    fundingProvider: null,
+    // USD wallets are funded with USDT through Cryptomus, live only when its
+    // keys are configured on this deployment (never a stored admin toggle).
+    fundingAvailable: isCryptomusConfigured(),
+    fundingProvider: "cryptomus",
   };
 
   return [ngn, usd];

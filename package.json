@@ -11,7 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "admin:grant": "tsx --env-file=.env scripts/grant-admin.mts",
-    "test": "tsx --env-file=.env.local --test tests/*.test.ts tests/*.test.mts"
+    "test": "tsx --env-file=.env.local --test --test-concurrency=1 tests/*.test.ts tests/*.test.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

@@ -19,7 +19,8 @@ import {
 import { allCountries, countryName, isKnownCountry } from "../src/lib/countries";
 import { assembleRates, parseRateTable } from "../src/lib/exchange-rates";
 import { resolveFee, computeFee, type FeePolicy } from "../src/lib/fee-policy";
-import { USDT_FUNDING, isUsdtFundingEnabled } from "../src/lib/usdt";
+import { USDT_FUNDING } from "../src/lib/usdt";
+import { isCryptomusConfigured } from "../src/lib/cryptomus";
 import { isFundingCurrencyCode } from "../src/lib/funding-currencies";
 
 const rates: DisplayRates = {
@@ -235,9 +236,19 @@ test("fees: percent rounds up and respects the cap; fixed is exact; zero amounts
   assert.equal(computeFee(policy(), Number.NaN), 0);
 });
 
-test("USDT is a disabled constant, not a funding currency, and not a display currency", () => {
-  assert.equal(USDT_FUNDING.enabled, false);
-  assert.equal(isUsdtFundingEnabled(), false);
+test("USDT is off unless Cryptomus is configured, and is not a local or display currency", () => {
+  const saved = { id: process.env.CRYPTOMUS_MERCHANT_ID, key: process.env.CRYPTOMUS_PAYMENT_API_KEY };
+  delete process.env.CRYPTOMUS_MERCHANT_ID;
+  delete process.env.CRYPTOMUS_PAYMENT_API_KEY;
+  assert.equal(isCryptomusConfigured(), false);
+  process.env.CRYPTOMUS_MERCHANT_ID = "merchant";
+  assert.equal(isCryptomusConfigured(), false);
+  process.env.CRYPTOMUS_PAYMENT_API_KEY = "key";
+  assert.equal(isCryptomusConfigured(), true);
+  if (saved.id === undefined) delete process.env.CRYPTOMUS_MERCHANT_ID;
+  else process.env.CRYPTOMUS_MERCHANT_ID = saved.id;
+  if (saved.key === undefined) delete process.env.CRYPTOMUS_PAYMENT_API_KEY;
+  else process.env.CRYPTOMUS_PAYMENT_API_KEY = saved.key;
   assert.equal(isFundingCurrencyCode("USDT"), false);
   assert.equal(isDisplayCurrencyCode("USDT"), false);
   assert.match(USDT_FUNDING.comingSoonMessage, /coming soon/i);

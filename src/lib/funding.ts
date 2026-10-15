@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { WalletTransaction } from "@/generated/prisma/client";
 import { FUNDING_PROVIDER, validateTopUpAmount } from "@/lib/funding-limits";
 import { verifyKorapayCharge, KorapayError } from "@/lib/korapay";
+import { CRYPTOMUS_PROVIDER, CryptomusError, getCryptomusPayment } from "@/lib/cryptomus";
 import type { FundingQuote } from "@/lib/funding-currencies";
 import { minorUnitDivisor } from "@/lib/currency";
 import { creditBalanceInTx } from "@/lib/wallet-currency";
@@ -355,6 +356,7 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
   if (!row) return { state: "unknown_reference" };
   if (row.status === "SUCCESSFUL") return { state: "credited" };
   if (row.status !== "PENDING") return { state: "failed" };
+  if (row.provider === CRYPTOMUS_PROVIDER.id) return verifyAndSettleUsdtTopUp(row);
 
   let charge;
   try {
@@ -434,6 +436,88 @@ export async function verifyAndSettleTopUp(providerReference: string): Promise<T
     // out of the customer's transaction history.
     await settleFailedTopUp(providerReference, "CANCELLED", `KoraPay reported "expired"`);
     return { state: "failed" };
+  }
+  return { state: "still_pending" };
+}
+
+/**
+ * Records a USDT top-up through Cryptomus. The wallet is in US dollars (the
+ * caller has already moved it there), so the row credits exactly the dollars
+ * asked for; the customer pays the same amount in USDT, plus any approved fee.
+ */
+export async function createPendingUsdtTopUp(
+  userId: string,
+  amountCents: number,
+  feeCents: number,
+): Promise<WalletTransaction> {
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error("Invalid amount.");
+  return prisma.walletTransaction.create({
+    data: {
+      userId,
+      type: "TOPUP",
+      amountKobo: amountCents,
+      currency: "USD",
+      status: "PENDING",
+      provider: CRYPTOMUS_PROVIDER.id,
+      providerReference: newReference(),
+      description: "Wallet top up (USDT)",
+      paymentCurrency: "USDT",
+      paymentAmountMinor: amountCents + feeCents,
+      paymentFeeMinor: feeCents,
+      fxRate: 1,
+    },
+  });
+}
+
+/**
+ * The Cryptomus half of verifyAndSettleTopUp(): asks Cryptomus what the
+ * invoice's status is and settles our row to match. Credits only a paid
+ * invoice for exactly the dollars we asked for; anything Cryptomus calls
+ * underpaid is left for an admin rather than guessed at.
+ */
+async function verifyAndSettleUsdtTopUp(row: WalletTransaction): Promise<TopUpOutcome> {
+  const reference = row.providerReference!;
+  let payment;
+  try {
+    payment = await getCryptomusPayment(reference);
+  } catch (error) {
+    if (error instanceof CryptomusError) {
+      console.error(`[funding] Cryptomus check failed for ${reference}:`, error.message);
+      return { state: "still_pending", reason: "provider_unavailable" };
+    }
+    throw error;
+  }
+
+  if (payment.status === "paid" || payment.status === "paid_over") {
+    if (payment.currency !== "USD") {
+      console.error(`[funding] refusing to credit ${reference}: Cryptomus invoice is in "${payment.currency}", expected USD.`);
+      return { state: "still_pending", reason: "currency_mismatch" };
+    }
+    if (payment.amountMinor === null || payment.amountMinor !== row.paymentAmountMinor) {
+      console.error(
+        `[funding] refusing to credit ${reference}: Cryptomus invoice is for ${payment.amountMinor ?? "an unreadable amount"} cents, expected ${row.paymentAmountMinor}.`,
+      );
+      return { state: "still_pending", reason: "amount_mismatch" };
+    }
+    const result = await completeTopUp(reference, payment.uuid, {
+      paymentMethod: [payment.payerCurrency, payment.network].filter(Boolean).join(" ").slice(0, 40) || "USDT",
+    });
+    return { state: result.credited || result.reason === "already_credited" ? "credited" : "failed" };
+  }
+  if (payment.status === "cancel") {
+    // The invoice lapsed without a payment.
+    await settleFailedTopUp(reference, "CANCELLED", `Cryptomus reported "cancel"`);
+    return { state: "failed" };
+  }
+  if (payment.status === "fail" || payment.status === "system_fail") {
+    await settleFailedTopUp(reference, "FAILED", `Cryptomus reported "${payment.status}"`);
+    return { state: "failed" };
+  }
+  if (payment.status === "wrong_amount") {
+    // The customer sent less than the invoice. Money did arrive, so this is
+    // left pending for an admin to settle by hand rather than failed.
+    console.error(`[funding] ${reference}: Cryptomus reports an underpayment ("wrong_amount"); needs an admin.`);
+    return { state: "still_pending", reason: "amount_mismatch" };
   }
   return { state: "still_pending" };
 }

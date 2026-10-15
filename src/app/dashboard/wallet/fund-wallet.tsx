@@ -15,6 +15,7 @@ import { useDisplayMoney } from "@/components/currency/currency-provider";
 import { AddFunds } from "./add-funds";
 import { LocalFunding } from "./local-funding";
 import { UsdtComingSoonNotice } from "./usdt-coming-soon";
+import { UsdtFunding } from "./usdt-funding";
 
 /**
  * The wallet's funding area: every payment currency as a card in one grid,
@@ -53,8 +54,11 @@ export function FundWallet({
   walletCurrency,
   options,
   country,
+  usdt,
 }: {
   naira: Omit<ComponentProps<typeof AddFunds>, "walletCurrency" | "embedded">;
+  /** USDT through Cryptomus: on only when the server has it configured. */
+  usdt: { enabled: boolean; minCents: number; maxCents: number };
   walletCurrency: string;
   /** Every local currency currently switched on by an admin. */
   options: LocalOption[];
@@ -103,12 +107,14 @@ export function FundWallet({
       chip: "₮",
       code: USDT_FUNDING.code,
       name: USDT_FUNDING.name,
-      methods: "Crypto deposit",
-      status: "coming_soon",
+      methods: "USDT via Cryptomus",
+      status: usdt.enabled ? "available" : "coming_soon",
     },
   ];
+  // A US dollar account pays with USDT.
+  const displayPay = display === "USD" && usdt.enabled ? USDT_FUNDING.code : display;
   // The customer's own currency first, then the rest, USDT last.
-  const rank = (id: string) => (id === display ? 0 : id === USDT_FUNDING.code ? 2 : 1);
+  const rank = (id: string) => (id === displayPay ? 0 : id === USDT_FUNDING.code ? 2 : 1);
   const ordered = [...cards].sort((a, b) => rank(a.id) - rank(b.id));
   const isAvailable = (id: string | null | undefined) =>
     Boolean(id && cards.some((c) => c.id === id && c.status === "available"));
@@ -116,22 +122,25 @@ export function FundWallet({
   // Default: the currency the customer chose to see prices in, when they can
   // pay in it; otherwise their country's currency; otherwise Naira.
   const fromCountry = fundingCurrencyForCountry(country);
-  const preferred = isAvailable(display) ? display : isAvailable(fromCountry) ? fromCountry : isAvailable("NGN") ? "NGN" : null;
+  const preferred = isAvailable(displayPay) ? displayPay : isAvailable(fromCountry) ? fromCountry : isAvailable("NGN") ? "NGN" : null;
   const active = picked && picked.forDisplay === display && isAvailable(picked.id) ? picked.id : preferred;
   const activeCard = cards.find((c) => c.id === active) ?? null;
-  const activeOption = active && active !== "NGN" ? enabled.get(active as FundingCurrencyCode) : undefined;
+  const activeOption =
+    active && active !== "NGN" && active !== USDT_FUNDING.code ? enabled.get(active as FundingCurrencyCode) : undefined;
 
   const displayNote =
-    display !== "NGN" && !isAvailable(display)
+    display !== "NGN" && !isAvailable(displayPay)
       ? `${display} payments are coming soon. ${
-          activeCard
-            ? `For now you can pay in ${activeCard.code}, and the amount is added to your balance in ${display}.`
-            : "Please check back soon."
+          activeCard?.id === USDT_FUNDING.code
+            ? "You can pay with USDT, which puts your account in US dollars."
+            : activeCard
+              ? `For now you can pay in ${activeCard.code}, and the amount is added to your balance in ${display}.`
+              : "Please check back soon."
         }`
       : null;
   const notice = tapNotice && tapNotice.forDisplay === display ? tapNotice.text : null;
   const noLocal = !cards.some((c) => c.id !== "NGN" && c.status === "available");
-  const showUsdtNotice = display === "USD" || (noLocal && display !== "NGN" && country !== "NG");
+  const showUsdtNotice = !usdt.enabled && (display === "USD" || (noLocal && display !== "NGN" && country !== "NG"));
 
   function reasonFor(card: CardModel): string | null {
     switch (card.status) {
@@ -229,6 +238,8 @@ export function FundWallet({
             minMinor={activeOption.minMinor}
             maxMinor={activeOption.maxMinor}
           />
+        ) : active === USDT_FUNDING.code ? (
+          <UsdtFunding minCents={usdt.minCents} maxCents={usdt.maxCents} />
         ) : active === "NGN" ? (
           <AddFunds {...naira} walletCurrency={walletCurrency} embedded />
         ) : (

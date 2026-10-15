@@ -28,7 +28,7 @@ import type { FundingCurrencyCode } from "@/lib/funding-currencies";
  */
 
 export type FeeKind = "wallet_funding";
-export type FeeCurrency = "NGN" | FundingCurrencyCode;
+export type FeeCurrency = "NGN" | "USDT" | FundingCurrencyCode;
 
 export interface FeePolicy {
   kind: FeeKind;
