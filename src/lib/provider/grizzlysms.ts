@@ -12,6 +12,7 @@ import {
 import { resolveCountryMeta, slugify, assignVariantLabels } from "./country-meta";
 import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 import { rankPools } from "@/lib/pool-ladder";
+import { splitRestricted } from "@/lib/restricted-services";
 
 /**
  * GrizzlySMS, the live number supplier.
@@ -72,6 +73,15 @@ const PRICE_LIST_TTL_MS = 90 * 1000;
 interface ServiceEntry {
   code: string;
   name: string;
+}
+
+/** A supplier service this platform will not sell, and why. */
+export interface BlockedService {
+  name: string;
+  slug: string;
+  category: import("@/lib/restricted-services").RestrictedCategory;
+  /** The word or brand that matched. */
+  term: string;
 }
 
 interface CachedAt<T> {
@@ -137,6 +147,7 @@ export class GrizzlySmsProvider implements NumberProvider {
    * long as this serverless function stays warm.
    */
   private static servicesCache?: CachedAt<ServiceEntry[]>;
+  private static blockedServices: BlockedService[] = [];
   private static countriesCache?: CachedAt<Map<string, string>>; // slug -> provider id
   private static countryNamesCache?: Map<string, string>; // provider id -> display name
   private static priceListCache = new Map<
@@ -258,8 +269,31 @@ export class GrizzlySmsProvider implements NumberProvider {
       );
     }
 
+    // Forex, gambling and betting, tobacco, alcohol and adult (18+) services
+    // are never sold (see src/lib/restricted-services.ts). Dropped here, at
+    // the one place this adapter reads the supplier's service list, so every
+    // path below (browse, quote, purchase, the catalog sync) simply never
+    // sees them: an unknown service code is skipped everywhere else.
+    const { allowed, blocked } = splitRestricted(entries.map((entry) => ({ ...entry, slug: slugify(entry.name) })));
+    GrizzlySmsProvider.blockedServices = blocked.map((entry) => ({
+      name: entry.name,
+      slug: entry.slug,
+      category: entry.category,
+      term: entry.term,
+    }));
+    entries = allowed.map(({ code, name }) => ({ code, name }));
+    if (entries.length === 0) {
+      throw new ProviderError("GrizzlySMS returned no sellable services.", "unknown");
+    }
+
     GrizzlySmsProvider.servicesCache = { value: entries, fetchedAt: Date.now() };
     return entries;
+  }
+
+  /** Services dropped from the last catalog read because they are restricted,
+   *  for the admin to check; empty until the catalog has been read. */
+  getBlockedServices(): BlockedService[] {
+    return GrizzlySmsProvider.blockedServices;
   }
 
   private async loadServiceCodesFromPrices(): Promise<ServiceEntry[]> {

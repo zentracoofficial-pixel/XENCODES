@@ -12,6 +12,7 @@ import { brandIcons } from "@/data/brand-icons";
 import { loadMarginRules, quoteForCurrency, isUsableUsdCost } from "@/lib/pricing";
 import { getDefaultCurrency } from "@/lib/currency-config";
 import { checkProviderBalance } from "@/lib/provider-balance-monitor";
+import { isRestrictedService } from "@/lib/restricted-services";
 
 /**
  * The background job behind "browsing is fast, buying is live."
@@ -220,6 +221,20 @@ async function removeStaleOffers(providerId: string, runStartedAt: Date): Promis
   return result.count;
 }
 
+/** Deletes any cached offer for a service this platform does not sell. The
+ *  sync no longer writes them; this clears ones cached before the rule, or
+ *  by an older catalog. Browsing already hides them either way. */
+export async function removeRestrictedOffers(): Promise<number> {
+  const names = await prisma.syncedOffer.findMany({
+    distinct: ["serviceSlug"],
+    select: { serviceSlug: true, serviceName: true },
+  });
+  const slugs = names.filter((row) => isRestrictedService(row.serviceSlug, row.serviceName)).map((row) => row.serviceSlug);
+  if (slugs.length === 0) return 0;
+  const result = await prisma.syncedOffer.deleteMany({ where: { serviceSlug: { in: slugs } } });
+  return result.count;
+}
+
 export interface ProviderSyncResult {
   ok: boolean;
   /** Combined across every provider this run touched. Not deduplicated: a
@@ -313,6 +328,9 @@ async function syncOneProvider(
     const priceable = catalog.filter(
       (entry) =>
         !disabled.has(entry.service.slug) &&
+        // Services this platform never sells (forex, gambling and betting,
+        // tobacco, alcohol, adult): see src/lib/restricted-services.ts.
+        !isRestrictedService(entry.service.slug, entry.service.name) &&
         entry.stock !== "out_of_stock" &&
         // An unusable cost means an unknowable margin, so there is no price
         // to cache against it. Dropped rather than guessed.
@@ -369,6 +387,10 @@ async function syncOneProvider(
     const runStartedAt = new Date();
     await upsertOffers(rows, runStartedAt);
     const staleRemoved = await removeStaleOffers(id, runStartedAt);
+    const restrictedRemoved = await removeRestrictedOffers();
+    if (restrictedRemoved > 0) {
+      console.log(`[provider-sync] purged ${restrictedRemoved} cached offers for restricted services`);
+    }
     console.log(
       `[provider-sync] "${id}" write complete, removed ${staleRemoved} stale offers (${Date.now() - startedAt}ms total)`,
     );
