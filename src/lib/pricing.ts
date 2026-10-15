@@ -328,18 +328,63 @@ export function quoteForCurrency(
   serviceSlug: string,
   currency: CurrencyConfigEntry,
 ): PriceQuote {
-  return withMinimumPrice(quoteBeforeMinimum(rules, usdCents, serviceSlug, currency), currency);
+  return withMinimumPrice(quoteBeforeMinimum(rules, usdCents, serviceSlug, currency), minimumPriceKobo(serviceSlug, null), currency);
 }
 
 /**
- * Naira only: nothing is sold for less than MIN_PRICE_KOBO. A number whose
- * price comes out lower is sold at the minimum, so the profit on it is the
- * minimum less its cost. Prices already at or above it are returned as they
- * are. Applies to every service, the exclusive tier included.
+ * quoteForCurrency() for one specific country of a service, with that
+ * country's own minimum price as well (see minimumPriceKobo()). Every price
+ * shown or charged for a service and country pair goes through this.
  */
-function withMinimumPrice(quote: PriceQuote, currency: CurrencyConfigEntry): PriceQuote {
-  if (currency.code !== "NGN" || quote.customerPriceKobo >= MIN_PRICE_KOBO) return quote;
-  return restate(quote, MIN_PRICE_KOBO, `${quote.ruleLabel}, minimum price`);
+export function quoteForPair(
+  rules: MarginRules,
+  usdCents: number,
+  serviceSlug: string,
+  countrySlug: string,
+  currency: CurrencyConfigEntry,
+): PriceQuote {
+  return withMinimumPrice(
+    quoteBeforeMinimum(rules, usdCents, serviceSlug, currency),
+    minimumPriceKobo(serviceSlug, countrySlug),
+    currency,
+  );
+}
+
+/**
+ * Higher minimum prices, set by the owner, in kobo. A service's minimum
+ * applies in every country, a country's to every service, and where both
+ * apply the higher one wins. A repeat listing ("United Kingdom (2)") counts
+ * as its country.
+ */
+export const SERVICE_MIN_PRICE_KOBO: Readonly<Record<string, number>> = {
+  tiktok: 75_000, // NGN 750
+};
+export const COUNTRY_MIN_PRICE_KOBO: Readonly<Record<string, number>> = {
+  "united-kingdom": 100_000, // NGN 1,000
+  uk: 100_000,
+  england: 100_000,
+};
+
+/** The lowest NGN price for this service, in this country when one is given. */
+export function minimumPriceKobo(serviceSlug: string, countrySlug: string | null): number {
+  const baseCountry = countrySlug?.replace(/-\d+$/, "") ?? null;
+  return Math.max(
+    MIN_PRICE_KOBO,
+    SERVICE_MIN_PRICE_KOBO[serviceSlug] ?? 0,
+    baseCountry ? (COUNTRY_MIN_PRICE_KOBO[baseCountry] ?? 0) : 0,
+  );
+}
+
+/**
+ * Naira only: nothing is sold for less than its minimum (NGN 500, or a
+ * higher one set for the service or country). A number whose price comes
+ * out lower is sold at the minimum, so the profit on it is the minimum less
+ * its cost. Prices already at or above it are returned as they are. Applies
+ * to every service, the exclusive tier included.
+ */
+function withMinimumPrice(quote: PriceQuote, minimumKobo: number, currency: CurrencyConfigEntry): PriceQuote {
+  if (currency.code !== "NGN" || quote.customerPriceKobo >= minimumKobo) return quote;
+  return restate(quote, minimumKobo, `${quote.ruleLabel}, minimum price`);
 }
 
 /**
