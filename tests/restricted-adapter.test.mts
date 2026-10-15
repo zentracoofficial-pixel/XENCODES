@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 /**
  * The real GrizzlySMS adapter against a stubbed supplier that offers and
- * prices restricted services (betting, forex, adult, vaping, wine) next to
+ * prices restricted services (betting, forex, investing, crypto, dating, adult, vaping, wine) next to
  * ordinary ones. None of the restricted ones may be listed, found, quoted,
  * priced in the catalog or bought, while every ordinary service still works.
  */
@@ -20,6 +20,11 @@ const SERVICES = [
   { code: "vp", name: "Vape Shop" },
   { code: "wn", name: "Vivino" },
   { code: "bm", name: "Betterment" },
+  { code: "bn", name: "Binance" },
+  { code: "ti", name: "Tinder" },
+  { code: "ts", name: "Dream11" },
+  { code: "es", name: "Escort Girls" },
+  { code: "gm", name: "Google/Gmail" },
 ];
 
 // country id -> service code -> price
@@ -61,7 +66,7 @@ const provider = () => new GrizzlySmsProvider({ apiKey: "test-key" });
 
 test("restricted services are never listed", async () => {
   const names = (await provider().getServices()).map((s) => s.name);
-  assert.deepEqual(names.sort(), ["Betterment", "Instagram", "Telegram", "WhatsApp"]);
+  assert.deepEqual(names.sort(), ["Google/Gmail", "Instagram", "Telegram", "WhatsApp"]);
 });
 
 test("what was held back is reported with its category, for the admin", async () => {
@@ -69,9 +74,14 @@ test("what was held back is reported with its category, for the admin", async ()
   await p.getServices();
   const blocked = p.getBlockedServices().map((b) => [b.name, b.category]);
   assert.deepEqual(blocked.sort(), [
+    ["Betterment", "trading"],
+    ["Binance", "trading"],
     ["Bet365", "gambling"],
-    ["Exness", "forex"],
+    ["Dream11", "gambling"],
+    ["Escort Girls", "adult"],
+    ["Exness", "trading"],
     ["Pornhub", "adult"],
+    ["Tinder", "dating"],
     ["Vape Shop", "tobacco"],
     ["Vivino", "alcohol"],
   ].sort());
@@ -80,7 +90,7 @@ test("what was held back is reported with its category, for the admin", async ()
 test("restricted services are not in the full catalog the sync caches", async () => {
   const catalog = await provider().getFullCatalog();
   const names = new Set(catalog.map((entry) => entry.service.name));
-  assert.deepEqual([...names].sort(), ["Betterment", "Instagram", "Telegram", "WhatsApp"]);
+  assert.deepEqual([...names].sort(), ["Google/Gmail", "Instagram", "Telegram", "WhatsApp"]);
 });
 
 test("restricted services have no countries, no availability and no price", async () => {
@@ -97,7 +107,7 @@ test("restricted services have no countries, no availability and no price", asyn
 test("a restricted service can never be bought, and the supplier is never asked", async () => {
   purchases.length = 0;
   const p = provider();
-  for (const slug of ["bet365", "exness", "pornhub", "vape-shop", "vivino"]) {
+  for (const slug of ["bet365", "exness", "pornhub", "vape-shop", "vivino", "binance", "tinder", "dream11", "betterment"]) {
     await assert.rejects(() => p.purchaseNumber(slug, "usa"), /Unknown service or country/, slug);
   }
   assert.deepEqual(purchases, []);
@@ -107,5 +117,7 @@ test("ordinary services are unaffected", async () => {
   const p = provider();
   const countries = await p.getCountries("whatsapp");
   assert.ok(countries.length >= 1);
-  assert.ok((await p.getAvailability("betterment", "usa")) !== null);
+  assert.ok((await p.getAvailability("google-gmail", "usa")) !== null);
+  assert.equal(await p.getAvailability("betterment", "usa"), null);
+  assert.equal(await p.getAvailability("binance", "usa"), null);
 });

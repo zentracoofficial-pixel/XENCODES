@@ -11,13 +11,18 @@ const slugify = (name: string) =>
 
 const category = (name: string) => restrictedMatch(name, slugify(name))?.category ?? null;
 
-test("forex and trading services are blocked", () => {
+test("trading, forex and investment services are blocked", () => {
   for (const name of [
     "Forex", "Forex4You", "ForexTime", "Exness", "IQ Option", "IQOption", "Olymp Trade", "OlympTrade", "Quotex",
     "Pocket Option", "Binomo", "Deriv", "XM", "FBS", "HFM", "XTB", "MetaTrader 5", "Plus500", "eToro", "Pepperstone",
     "Binary Options", "Binary Options Trading", "CFD Trading", "AvaTrade", "Capital.com", "IC Markets", "RoboForex",
+    "Tradingview", "Trading212", "Trade Republic", "Copy Trading", "Stock Trading", "Stocks", "Investing", "Investment App",
+    "Robinhood", "Webull", "Betterment", "Wealthfront", "Acorns", "Zerodha", "Groww", "PiggyVest", "Cowrywise", "Risevest",
+    "Mutual Funds", "Brokerage", "Forex Broker", "FTMO", "Binance", "Coinbase", "Kraken", "Bybit", "OKX", "KuCoin", "Bitget",
+    "Crypto.com", "Crypto Exchange", "Bitcoin Wallet", "Paxful", "Luno", "Quidax", "Trust Wallet", "MetaMask", "OpenSea",
+    "Cloud Mining", "Staking Rewards", "Ponzi Club",
   ]) {
-    assert.equal(category(name), "forex", name);
+    assert.equal(category(name), "trading", name);
   }
 });
 
@@ -28,6 +33,9 @@ test("gambling, casino and betting services are blocked", () => {
     "Stake", "Roobet", "DraftKings", "FanDuel", "Casino", "Online Casino", "CasinoX", "Vulkan Casino", "Poker",
     "PokerStars", "Lottery", "Lotto", "Jackpot City", "Roulette Royale", "Blackjack", "Bingo Blitz", "Sportsbook",
     "Betting", "Gambling", "Slots", "Slotomania", "Fonbet", "BetBoom", "Powerball", "Mega Millions", "Wager",
+    "Betika", "SportPesa", "Paripesa", "Megapari", "Linebet", "Bookmaker", "Bookie", "Real Money Games", "Rummy Circle",
+    "Teen Patti", "Dream11", "Fantasy Cricket", "Fantasy Sports", "MPL", "Sweepstakes", "Chumba Casino", "Polymarket",
+    "Kalshi", "Hellcase", "Key Drop", "CSGOEmpire", "Gamdom", "Keno", "Scratch Cards", "Football Pools",
   ]) {
     assert.equal(category(name), "gambling", name);
   }
@@ -45,11 +53,12 @@ test("alcohol services are blocked", () => {
   }
 });
 
-test("adult (18+) services are blocked", () => {
+test("adult (18+) and escort services are blocked", () => {
   for (const name of [
     "Porn", "Pornhub", "XVideos", "XNXX", "xHamster", "OnlyFans", "Fansly", "Chaturbate", "Stripchat", "BongaCams",
     "LiveJasmin", "Adult", "Adult Chat", "XXX", "Sex Chat", "Escort", "Escorts", "Hookup", "NSFW", "AdultFriendFinder",
     "Ashley Madison", "Fetlife", "Camgirls", "Erotic Stories", "Sugar Daddy", "Brazzers", "ManyVids",
+    "Escort Girls", "Call Girls", "Escort Service", "Adult Services", "Webcam Models", "Playboy", "Fanvue", "BDSM Chat", "Sex Shop",
   ]) {
     assert.equal(category(name), "adult", name);
   }
@@ -58,14 +67,23 @@ test("adult (18+) services are blocked", () => {
 test("everyday services are never caught", () => {
   for (const name of [
     "WhatsApp", "Telegram", "Instagram", "Facebook", "Google/Gmail", "Twitter", "TikTok", "Uber", "Bolt", "Netflix",
-    "Amazon", "PayPal", "Binance", "Coinbase", "Discord", "Snapchat", "LinkedIn", "Microsoft", "Apple", "Yahoo",
-    "Betterment", "BetterHelp", "Sussex Bank", "Essex Hotels", "Liquorice Candy", "Wineglass App", "Beerus", "Stakeholder",
-    "Deriving Math", "Slotted", "Cigarra", "Adult Swim", "Sextant Navigation", "Assessment Portal", "Tinder", "Bumble",
-    "Badoo", "Hinge", "OkCupid", "Grindr", "Skype", "Viber", "Signal", "Line", "WeChat", "Airbnb", "Booking.com",
+    "Amazon", "PayPal", "Discord", "Snapchat", "LinkedIn", "Microsoft", "Apple", "Yahoo",
+    "BetterHelp", "Sussex Bank", "Essex Hotels", "Liquorice Candy", "Wineglass App", "Beerus", "Stakeholder",
+    "Deriving Math", "Slotted", "Cigarra", "Adult Swim", "Sextant Navigation", "Assessment Portal", "Match Masters", "Skype", "Viber", "Signal", "Line", "WeChat", "Airbnb", "Booking.com",
     "Fiverr", "Upwork", "Shopee", "Jumia", "Glovo", "DoorDash", "Steam", "Epic Games", "Spotify", "Zoom", "Slack",
-    "Tradingview", "Wise", "Revolut", "Payoneer", "Opay", "Kuda", "Flutterwave", "Paystack", "Temu", "AliExpress",
+    "Updating Service", "Alphabet", "Wise", "Revolut", "Payoneer", "Opay", "Kuda", "Flutterwave", "Paystack", "Temu", "AliExpress",
   ]) {
     assert.equal(category(name), null, name);
+  }
+});
+
+test("dating platforms are blocked", () => {
+  for (const name of [
+    "Tinder", "Bumble", "Badoo", "Hinge", "OkCupid", "Grindr", "Happn", "Tantan", "POF", "Plenty of Fish", "eHarmony",
+    "Match", "Match.com", "Zoosk", "Meetic", "Mamba", "Skout", "Jaumo", "Lovoo", "Feeld", "Coffee Meets Bagel", "Hily",
+    "Dating", "Online Dating", "Singles", "Christian Mingle", "Omegle", "Azar", "Her", "Tagged",
+  ]) {
+    assert.equal(category(name), "dating", name);
   }
 });
 
@@ -75,17 +93,22 @@ test("the slug alone is enough, and the reason is reported", () => {
   assert.equal(isRestrictedService("whatsapp"), false);
   assert.deepEqual(restrictedMatch("Pornhub"), { category: "adult", term: "porn" });
   assert.deepEqual(restrictedMatch("Casino X"), { category: "gambling", term: "casino" });
+  assert.deepEqual(restrictedMatch("Tinder"), { category: "dating", term: "tinder" });
+  assert.equal(isRestrictedService("binance"), true);
+  assert.equal(isRestrictedService("match-com"), true);
 });
 
 test("a list splits into what may be sold and what is blocked", () => {
-  const list = ["WhatsApp", "Bet365", "Telegram", "Exness", "OnlyFans", "IQOS", "Vivino"].map((name) => ({ name, slug: slugify(name) }));
+  const list = ["WhatsApp", "Bet365", "Telegram", "Exness", "OnlyFans", "IQOS", "Vivino", "Tinder", "Binance"].map((name) => ({ name, slug: slugify(name) }));
   const { allowed, blocked } = splitRestricted(list);
   assert.deepEqual(allowed.map((s) => s.name), ["WhatsApp", "Telegram"]);
   assert.deepEqual(blocked.map((s) => [s.name, s.category]), [
     ["Bet365", "gambling"],
-    ["Exness", "forex"],
+    ["Exness", "trading"],
     ["OnlyFans", "adult"],
     ["IQOS", "tobacco"],
     ["Vivino", "alcohol"],
+    ["Tinder", "dating"],
+    ["Binance", "trading"],
   ]);
 });

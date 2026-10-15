@@ -328,8 +328,8 @@ async function syncOneProvider(
     const priceable = catalog.filter(
       (entry) =>
         !disabled.has(entry.service.slug) &&
-        // Services this platform never sells (forex, gambling and betting,
-        // tobacco, alcohol, adult): see src/lib/restricted-services.ts.
+        // Services this platform never sells (trading and investments,
+        // gambling, tobacco, alcohol, adult, dating): see src/lib/restricted-services.ts.
         !isRestrictedService(entry.service.slug, entry.service.name) &&
         entry.stock !== "out_of_stock" &&
         // An unusable cost means an unknowable margin, so there is no price

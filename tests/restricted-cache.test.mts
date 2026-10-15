@@ -30,16 +30,18 @@ test("cached offers for restricted services are purged, others are kept", async 
   await prisma.syncedOffer.createMany({
     data: [
       { ...base, serviceSlug: "whatsapp", serviceName: "WhatsApp" },
-      { ...base, serviceSlug: "betterment", serviceName: "Betterment" },
+      { ...base, serviceSlug: "telegram", serviceName: "Telegram" },
       { ...base, serviceSlug: "bet365", serviceName: "Bet365" },
       { ...base, serviceSlug: "exness", serviceName: "Exness" },
       { ...base, serviceSlug: "onlyfans", serviceName: "OnlyFans" },
       { ...base, serviceSlug: "vivino", serviceName: "Vivino" },
+      { ...base, serviceSlug: "binance", serviceName: "Binance" },
+      { ...base, serviceSlug: "tinder", serviceName: "Tinder" },
     ],
   });
   const removed = await removeRestrictedOffers();
-  assert.ok(removed >= 4);
+  assert.ok(removed >= 6);
   const left = (await prisma.syncedOffer.findMany({ where: { providerId: PROVIDER } })).map((r) => r.serviceSlug).sort();
-  assert.deepEqual(left, ["betterment", "whatsapp"]);
+  assert.deepEqual(left, ["telegram", "whatsapp"]);
   assert.equal(await removeRestrictedOffers(), 0);
 });

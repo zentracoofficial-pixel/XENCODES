@@ -28,13 +28,14 @@ export function BlockedServicesCard({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Not sold: restricted services</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Forex and trading, gambling and betting, tobacco and vaping, alcohol and adult (18+) services are
-            never listed, priced or sold, whatever the provider offers and whatever is switched on below. This
+            Trading, forex and investments (including crypto exchanges), gambling, betting and real-money games,
+            tobacco and vaping, alcohol, adult (18+) and escort services, and dating platforms are never listed,
+            priced or sold, whatever the provider offers and whatever is switched on below. This
             is built in and cannot be turned on from the admin.
           </p>
         </div>
       </div>
-      <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+      <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {groups.map(({ category, items }) => (
           <div key={category} className="rounded-lg border border-border px-3.5 py-3">
             <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

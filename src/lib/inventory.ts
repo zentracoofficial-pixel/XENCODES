@@ -305,8 +305,8 @@ async function loadServiceCatalog(): Promise<ProviderService[] | null> {
   return merged.size > 0 ? withoutRestricted(Array.from(merged.values())) : null;
 }
 
-/** The catalog without the services this platform does not sell (forex,
- *  gambling and betting, tobacco, alcohol, adult): see
+/** The catalog without the services this platform does not sell (trading and
+ *  investments, gambling, tobacco, alcohol, adult, dating): see
  *  src/lib/restricted-services.ts. The GrizzlySMS adapter already never lists
  *  them; this covers the cached catalog and any other provider. */
 function withoutRestricted<T extends { slug: string; name: string }>(services: T[]): T[] {
