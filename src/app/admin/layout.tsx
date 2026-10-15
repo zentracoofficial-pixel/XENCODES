@@ -27,11 +27,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }));
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <AdminSidebar adminEmail={admin.email} notifications={notificationItems} unreadCount={unreadCount} />
+    <div className="admin-shell flex min-h-screen bg-background">
+      <AdminSidebar adminEmail={admin.email} />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminTopBar notifications={notificationItems} unreadCount={unreadCount} />
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-10">
+        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>

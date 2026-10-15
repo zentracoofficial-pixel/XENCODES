@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, PlugZap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Banknote, CheckCircle2, LineChart, PlugZap, ShoppingBag, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/lib/admin";
@@ -144,13 +145,56 @@ export default async function AdminDashboardPage() {
 
   const health = await getSystemHealth();
 
+  // What needs a look right now, built only from the figures above. Each item
+  // links to the screen where it is dealt with.
+  const attention: AttentionItem[] = [];
+  if (!resolved.connected) {
+    attention.push({ tone: "danger", title: "No number provider connected", detail: "Customers cannot buy numbers.", href: "/admin/settings" });
+  }
+  if (providerBalanceStatus?.isLow) {
+    attention.push({ tone: "danger", title: "Provider balance is low", detail: "Top up the supplier account to keep selling.", href: "/admin/providers" });
+  }
+  if (pendingOrders > 0) {
+    attention.push({
+      tone: "warning",
+      title: `${pendingOrders} ${pendingOrders === 1 ? "order is" : "orders are"} waiting on a code`,
+      detail: "Open orders that have not received an SMS yet.",
+      href: "/admin/orders?status=WAITING",
+    });
+  }
+  if (openSupport > 0) {
+    attention.push({
+      tone: "warning",
+      title: `${openSupport} failed ${openSupport === 1 ? "order" : "orders"} in the last 7 days`,
+      detail: "Expired, cancelled or refunded; customers may get in touch.",
+      href: "/admin/support",
+    });
+  }
+  for (const signal of health) {
+    if (signal.state === "ok") continue;
+    attention.push({
+      tone: signal.state === "error" ? "danger" : "warning",
+      title: signal.label,
+      detail: signal.detail,
+      href: "#system-health",
+    });
+  }
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          What is happening across Xencodes right now.
-        </p>
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-forest/70">Admin console</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            What is happening across Xencodes right now.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <QuickLink href="/admin/orders" icon={ShoppingBag} label="Orders" />
+          <QuickLink href="/admin/users" icon={Users} label="Users" />
+          <QuickLink href="/admin/sales" icon={LineChart} label="Sales" />
+        </div>
       </div>
 
       {/* The one thing that stops every sale, so it sits above everything
@@ -178,6 +222,8 @@ export default async function AdminDashboardPage() {
         </Card>
       )}
 
+      <AttentionPanel items={attention} />
+
       <ProviderBalanceCard
         label={primaryProvider?.label ?? "Number provider"}
         connected={Boolean(primaryProvider)}
@@ -186,7 +232,11 @@ export default async function AdminDashboardPage() {
       />
 
       <section>
-        <h2 className="mb-2.5 text-sm font-semibold">Operations</h2>
+        <SectionHeading
+          icon={Activity}
+          title="Operations"
+          description="Customers and orders. Every figure opens the records behind it."
+        />
         <MetricGrid>
           <Metric label="Total users" value={totalUsers} href="/admin/users" />
           <Metric
@@ -254,16 +304,12 @@ export default async function AdminDashboardPage() {
       </section>
 
       <section>
-        <div className="mb-2.5 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Money</h2>
-          <Link
-            href="/admin/sales"
-            className="inline-flex items-center gap-1 text-sm font-medium text-forest underline-offset-4 hover:underline"
-          >
-            Sales and profit by day, week and month
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+        <SectionHeading
+          icon={Banknote}
+          title="Money"
+          description="Each currency is added up on its own, never blended."
+          action={{ href: "/admin/sales", label: "Sales and profit by day, week and month" }}
+        />
         <MetricGrid>
           <Metric
             label="Customer funding"
@@ -296,10 +342,12 @@ export default async function AdminDashboardPage() {
         </MetricGrid>
       </section>
 
-      <SystemHealthCard signals={health} />
+      <div id="system-health" className="scroll-mt-24">
+        <SystemHealthCard signals={health} />
+      </div>
 
       <Card className="overflow-hidden">
-        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold">Recent activity</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -309,10 +357,10 @@ export default async function AdminDashboardPage() {
           </div>
           <Link
             href="/admin/activity"
-            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-forest underline-offset-4 hover:underline"
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-forest transition-colors hover:border-mint hover:bg-mint-soft"
           >
             View all
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
         {activity.length === 0 ? (
@@ -325,15 +373,19 @@ export default async function AdminDashboardPage() {
               <li key={row.key}>
                 <Link
                   href={row.href}
-                  className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-background"
+                  className="flex items-center gap-3.5 px-5 py-3 transition-colors hover:bg-mint-soft/50"
                 >
+                  <span
+                    aria-hidden
+                    className={cn("h-2 w-2 shrink-0 rounded-full", ACTIVITY_DOT[row.badge.variant] ?? "bg-forest")}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{row.title}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {row.subtitle}
                     </p>
                   </div>
-                  <time className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                  <time className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">
                     {row.at.toLocaleString("en-NG", {
                       day: "numeric",
                       month: "short",
@@ -349,5 +401,126 @@ export default async function AdminDashboardPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+const ACTIVITY_DOT: Record<string, string> = {
+  default: "bg-forest",
+  neutral: "bg-muted-foreground/50",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  forest: "bg-forest",
+};
+
+interface AttentionItem {
+  tone: "danger" | "warning";
+  title: string;
+  detail: string;
+  href: string;
+}
+
+/** What needs a look, most serious first, or a plain all-clear. */
+function AttentionPanel({ items }: { items: AttentionItem[] }) {
+  const sorted = [...items].sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "danger" ? -1 : 1));
+  if (sorted.length === 0) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-success/25 bg-success-soft px-5 py-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success text-white">
+          <CheckCircle2 className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-success">All clear</p>
+          <p className="text-xs text-success/80">No pending orders, recent failures or system problems need a look.</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          Needs attention
+        </h2>
+        <Badge variant={sorted[0].tone === "danger" ? "danger" : "warning"}>
+          {sorted.length} {sorted.length === 1 ? "item" : "items"}
+        </Badge>
+      </div>
+      <ul className="divide-y divide-border">
+        {sorted.map((item) => (
+          <li key={item.title}>
+            <Link href={item.href} className="group flex items-center gap-3.5 px-5 py-3 transition-colors hover:bg-mint-soft/50">
+              <span
+                aria-hidden
+                className={cn("h-8 w-1 shrink-0 rounded-full", item.tone === "danger" ? "bg-danger" : "bg-warning")}
+              />
+              <div className="min-w-0 flex-1">
+                <p className={cn("text-sm font-semibold", item.tone === "danger" ? "text-danger" : "text-warning")}>
+                  {item.title}
+                </p>
+                <p className="line-clamp-2 text-xs text-muted-foreground">{item.detail}</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-forest" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SectionHeading({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  action?: { href: string; label: string };
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-mint-soft text-forest">
+          <Icon className="h-4 w-4" />
+        </span>
+        <div>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      {action ? (
+        <Link
+          href={action.href}
+          className="inline-flex items-center gap-1 text-sm font-medium text-forest underline-offset-4 hover:underline"
+        >
+          {action.label}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function QuickLink({
+  href,
+  icon: Icon,
+  label,
+}: {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-foreground shadow-[var(--shadow-subtle)] transition-colors hover:border-mint hover:bg-mint-soft"
+    >
+      <Icon className="h-4 w-4 text-forest" />
+      {label}
+    </Link>
   );
 }
