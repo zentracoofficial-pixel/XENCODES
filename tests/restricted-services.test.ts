@@ -87,6 +87,33 @@ test("dating platforms are blocked", () => {
   }
 });
 
+// Every name the payment provider's compliance team asked us to remove.
+const COMPLIANCE_LIST =
+  "PurePlatfrom, Hornet, Scruff, LeoList, Locanto, LoveRu, Tantan, Tango, TangoMe, Tangga, Sweetring, Skout, Smitten, Yubo, SayHi Chat, QuackQuack Dating App, Pairs, Omiai, MirZnakomstv, Meet Match, Muzz, Mylove, LOVOO, LoveAndSeek, Jeevansathi, Justdating, JD Dating, Happypancake, hily, Her, Hing Swipe App, Luxy, roomster, SoulApp, WooPlus, Yik Yak, Taki, Tind Swipe App, TeriMeriChoice, IPLwin, Jackaroo, Jalwa Games, Jeet11, Jeetexch, JojoBet, Khelraja, Kwiff, Leon Club, Lootably, Luck, luckgood, LuckyBike, Ludo Ninja, Ludo Winner, Ludo11, ludoplus, Ludosupreme, Madslots, MahaGames, MrGreen, MrQ, NCA888, NetBet, Nice88, OKbet, Okwin, OKVIP, OPAP, ParlayPlay, PeryaGame, PH777, PlayOJO, Playerzpot, PlayKaro, Pocket Ludo, POCKET PLAY, Porbet, Probo, Pusulabet, Qbet, QQPK, Raja Games, Riobet, Royale, Royaljeet, RoyalWin, Sankes and Ladders, Sisal, SisalFunClub, SkyBet, SNAI, Solitaire Cash, Sorare, Spincrush, SpinWinner, SportEfir, SportGully, Sportloto, Sportsbuzz11, Stanleybet, Stoiximan, Stormgain, Super Ace, Superbet, SynotTip, Tbigwin, Teenpati joy, Tiranga, TopGun, UWIN, ve88, Veera, Veergame, Vision11, Winclash, WinGo, WinMatch, Winner, WinzoGame, WOG, Wolf777, swerte88, YN777, Yono777, YoWin, YoHo, Zupee, \u0421hampion\u0421asino, Investro, Mainvest, Mudrex, Nifty, Stormgain, Univest, Vantage, XP Investimentos, Rothmans, Dunhill, BAT, Budweiser, Brahma, Corona, SpatenOktoberfest, Tennents".split(
+    ", ",
+  );
+
+test("every service the compliance review named is blocked, by name and by slug", () => {
+  for (const name of COMPLIANCE_LIST) {
+    assert.notEqual(category(name), null, name);
+    // A slug drops non-Latin letters, so only Latin names are checked by slug
+    // alone; the adapter always passes the name too.
+    if (/^[\x00-\x7f]+$/.test(name)) assert.equal(isRestrictedService(slugify(name)), true, `slug of ${name}`);
+  }
+});
+
+test("look-alike Cyrillic letters do not hide a restricted name", () => {
+  assert.equal(category("\u0421hampion\u0421asino"), "gambling");
+  assert.equal(category("\u041crGreen"), "gambling");
+  assert.equal(category("163\u0421OM"), null);
+});
+
+test("names close to restricted ones but harmless stay available", () => {
+  for (const name of ["Alphabet", "1688", "7-Eleven", "Lucky Supermarket", "Pure Gym App", "Herbalife", "Royal Mail", "Winner Supermarket", "Batch", "Coronation Bank", "Tangerine", "Soulseek", "Liquorice Candy"]) {
+    assert.equal(category(name), null, name);
+  }
+});
+
 test("the slug alone is enough, and the reason is reported", () => {
   assert.equal(isRestrictedService("bet365"), true);
   assert.equal(isRestrictedService("pin-up-casino"), true);
