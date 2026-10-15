@@ -8,6 +8,7 @@ import {
 import { majorToMinor } from "@/lib/currency";
 import { isKorapayConfigured } from "@/lib/korapay";
 import { isCryptomusConfigured } from "@/lib/cryptomus";
+import { freshMarketRates } from "@/lib/market-rates";
 
 /**
  * Xencodes sells in exactly one active currency right now: NGN. Every
@@ -61,6 +62,10 @@ export interface CurrencyConfigEntry {
   /** Which provider handles funding for this currency, or null when none
    *  does yet. Reporting only, for the admin panel and funding UI copy. */
   fundingProvider: "korapay" | "cryptomus" | null;
+  /** Naira per 1 USD for turning a Naira minimum price into this currency:
+   *  the market rate while the daily rate feed is fresh, the platform's own
+   *  Naira rate otherwise. Set on USD only (see minimumPriceInCurrency()). */
+  ngnPerUsd?: number;
 }
 
 const NGN_DEFAULTS = {
@@ -149,6 +154,9 @@ export async function readCurrencyConfig(
     // keys are configured on this deployment (never a stored admin toggle).
     fundingAvailable: isCryptomusConfigured(),
     fundingProvider: "cryptomus",
+    // Follows the exchange-rate feed, which refreshes at least once a day,
+    // so the dollar minimums move with the Naira on their own.
+    ngnPerUsd: (freshMarketRates(settings) as Partial<Record<string, number>>).NGN ?? ngn.usdRate,
   };
 
   return [ngn, usd];

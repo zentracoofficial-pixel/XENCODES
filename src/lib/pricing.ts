@@ -15,6 +15,7 @@ import {
   convertUsdCentsToCurrencyMinor,
   type CurrencyConfigEntry,
 } from "@/lib/currency-config";
+import { minorUnitDivisor } from "@/lib/currency";
 
 /**
  * The one place a customer price is derived from a supplier cost.
@@ -365,6 +366,22 @@ export const COUNTRY_MIN_PRICE_KOBO: Readonly<Record<string, number>> = {
   england: 100_000,
 };
 
+/**
+ * The minimum price in the currency being priced, in its minor unit. Naira
+ * uses the minimum as it is. Another currency gets the raised service and
+ * country minimums (not the general NGN 500 one) converted at the Naira rate
+ * carried on its config and rounded up to a price step, as every price is,
+ * so "TikTok from NGN 750" is the same floor for a US dollar account and
+ * moves with the daily rate. No rate, no minimum.
+ */
+export function minimumPriceInCurrency(minimumKobo: number, currency: CurrencyConfigEntry): number {
+  if (currency.code === "NGN") return minimumKobo;
+  if (minimumKobo <= MIN_PRICE_KOBO || !currency.ngnPerUsd || !(currency.ngnPerUsd > 0)) return 0;
+  const usd = minimumKobo / 100 / currency.ngnPerUsd;
+  const exact = usd * currency.usdRate * minorUnitDivisor(currency.code);
+  return Math.ceil(exact / PRICE_STEP_KOBO - 1e-9) * PRICE_STEP_KOBO;
+}
+
 /** The lowest NGN price for this service, in this country when one is given. */
 export function minimumPriceKobo(serviceSlug: string, countrySlug: string | null): number {
   const baseCountry = countrySlug?.replace(/-\d+$/, "") ?? null;
@@ -383,8 +400,9 @@ export function minimumPriceKobo(serviceSlug: string, countrySlug: string | null
  * to every service, the exclusive tier included.
  */
 function withMinimumPrice(quote: PriceQuote, minimumKobo: number, currency: CurrencyConfigEntry): PriceQuote {
-  if (currency.code !== "NGN" || quote.customerPriceKobo >= minimumKobo) return quote;
-  return restate(quote, minimumKobo, `${quote.ruleLabel}, minimum price`);
+  const minimum = minimumPriceInCurrency(minimumKobo, currency);
+  if (minimum <= 0 || quote.customerPriceKobo >= minimum) return quote;
+  return restate(quote, minimum, `${quote.ruleLabel}, minimum price`);
 }
 
 /**

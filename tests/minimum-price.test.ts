@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { quoteForPair, quoteForCurrency, minimumPriceKobo, type MarginRules } from "../src/lib/pricing";
+import { quoteForPair, quoteForCurrency, minimumPriceKobo, minimumPriceInCurrency, type MarginRules } from "../src/lib/pricing";
 import type { CurrencyConfigEntry } from "../src/lib/currency-config";
 
 const NGN = { code: "NGN", usdRate: 1600 } as CurrencyConfigEntry;
@@ -26,9 +26,20 @@ test("everything else keeps the NGN 500 minimum, and dearer numbers are unchange
   assert.equal(dear.customerPriceKobo, quoteForPair(rules, 100, "tiktok", "usa", NGN).customerPriceKobo);
 });
 
-test("the minimums are Naira only", () => {
-  assert.equal(
-    quoteForPair(rules, CHEAP, "tiktok", "united-kingdom", USD).customerPriceKobo,
-    quoteForPair(rules, CHEAP, "whatsapp", "usa", USD).customerPriceKobo,
-  );
+test("US dollar accounts get the same minimums at the day's Naira rate, in whole price steps", () => {
+  const usd = { ...USD, ngnPerUsd: 1338 } as CurrencyConfigEntry;
+  // NGN 1,000 / 1,338 = $0.75 and NGN 750 = $0.56: both round up to $1, the
+  // smallest US dollar price there is.
+  assert.equal(minimumPriceInCurrency(100_000, usd), 100);
+  assert.equal(minimumPriceInCurrency(75_000, usd), 100);
+  assert.equal(quoteForPair(rules, CHEAP, "whatsapp", "united-kingdom", usd).customerPriceKobo, 100);
+  // A higher minimum, or a weaker Naira, moves the dollar floor with it.
+  assert.equal(minimumPriceInCurrency(200_000, usd), 200); // $1.49 -> $2
+  assert.equal(minimumPriceInCurrency(200_000, { ...USD, ngnPerUsd: 2100 } as CurrencyConfigEntry), 100); // $0.95 -> $1
+});
+
+test("the general NGN 500 minimum is Naira only, and no rate means no dollar minimum", () => {
+  const usd = { ...USD, ngnPerUsd: 1338 } as CurrencyConfigEntry;
+  assert.equal(minimumPriceInCurrency(50_000, usd), 0);
+  assert.equal(minimumPriceInCurrency(100_000, USD), 0);
 });
