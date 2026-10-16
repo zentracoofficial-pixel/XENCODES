@@ -21,7 +21,7 @@ import { formatMoney } from "@/lib/currency";
  */
 export const MIN_COUNTRIES_FOR_SERVICE_PAGE = 3;
 export const MIN_SERVICES_FOR_COUNTRY_PAGE = 5;
-export const FEATURED_SERVICE_LIMIT = 80;
+export const FEATURED_SERVICE_LIMIT = 40;
 
 export interface SeoService {
   slug: string;
