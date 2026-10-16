@@ -1,3 +1,5 @@
+import { Pagination } from "@/components/ui/pagination";
+import { pageMath, parsePage } from "@/lib/pagination";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Mail } from "lucide-react";
@@ -32,13 +34,29 @@ const TICKET_STATUS_VARIANT = {
  * since both are "things a customer is waiting on" and splitting them would
  * just mean checking two pages instead of one.
  */
-export default async function AdminSupportPage() {
+const TICKETS_PER_PAGE = 15;
+const FAILURES_PER_PAGE = 15;
+
+export default async function AdminSupportPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tickets?: string; failures?: string }>;
+}) {
   await requireAdmin();
+  const query = await searchParams;
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfWeek = new Date(startOfToday);
   startOfWeek.setDate(startOfWeek.getDate() - 6);
+
+  const failureCount = await prisma.activation.count({ where: { status: { in: [...FAILED_STATUSES] } } });
+  const [openTotal, pendingTotal] = await Promise.all([
+    prisma.supportTicket.count({ where: { status: "OPEN" } }),
+    prisma.supportTicket.count({ where: { status: "PENDING" } }),
+  ]);
+  const ticketPaging = pageMath(openTotal + pendingTotal, parsePage(query.tickets), TICKETS_PER_PAGE);
+  const failurePaging = pageMath(failureCount, parsePage(query.failures), FAILURES_PER_PAGE);
 
   const [
     openCount,
@@ -55,7 +73,8 @@ export default async function AdminSupportPage() {
     prisma.supportTicket.findMany({
       where: { status: { in: ["OPEN", "PENDING"] } },
       orderBy: { createdAt: "desc" },
-      take: 30,
+      skip: ticketPaging.skip,
+      take: TICKETS_PER_PAGE,
       include: { user: { select: { email: true } } },
     }),
     prisma.activation.count({
@@ -64,7 +83,8 @@ export default async function AdminSupportPage() {
     prisma.activation.findMany({
       where: { status: { in: [...FAILED_STATUSES] } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      skip: failurePaging.skip,
+      take: FAILURES_PER_PAGE,
       include: { user: { select: { email: true } } },
     }),
     prisma.manualVerificationRequest.findMany({
@@ -132,6 +152,13 @@ export default async function AdminSupportPage() {
           </ul>
         )}
       </Card>
+      <Pagination
+        basePath="/admin/support"
+        pageParam="tickets"
+        params={{ failures: query.failures }}
+        total={openTotal + pendingTotal}
+        {...ticketPaging}
+      />
 
       <Card className="overflow-hidden">
         <div className="border-b border-border px-5 py-3.5">
@@ -234,6 +261,13 @@ export default async function AdminSupportPage() {
           </ul>
         )}
       </Card>
+      <Pagination
+        basePath="/admin/support"
+        pageParam="failures"
+        params={{ tickets: query.tickets }}
+        total={failureCount}
+        {...failurePaging}
+      />
     </div>
   );
 }

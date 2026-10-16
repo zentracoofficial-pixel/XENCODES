@@ -1,3 +1,5 @@
+import { Pagination } from "@/components/ui/pagination";
+import { pageMath, parsePage } from "@/lib/pagination";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowUpRight, Mail, MessageCircle } from "lucide-react";
@@ -27,9 +29,15 @@ const TICKET_STATUS_LABEL = {
   RESOLVED: "Resolved",
 } as const;
 
-export default async function SupportPage() {
+/** Tickets per page. */
+const TICKETS_PER_PAGE = 8;
+
+export default async function SupportPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const session = await auth();
   const userId = session!.user.id;
+
+  const ticketCount = await prisma.supportTicket.count({ where: { userId } });
+  const paging = pageMath(ticketCount, parsePage((await searchParams).page), TICKETS_PER_PAGE);
 
   const [reportable, tickets] = await Promise.all([
     // Only activations worth reporting: ones that failed or are stuck.
@@ -41,7 +49,8 @@ export default async function SupportPage() {
     prisma.supportTicket.findMany({
       where: { userId },
       orderBy: { updatedAt: "desc" },
-      take: 20,
+      skip: paging.skip,
+      take: TICKETS_PER_PAGE,
     }),
   ]);
 
@@ -87,6 +96,7 @@ export default async function SupportPage() {
               ))}
             </ul>
           </Card>
+          <Pagination basePath="/dashboard/support" total={ticketCount} className="mt-3" {...paging} />
         </section>
       ) : null}
 

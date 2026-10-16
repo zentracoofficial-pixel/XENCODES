@@ -1,3 +1,4 @@
+import { Pagination } from "@/components/ui/pagination";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Search, AlertTriangle } from "lucide-react";
@@ -20,7 +21,7 @@ export const metadata: Metadata = { title: "Admin: Wallet" };
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 30;
 
 /**
  * One ledger for every movement of customer money.
@@ -391,37 +392,20 @@ export default async function AdminWalletPage({
         )}
       </Card>
 
-      {totalPages > 1 ? (
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href={link({ page: page > 1 ? String(page - 1) : undefined })}
-            aria-disabled={page <= 1}
-            className={cn(
-              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
-              page <= 1
-                ? "pointer-events-none opacity-40"
-                : "hover:border-mint hover:bg-mint-soft",
-            )}
-          >
-            Previous
-          </Link>
-          <p className="text-xs text-muted-foreground">
-            Page {page} of {totalPages} ({count.toLocaleString("en-NG")} total)
-          </p>
-          <Link
-            href={link({ page: String(page + 1) })}
-            aria-disabled={page >= totalPages}
-            className={cn(
-              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
-              page >= totalPages
-                ? "pointer-events-none opacity-40"
-                : "hover:border-mint hover:bg-mint-soft",
-            )}
-          >
-            Next
-          </Link>
-        </div>
-      ) : null}
+      <Pagination
+        basePath="/admin/wallet"
+        params={{
+          type: activeType === "ALL" ? undefined : activeType,
+          status: activeStatus,
+          q: query,
+          includeDeleted: showDeleted ? "1" : undefined,
+        }}
+        page={page}
+        totalPages={totalPages}
+        total={count}
+        from={count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+        to={Math.min(count, page * PAGE_SIZE)}
+      />
     </div>
   );
 }

@@ -9,6 +9,8 @@ import { formatPhoneNumber } from "@/lib/currency";
 import { ActivationLogo } from "../activation-logo";
 import { ACTIVATION_STATUS_LABEL, ACTIVATION_STATUS_VARIANT } from "@/lib/activation-status";
 import { CopyCodeButton } from "./copy-code-button";
+import { Pagination } from "@/components/ui/pagination";
+import { pageMath, parsePage } from "@/lib/pagination";
 
 /** Reuses the exact service+country the order was for; the buy page always
  *  re-quotes live and re-checks availability the moment it loads (see
@@ -27,18 +29,22 @@ const dateFormat: Intl.DateTimeFormatOptions = {
   minute: "2-digit",
 };
 
-export default async function HistoryPage() {
+/** Rows per page: short enough to scroll comfortably on a phone. */
+const PAGE_SIZE = 15;
+
+export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const session = await auth();
   const userId = session!.user.id;
 
-  // Bounded the same way the wallet page's own history is: a customer who
-  // has bought hundreds of numbers should not turn every visit to this page
-  // into an unbounded table scan and an ever-growing page of rows.
-  const HISTORY_LIMIT = 100;
+  // One page at a time, newest first: a customer with hundreds of orders
+  // gets a short page and Previous / Next, never an endless one.
+  const total = await prisma.activation.count({ where: { userId } });
+  const paging = pageMath(total, parsePage((await searchParams).page), PAGE_SIZE);
   const activations = await prisma.activation.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
-    take: HISTORY_LIMIT,
+    skip: paging.skip,
+    take: PAGE_SIZE,
   });
 
   return (
@@ -197,6 +203,8 @@ export default async function HistoryPage() {
           </ul>
         </div>
       )}
+
+      <Pagination basePath="/dashboard/history" total={total} {...paging} />
     </div>
   );
 }
