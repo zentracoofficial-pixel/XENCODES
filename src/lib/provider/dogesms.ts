@@ -496,6 +496,13 @@ export class DogeSmsProvider implements NumberProvider {
             const backoff = Math.min(2_000 * 2 ** (consecutiveLimits - 1), MAX_COOLDOWN_MS);
             DogeSmsProvider.cooldownUntil = Math.max(DogeSmsProvider.cooldownUntil, Date.now() + backoff);
             if (consecutiveLimits >= MAX_CONSECUTIVE_RATE_LIMITS) stop = true;
+          } else if (error instanceof ProviderError && error.code === "rejected" && /HTTP (400|404|422)\b/.test(error.message)) {
+            // DogeSMS refuses this country outright (it will never have a
+            // price table). Count it as read, with no offers, or the sync
+            // could never reach "every country current".
+            read.push(slug);
+            consecutiveLimits = 0;
+            console.warn(`[dogesms] ${slug} has no price table: ${error.message}`);
           } else {
             failed.push(slug);
             console.error(`[dogesms] prices for ${slug} failed:`, error instanceof Error ? error.message : error);

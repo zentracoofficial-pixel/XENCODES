@@ -236,6 +236,17 @@ test("sync read: a country refused every time counts as failed; the others are s
   assert.deepEqual([...snapshot.countriesRead].sort(), ["nigeria", "usa"]);
 });
 
+test("sync read: a country DogeSMS refuses outright (400) counts as read with no offers, so coverage can complete", async () => {
+  handler = (req) =>
+    req.path === "/v1/catalog/prices" && req.query.get("country_code") === "KE"
+      ? { status: 400, body: { error: { code: "INVALID_REQUEST" } } }
+      : catalog(req);
+  const snapshot = await provider().getCatalogSnapshot({ deadline: Date.now() + 60_000 });
+  assert.deepEqual(snapshot.countriesFailed, []);
+  assert.deepEqual([...snapshot.countriesRead].sort(), ["kenya", "nigeria", "usa"]);
+  assert.ok(!snapshot.entries.some((e) => e.country.slug === "kenya"));
+});
+
 test("sync read: stops at the deadline and reports only what it read", async () => {
   const snapshot = await provider().getCatalogSnapshot({ deadline: Date.now() - 1 });
   assert.deepEqual(snapshot.countriesRead, []);
