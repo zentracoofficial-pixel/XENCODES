@@ -10,6 +10,8 @@ import {
   testProviderConnectionAction,
   syncProviderAction,
 } from "./actions";
+import type { ProviderSyncResult } from "@/lib/provider-sync";
+import { SyncReport, formatDuration, formatWhen, syncResultBadge } from "./sync-report";
 
 export interface ProviderCardProps {
   id: string;
@@ -33,6 +35,11 @@ export interface ProviderCardProps {
     countriesSynced: number | null;
     offersSynced: number | null;
     isFresh: boolean;
+    runningSince: string | null;
+    lastFinishedAt: string | null;
+    lastDurationMs: number | null;
+    lastResult: string | null;
+    lastMessage: string | null;
   } | null;
 }
 
@@ -57,7 +64,7 @@ export function ProviderCard({
 
   const [priorityValue, setPriorityValue] = useState(priority);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [syncResult, setSyncResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [syncResult, setSyncResult] = useState<ProviderSyncResult | null>(null);
 
   function runTest() {
     startTest(async () => {
@@ -75,19 +82,12 @@ export function ProviderCard({
   function runSync() {
     startSync(async () => {
       try {
-        const result = await syncProviderAction(id);
-        setSyncResult(
-          result.ok
-            ? {
-                ok: true,
-                text: `Synced ${result.servicesSynced} services, ${result.countriesSynced} countries, ${result.offersSynced} priced offers.`,
-              }
-            : { ok: false, text: result.error ?? "Sync failed." },
-        );
+        setSyncResult(await syncProviderAction(id));
       } catch (error) {
         setSyncResult({
           ok: false,
-          text: error instanceof Error ? `Sync failed: ${error.message}` : "Sync request failed.",
+          result: "failed",
+          error: error instanceof Error ? `The sync request did not finish: ${error.message}` : "The sync request did not finish.",
         });
       }
     });
@@ -159,7 +159,29 @@ export function ProviderCard({
         </div>
       </dl>
 
-      {status?.lastFailureError ? (
+      {status?.runningSince || status?.lastResult ? (
+        <div className="mt-3 rounded-lg border border-border px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Latest run</span>
+            {status.runningSince ? (
+              <span className="text-xs font-medium">Running since {formatWhen(status.runningSince)}</span>
+            ) : (
+              <>
+                {syncResultBadge(status.lastResult)}
+                <span className="text-xs text-muted-foreground">
+                  {formatWhen(status.lastFinishedAt)}
+                  {status.lastDurationMs ? ` · ${formatDuration(status.lastDurationMs)}` : ""}
+                </span>
+              </>
+            )}
+          </div>
+          {!status.runningSince && status.lastMessage ? (
+            <p className="mt-1 text-xs text-muted-foreground">{status.lastMessage}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {status?.lastFailureError && status.lastResult !== "success" ? (
         <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           Last provider error: {status.lastFailureError}
         </p>
@@ -246,9 +268,9 @@ export function ProviderCard({
         </p>
       ) : null}
       {syncResult ? (
-        <p className={`mt-1.5 text-xs ${syncResult.ok ? "text-success" : "text-danger"}`}>
-          {syncResult.text}
-        </p>
+        <div className="mt-2">
+          <SyncReport result={syncResult} labels={{ [id]: label }} showOverall={false} />
+        </div>
       ) : null}
     </div>
   );

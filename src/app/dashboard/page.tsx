@@ -49,7 +49,7 @@ export default async function DashboardPage() {
   // the balance is read below.
   const displayContext = await getDisplayContext();
 
-  const [user, current, activity, favorites, fundedCount, activationCount, deliveredAgg, smsReceivedCount] =
+  const [user, current, activity, favorites, fundedCount, activationCount, deliveredAgg, smsReceivedCount, waitingCount] =
     await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: userId } }),
       prisma.activation.findFirst({
@@ -78,6 +78,7 @@ export default async function DashboardPage() {
       // reads as its own honest measurement rather than a relabelled
       // duplicate of the count above.
       prisma.activation.count({ where: { userId, receivedAt: { not: null } } }),
+      prisma.activation.count({ where: { userId, status: "WAITING" } }),
     ]);
 
   const lowBalanceThreshold = await getLowBalanceThreshold(user.currency);
@@ -132,7 +133,19 @@ export default async function DashboardPage() {
           page, so it leads whenever there is one. */}
       {current ? (
         <section>
-          <h2 className="text-sm font-semibold">Current activation</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">
+              {waitingCount > 1 ? `Active numbers (${waitingCount})` : "Current activation"}
+            </h2>
+            {waitingCount > 1 ? (
+              <Link
+                href="/dashboard/history"
+                className="-my-2 py-2 text-xs font-medium text-forest underline-offset-4 hover:underline"
+              >
+                See all {waitingCount}
+              </Link>
+            ) : null}
+          </div>
           <Link
             href={`/dashboard/buy?activation=${current.id}`}
             className="mt-3 flex items-center gap-3.5 rounded-xl border border-mint bg-mint-soft px-4 py-3.5 transition-colors hover:bg-mint-soft/70"
@@ -168,7 +181,9 @@ export default async function DashboardPage() {
             <Wallet className="h-5 w-5" aria-hidden />
           </span>
           <div>
-            <p className="text-xs text-white/70">Wallet balance</p>
+            <p className="text-xs text-white/70">
+              Wallet balance <span className="text-white/50">· {user.currency} wallet</span>
+            </p>
             <p className="mt-0.5 text-xl font-semibold tabular-nums">
               <DisplayAmount kobo={user.walletBalanceKobo} currency={user.currency} />
             </p>
@@ -217,10 +232,14 @@ export default async function DashboardPage() {
             purchases" and the currency amount enough to clip them on
             common phone widths, confirmed live before this was changed
             (same class of bug as the history page fix below). */}
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* On a phone: the amount across the top, the two counts side by
+            side under it (each short enough not to clip), so the three
+            figures take two rows instead of three. */}
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <DashboardStat
             label="Total spent"
             value={totalSpentLabel}
+            className="col-span-2 sm:col-span-1"
           />
           <DashboardStat label="Successful purchases" value={deliveredAgg._count} />
           <DashboardStat label="SMS received" value={smsReceivedCount} />

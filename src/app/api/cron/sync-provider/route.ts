@@ -50,8 +50,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "CRON_SECRET is not configured." }, { status: 401 });
   }
 
-  const result = await runProviderSync();
-
+  const startedAt = Date.now();
   // Piggybacked on this same daily cron rather than declaring a second one:
   // a Hobby-plan project can only run a cron once a day at all, so a
   // dedicated payment-reconciliation cron could never check more often than
@@ -82,5 +81,13 @@ export async function GET(request: Request) {
     console.error("[cron] display rate refresh failed:", error);
   }
 
-  return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+  // The catalog sync goes last and gets what is left of this request's
+  // 60 seconds (minus room for its writes): the sweeps above move money
+  // and must never be cut short by a slow supplier.
+  const result = await runProviderSync(undefined, {
+    trigger: "cron",
+    readBudgetMs: Math.max(10_000, 40_000 - (Date.now() - startedAt)),
+  });
+
+  return NextResponse.json(result, { status: result.result === "failed" ? 502 : 200 });
 }

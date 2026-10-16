@@ -6,12 +6,13 @@ import {
   resolveProvider,
   getProviderCapabilities,
 } from "@/lib/provider";
-import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
+import { getAllProviderSyncStatuses, getRecentSyncRuns } from "@/lib/provider-sync";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
 import { getPoolQualityReport, getSellerDeliveryReport } from "@/lib/provider-pool-quality";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
+import { SyncHistoryCard } from "./sync-history-card";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
 import { QualityReportCard } from "./quality-report-card";
 import { PoolQualityReportCard } from "./pool-quality-report-card";
@@ -52,7 +53,7 @@ export default async function AdminProvidersPage() {
 
   const smartPickup = await readSmartPickupSettings();
   const providerIds = PROVIDER_DEFINITIONS.map((definition) => definition.id);
-  const [config, statuses, flagged, quality, poolQuality, sellerDelivery, performance, ambiguous] = await Promise.all([
+  const [config, statuses, flagged, quality, poolQuality, sellerDelivery, performance, ambiguous, recentRuns] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
@@ -61,6 +62,7 @@ export default async function AdminProvidersPage() {
     getSellerDeliveryReport(),
     getProviderPerformance(providerIds, smartPickup.windowDays),
     listAmbiguousAttempts(),
+    getRecentSyncRuns(10),
   ]);
   const displayLabel = (id: string) => {
     const label = PROVIDER_DEFINITIONS.find((definition) => definition.id === id)?.label ?? id;
@@ -103,6 +105,11 @@ export default async function AdminProvidersPage() {
               countriesSynced: status.countriesSynced,
               offersSynced: status.offersSynced,
               isFresh: status.isFresh,
+              runningSince: status.runningSince?.toISOString() ?? null,
+              lastFinishedAt: status.lastFinishedAt?.toISOString() ?? null,
+              lastDurationMs: status.lastDurationMs,
+              lastResult: status.lastResult,
+              lastMessage: status.lastMessage,
             }
           : null,
       };
@@ -110,6 +117,12 @@ export default async function AdminProvidersPage() {
   );
 
   rows.sort((a, b) => a.priority - b.priority);
+  const labels = Object.fromEntries(rows.map((row) => [row.id, row.label]));
+  const runningSince =
+    rows
+      .map((row) => row.status?.runningSince ?? null)
+      .filter((value): value is string => value !== null)
+      .sort()[0] ?? null;
   const enabledCount = rows.filter((row) => row.enabled && row.connected).length;
 
   return (
@@ -118,16 +131,17 @@ export default async function AdminProvidersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Providers</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Every number supplier Xencodes can buy from. When more than one is enabled for the
-            same service and country, Smart Pickup (below) decides which one fills each order, at
-            the same customer price; a server that is down or out of stock for a pair is skipped in
-            favour of the next.{" "}
+            Every number supplier Xencodes can buy from. Each server is priced its own way (Server I
+            by the platform price rules, Server II at 3.5&times; its cost); the cheapest server for a
+            service and country is asked first, and Smart Pickup (below) orders servers at the same
+            price. A server that is down or out of stock for a pair is skipped in favour of the
+            next, never at a higher price without the customer confirming it.{" "}
             {enabledCount > 0
               ? `${enabledCount} provider${enabledCount === 1 ? "" : "s"} live right now.`
               : "None are live right now."}
           </p>
         </div>
-        <SyncAllButton />
+        <SyncAllButton labels={labels} runningSince={runningSince} />
       </div>
 
       <div className="space-y-4">
@@ -135,6 +149,21 @@ export default async function AdminProvidersPage() {
           <ProviderCard key={row.id} {...row} />
         ))}
       </div>
+
+      <SyncHistoryCard
+        runs={recentRuns.map((run) => ({
+          id: run.id,
+          label: labels[run.providerId] ?? run.providerId,
+          trigger: run.trigger,
+          startedAt: run.startedAt.toISOString(),
+          durationMs: run.durationMs,
+          result: run.result,
+          offersSynced: run.offersSynced,
+          countriesRead: run.countriesRead,
+          countriesTotal: run.countriesTotal,
+          message: run.message,
+        }))}
+      />
 
       <SmartPickupCard
         settings={smartPickup}

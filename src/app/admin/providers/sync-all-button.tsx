@@ -2,46 +2,59 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import type { ProviderSyncResult } from "@/lib/provider-sync";
 import { syncAllProvidersAction } from "./actions";
+import { SyncReport } from "./sync-report";
 
-/** Syncs every enabled provider in one pass, the same job the daily cron
- *  runs for all of them, without waiting for the schedule. */
-export function SyncAllButton() {
+/** Syncs every enabled server side by side, the same job the daily cron
+ *  runs, and reports each server's own result. A second click while one is
+ *  running is refused by the server's lock as well as by this button. */
+export function SyncAllButton({
+  labels,
+  runningSince,
+}: {
+  labels: Record<string, string>;
+  /** Set when a sync is already running (from another tab or the cron). */
+  runningSince: string | null;
+}) {
   const [pending, startTransition] = useTransition();
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [result, setResult] = useState<ProviderSyncResult | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
 
   function run() {
+    setFailure(null);
     startTransition(async () => {
       try {
-        const result = await syncAllProvidersAction();
-        setMessage(
-          result.ok
-            ? {
-                ok: true,
-                text: `Synced ${result.servicesSynced} services, ${result.countriesSynced} countries, ${result.offersSynced} priced offers across ${result.providers?.length ?? 0} provider(s).`,
-              }
-            : { ok: false, text: result.error ?? "Sync failed." },
-        );
+        setResult(await syncAllProvidersAction());
       } catch (error) {
-        setMessage({
-          ok: false,
-          text:
-            error instanceof Error
-              ? `Sync request failed: ${error.message}`
-              : "Sync request failed unexpectedly.",
-        });
+        setResult(null);
+        setFailure(
+          error instanceof Error
+            ? `The sync request did not finish: ${error.message}. Each server keeps its last synced data.`
+            : "The sync request did not finish. Each server keeps its last synced data.",
+        );
       }
     });
   }
 
+  const busy = pending || Boolean(runningSince && !result);
   return (
-    <div className="space-y-1.5 text-right">
-      <Button type="button" variant="outline" onClick={run} disabled={pending}>
-        {pending ? "Syncing…" : "Sync all enabled"}
-      </Button>
-      {message ? (
-        <p className={`text-xs ${message.ok ? "text-success" : "text-danger"}`}>{message.text}</p>
+    <div className="w-full max-w-md space-y-2 sm:w-auto">
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" onClick={run} disabled={busy} aria-busy={busy}>
+          {pending ? "Syncing all servers…" : runningSince && !result ? "Sync running…" : "Sync all enabled"}
+        </Button>
+      </div>
+      {pending ? (
+        <p className="text-right text-xs text-muted-foreground">Reading each server&apos;s catalog. This can take up to a minute.</p>
       ) : null}
+      {!pending && runningSince && !result ? (
+        <p className="text-right text-xs text-muted-foreground">
+          A sync started at {new Date(runningSince).toLocaleTimeString("en-NG")} is still running. Reload to see its result.
+        </p>
+      ) : null}
+      {result ? <SyncReport result={result} labels={labels} /> : null}
+      {failure ? <p className="text-xs text-danger">{failure}</p> : null}
     </div>
   );
 }

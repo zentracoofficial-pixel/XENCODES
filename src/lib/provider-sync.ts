@@ -214,9 +214,14 @@ async function upsertOffers(rows: OfferRow[], runStartedAt: Date): Promise<void>
  *  not see again, identified by not having been touched since runStartedAt.
  *  Scoped to this one provider's rows, so syncing GrizzlySMS can never
  *  remove a row another provider wrote. */
-async function removeStaleOffers(providerId: string, runStartedAt: Date): Promise<number> {
+async function removeStaleOffers(providerId: string, runStartedAt: Date, onlyCountries?: string[]): Promise<number> {
+  if (onlyCountries && onlyCountries.length === 0) return 0;
   const result = await prisma.syncedOffer.deleteMany({
-    where: { providerId, syncedAt: { lt: runStartedAt } },
+    where: {
+      providerId,
+      syncedAt: { lt: runStartedAt },
+      ...(onlyCountries ? { countrySlug: { in: onlyCountries } } : {}),
+    },
   });
   return result.count;
 }
@@ -235,8 +240,17 @@ export async function removeRestrictedOffers(): Promise<number> {
   return result.count;
 }
 
+/** What one sync did: "success" read everything; "partial" refreshed part
+ *  of the catalog and kept the last good data for the rest; "failed"
+ *  changed nothing; "skipped" did not start because a sync of that server
+ *  was already running. */
+export type SyncResultKind = "success" | "partial" | "failed" | "skipped";
+
 export interface ProviderSyncResult {
   ok: boolean;
+  /** Across every provider this run touched: "success" when all of them
+   *  fully synced, "failed" when none changed anything, "partial" between. */
+  result?: SyncResultKind;
   /** Combined across every provider this run touched. Not deduplicated: a
    *  service two providers both sell counts twice. Good enough for "did
    *  this run do something"; see `providers` for the real per-provider
@@ -248,15 +262,34 @@ export interface ProviderSyncResult {
   providers?: ProviderSyncOutcome[];
 }
 
-interface ProviderSyncOutcome {
+export interface ProviderSyncOutcome {
   id: string;
   label: string;
   ok: boolean;
+  result: SyncResultKind;
   servicesSynced?: number;
   countriesSynced?: number;
   offersSynced?: number;
+  /** For a provider read country by country (Server II). */
+  countriesRead?: number;
+  countriesTotal?: number;
+  durationMs?: number;
+  /** What the admin is told about this run. Safe to show: no raw API text. */
+  message?: string;
   error?: string;
+  /** When this provider last fully synced, after this run. */
+  lastSuccessAt?: string | null;
 }
+
+export type SyncTrigger = "manual" | "manual_all" | "cron";
+
+/** Longest a sync may run inside one request (the platform's limit is 60s);
+ *  a lock older than this belongs to a run that died. */
+const SYNC_LOCK_STALE_MS = 10 * 60 * 1000;
+/** How long a provider read country by country keeps reading before it
+ *  writes what it has, so the whole request ends inside the 60-second
+ *  limit with room for the database writes. */
+const SNAPSHOT_READ_BUDGET_MS = 38_000;
 
 /**
  * Collects one provider's whole catalog.
@@ -268,8 +301,32 @@ interface ProviderSyncOutcome {
  * The per-service walk stays as the fallback for an adapter with no bulk
  * endpoint, and produces identical data.
  */
-async function collectCatalog(provider: NumberProvider): Promise<ProviderCatalogEntry[]> {
-  if (provider.getFullCatalog) return provider.getFullCatalog();
+interface CollectedCatalog {
+  entries: ProviderCatalogEntry[];
+  /** Set when only these countries were read: everything else keeps its
+   *  rows. Absent when the whole catalog was read. */
+  countriesRead?: string[];
+  countriesFailed?: string[];
+  countriesTotal?: number;
+  rateLimited?: boolean;
+}
+
+async function collectCatalog(id: string, provider: NumberProvider, deadline: number): Promise<CollectedCatalog> {
+  if (provider.getCatalogSnapshot) {
+    // Countries refreshed longest ago first, so repeated runs work through
+    // the whole list even when one run cannot read every country.
+    const ages = await prisma.syncedOffer.groupBy({
+      by: ["countrySlug"],
+      where: { providerId: id },
+      _max: { syncedAt: true },
+    });
+    const countryOrder = ages
+      .sort((a, b) => (a._max.syncedAt?.getTime() ?? 0) - (b._max.syncedAt?.getTime() ?? 0))
+      .map((row) => row.countrySlug);
+    const snapshot = await provider.getCatalogSnapshot({ deadline, countryOrder });
+    return snapshot;
+  }
+  if (provider.getFullCatalog) return { entries: await provider.getFullCatalog() };
 
   const services = await provider.getServices();
   const entries: ProviderCatalogEntry[] = [];
@@ -295,30 +352,126 @@ async function collectCatalog(provider: NumberProvider): Promise<ProviderCatalog
     }
   }
 
-  return entries;
+  return { entries };
 }
 
 /** Syncs exactly one provider's catalog into its own SyncedOffer rows and
  *  its own ProviderSyncStatus row. Failures here never touch another
  *  provider's rows or status. */
-async function syncOneProvider(
+export async function syncOneProvider(
   id: string,
   label: string,
   provider: NumberProvider,
+  trigger: SyncTrigger,
+  deadline: number,
 ): Promise<ProviderSyncOutcome> {
   const startedAt = Date.now();
-  console.log(`[provider-sync] starting "${id}"`);
+  const started = new Date(startedAt);
 
+  // One sync per provider at a time. The claim is a single conditional
+  // UPDATE, so two clicks (or a click racing the cron) cannot both pass.
+  await prisma.providerSyncStatus.upsert({ where: { id }, create: { id }, update: {} });
+  const claimed = await prisma.providerSyncStatus.updateMany({
+    where: {
+      id,
+      OR: [{ runningSince: null }, { runningSince: { lt: new Date(startedAt - SYNC_LOCK_STALE_MS) } }],
+    },
+    data: { runningSince: started, lastStartedAt: started },
+  });
+  if (claimed.count === 0) {
+    const status = await prisma.providerSyncStatus.findUnique({ where: { id } });
+    const message = `A sync of ${label} is already running${
+      status?.runningSince ? ` (started ${status.runningSince.toISOString()})` : ""
+    }. Its result will show here when it ends.`;
+    return { id, label, ok: false, result: "skipped", message, error: message, durationMs: 0 };
+  }
+
+  console.log(`[provider-sync] starting "${id}" (${trigger})`);
+  let outcome: ProviderSyncOutcome;
   try {
-    const [rules, disabledRows, catalog, defaultCurrency] = await Promise.all([
+    outcome = await runOneSync(id, label, provider, startedAt, deadline);
+  } catch (error) {
+    // Never shown raw: a provider's own error text can carry anything.
+    const detail = error instanceof Error ? error.message : "Unknown sync error.";
+    console.error(`[provider-sync] "${id}" failed:`, detail);
+    outcome = {
+      id,
+      label,
+      ok: false,
+      result: "failed",
+      error: safeSyncMessage(detail),
+      message: `${safeSyncMessage(detail)} Nothing was changed; the last synced data is still in use.`,
+    };
+  }
+  const finished = new Date();
+  outcome.durationMs = finished.getTime() - startedAt;
+
+  const status = await prisma.providerSyncStatus.update({
+    where: { id },
+    data: {
+      runningSince: null,
+      lastFinishedAt: finished,
+      lastDurationMs: outcome.durationMs,
+      lastResult: outcome.result,
+      lastMessage: outcome.message ?? null,
+      ...(outcome.result === "failed"
+        ? { lastFailureAt: finished, lastFailureError: outcome.error ?? outcome.message ?? null }
+        : {}),
+    },
+  });
+  outcome.lastSuccessAt = status.lastSuccessAt?.toISOString() ?? null;
+  await prisma.providerSyncRun
+    .create({
+      data: {
+        providerId: id,
+        trigger,
+        startedAt: started,
+        finishedAt: finished,
+        durationMs: outcome.durationMs,
+        result: outcome.result,
+        servicesSynced: outcome.servicesSynced ?? null,
+        countriesSynced: outcome.countriesSynced ?? null,
+        offersSynced: outcome.offersSynced ?? null,
+        countriesTotal: outcome.countriesTotal ?? null,
+        countriesRead: outcome.countriesRead ?? null,
+        message: outcome.message ?? null,
+      },
+    })
+    .catch((error) => console.error("[provider-sync] could not record the run:", error));
+  return outcome;
+}
+
+/** The sync itself: read, validate, write. Throws when nothing could be
+ *  written; the caller records that as a failed run. */
+async function runOneSync(
+  id: string,
+  label: string,
+  provider: NumberProvider,
+  startedAt: number,
+  deadline: number,
+): Promise<ProviderSyncOutcome> {
+  {
+    const [rules, disabledRows, collected, defaultCurrency, previous] = await Promise.all([
       loadMarginRules(),
       prisma.serviceSetting.findMany({ where: { enabled: false } }),
-      collectCatalog(provider),
+      collectCatalog(id, provider, deadline),
       getDefaultCurrency(),
+      prisma.providerSyncStatus.findUnique({ where: { id } }),
     ]);
+    const catalog = collected.entries;
+    const partialRead = collected.countriesRead !== undefined;
     console.log(
-      `[provider-sync] "${id}" catalog fetched: ${catalog.length} raw entries (${Date.now() - startedAt}ms elapsed)`,
+      `[provider-sync] "${id}" catalog fetched: ${catalog.length} raw entries${
+        partialRead ? `, ${collected.countriesRead!.length}/${collected.countriesTotal} countries read` : ""
+      } (${Date.now() - startedAt}ms elapsed)`,
     );
+    if (partialRead && collected.countriesRead!.length === 0) {
+      throw new Error(
+        collected.rateLimited
+          ? `${label} is limiting how fast it can be asked (rate limited), so no country could be read.`
+          : `${label} did not return prices for any country.`,
+      );
+    }
     const disabled = new Set(disabledRows.map((row) => row.slug));
 
     const rows: OfferRow[] = [];
@@ -373,11 +526,15 @@ async function syncOneProvider(
 
     console.log(`[provider-sync] "${id}" ${rows.length} priceable offers after filtering, writing`);
 
-    if (rows.length === 0) {
-      const error = "Sync produced zero priceable offers; leaving the previous cache in place.";
-      await recordFailure(id, error);
-      return { id, label, ok: false, error };
+    if (rows.length === 0 && !partialRead) {
+      throw new Error("The server returned nothing that can be sold.");
     }
+
+    // A whole-catalog answer far smaller than the last good one is more
+    // likely a bad answer than half the market vanishing overnight: write
+    // what came back, but remove nothing.
+    const previousOffers = previous?.offersSynced ?? 0;
+    const shrunk = !partialRead && previousOffers >= 200 && rows.length < previousOffers / 2;
 
     // See upsertOffers()'s own comment for why this is a sequence of short
     // upserts rather than one held transaction. SyncedOffer is a browsing
@@ -386,7 +543,11 @@ async function syncOneProvider(
     // historical Activation row keeps the price it was actually sold at.
     const runStartedAt = new Date();
     await upsertOffers(rows, runStartedAt);
-    const staleRemoved = await removeStaleOffers(id, runStartedAt);
+    // Only what this run actually looked at can be stale: a country it did
+    // not read keeps its rows, and a shrunken answer removes nothing.
+    const staleRemoved = shrunk
+      ? 0
+      : await removeStaleOffers(id, runStartedAt, partialRead ? collected.countriesRead : undefined);
     const restrictedRemoved = await removeRestrictedOffers();
     if (restrictedRemoved > 0) {
       console.log(`[provider-sync] purged ${restrictedRemoved} cached offers for restricted services`);
@@ -404,81 +565,135 @@ async function syncOneProvider(
       offersSynced: rows.length,
     };
 
-    await prisma.providerSyncStatus.upsert({
-      where: { id },
-      create: { id, lastSuccessAt: new Date(), ...stats },
+    const read = collected.countriesRead?.length;
+    const total = collected.countriesTotal;
+    const complete = !shrunk && (!partialRead || (read === total && (collected.countriesFailed?.length ?? 0) === 0));
+    const result: SyncResultKind = complete ? "success" : "partial";
+    const message = shrunk
+      ? `Only ${rows.length} offers came back against ${previousOffers} last time, so nothing was removed. Sync again later.`
+      : partialRead && !complete
+        ? `${read} of ${total} countries refreshed this run${
+            collected.rateLimited ? ` (${label} limits how fast prices can be read)` : ""
+          }. The other countries keep their last synced prices; sync again to continue.`
+        : `Synced ${stats.servicesSynced} services in ${stats.countriesSynced} countries (${stats.offersSynced} offers).`;
+
+    if (complete) {
       // Cleared on success so a stale error from an older run cannot keep
       // showing against a catalog that is now current.
-      update: { lastSuccessAt: new Date(), lastFailureError: null, ...stats },
-    });
+      await prisma.providerSyncStatus.update({
+        where: { id },
+        data: { lastSuccessAt: new Date(), lastFailureError: null, ...stats },
+      });
+    } else {
+      const stored = await prisma.syncedOffer.count({ where: { providerId: id } });
+      await prisma.providerSyncStatus.update({
+        where: { id },
+        data: { offersSynced: stored },
+      });
+    }
 
-    return { id, label, ok: true, ...stats };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown sync error.";
-    await recordFailure(id, message);
-    return { id, label, ok: false, error: message };
+    return {
+      id,
+      label,
+      ok: true,
+      result,
+      ...stats,
+      ...(partialRead ? { countriesRead: read, countriesTotal: total } : {}),
+      message,
+    };
   }
+}
+
+/** A failure reason fit for the admin screen: short, and never a key, a
+ *  URL with a key in it, or a raw response body. */
+function safeSyncMessage(detail: string): string {
+  const cleaned = detail
+    .replace(/(api[_-]?key|token|secret|authorization)[=:]\s*\S+/gi, "$1=[hidden]")
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .trim();
+  return cleaned.length > 220 ? `${cleaned.slice(0, 217)}...` : cleaned || "Sync failed.";
 }
 
 /**
  * Syncs one provider by id, or every enabled provider when called with no
- * argument (what the daily cron and a bare "Sync now" do). Each provider is
- * synced in its own pass, sequentially, so one provider's failure cannot
- * abort another's, and one provider's connection issue never touches
- * another's cached rows.
+ * argument (what the daily cron and "Sync all" do). Providers run side by
+ * side, each in its own pass with its own lock and its own rows, so one
+ * provider's failure cannot abort another's or touch its data, and both fit
+ * inside one request's time limit.
  */
-export async function runProviderSync(providerId?: string): Promise<ProviderSyncResult> {
+export async function runProviderSync(
+  providerId?: string,
+  options: {
+    trigger?: SyncTrigger;
+    /** How long a provider read country by country may read, when the
+     *  caller has already used part of its request's time. */
+    readBudgetMs?: number;
+  } = {},
+): Promise<ProviderSyncResult> {
+  const deadline = Date.now() + Math.min(options.readBudgetMs ?? SNAPSHOT_READ_BUDGET_MS, SNAPSHOT_READ_BUDGET_MS);
   if (providerId) {
     const definition = getProviderDefinition(providerId);
     if (!definition) {
       const error = `Unknown provider "${providerId}".`;
-      return { ok: false, error };
+      return { ok: false, result: "failed", error };
     }
 
     const resolution = await resolveProvider(providerId);
     if (!resolution.connected) {
-      const error = `Provider not connected (${resolution.reason}).`;
+      const error = `Not connected (${resolution.reason}). Check its keys in the deployment settings.`;
       await recordFailure(providerId, error);
-      return { ok: false, error, providers: [{ id: providerId, label: definition.label, ok: false, error }] };
+      const outcome: ProviderSyncOutcome = { id: providerId, label: definition.label, ok: false, result: "failed", error, message: error };
+      return { ok: false, result: "failed", error, providers: [outcome] };
     }
 
     await checkProviderBalanceSafely(providerId, definition.label, resolution.provider);
-    const outcome = await syncOneProvider(providerId, definition.label, resolution.provider);
-    return {
-      ok: outcome.ok,
-      servicesSynced: outcome.servicesSynced,
-      countriesSynced: outcome.countriesSynced,
-      offersSynced: outcome.offersSynced,
-      error: outcome.error,
-      providers: [outcome],
-    };
+    const outcome = await syncOneProvider(providerId, definition.label, resolution.provider, options.trigger ?? "manual", deadline);
+    return summarize([outcome]);
   }
 
   const enabled = await getEnabledProviders();
   if (enabled.length === 0) {
-    return { ok: false, error: "Provider not connected (not_configured)." };
+    return { ok: false, result: "failed", error: "No server is enabled and connected." };
   }
 
-  const outcomes: ProviderSyncOutcome[] = [];
-  for (const { id, label, provider } of enabled) {
-    await checkProviderBalanceSafely(id, label, provider);
-    outcomes.push(await syncOneProvider(id, label, provider));
-  }
+  const outcomes = await Promise.all(
+    enabled.map(async ({ id, label, provider }) => {
+      await checkProviderBalanceSafely(id, label, provider);
+      return syncOneProvider(id, label, provider, options.trigger ?? "manual_all", deadline);
+    }),
+  );
+  return summarize(outcomes);
+}
 
-  const ok = outcomes.every((outcome) => outcome.ok);
+/** One result for a run over one or more providers. */
+export function summarize(outcomes: ProviderSyncOutcome[]): ProviderSyncResult {
+  const result: SyncResultKind = outcomes.every((o) => o.result === "success")
+    ? "success"
+    : outcomes.some((o) => o.result === "success" || o.result === "partial")
+      ? "partial"
+      : outcomes.every((o) => o.result === "skipped")
+        ? "skipped"
+        : "failed";
   return {
-    ok,
+    ok: result === "success",
+    result,
     servicesSynced: outcomes.reduce((sum, o) => sum + (o.servicesSynced ?? 0), 0),
     countriesSynced: outcomes.reduce((sum, o) => sum + (o.countriesSynced ?? 0), 0),
     offersSynced: outcomes.reduce((sum, o) => sum + (o.offersSynced ?? 0), 0),
-    error: ok
-      ? undefined
-      : outcomes
-          .filter((o) => !o.ok)
-          .map((o) => `${o.label}: ${o.error}`)
-          .join("; "),
+    error:
+      result === "success"
+        ? undefined
+        : outcomes
+            .filter((o) => o.result !== "success")
+            .map((o) => `${o.label}: ${o.error ?? o.message ?? o.result}`)
+            .join("; "),
     providers: outcomes,
   };
+}
+
+/** The most recent sync runs, newest first, for the admin. */
+export async function getRecentSyncRuns(limit = 8) {
+  return prisma.providerSyncRun.findMany({ orderBy: { startedAt: "desc" }, take: limit });
 }
 
 /**
@@ -527,6 +742,11 @@ async function recordFailure(providerId: string, message: string): Promise<void>
 export const SYNC_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
 
 export interface ProviderSyncStatusView {
+  runningSince: Date | null;
+  lastFinishedAt: Date | null;
+  lastDurationMs: number | null;
+  lastResult: string | null;
+  lastMessage: string | null;
   lastSuccessAt: Date | null;
   lastFailureAt: Date | null;
   lastFailureError: string | null;
@@ -540,6 +760,11 @@ export interface ProviderSyncStatusView {
 
 function toStatusView(
   row: {
+    runningSince?: Date | null;
+    lastFinishedAt?: Date | null;
+    lastDurationMs?: number | null;
+    lastResult?: string | null;
+    lastMessage?: string | null;
     lastSuccessAt: Date | null;
     lastFailureAt: Date | null;
     lastFailureError: string | null;
@@ -551,7 +776,14 @@ function toStatusView(
   const isFresh = Boolean(
     row?.lastSuccessAt && Date.now() - row.lastSuccessAt.getTime() < SYNC_STALE_AFTER_MS,
   );
+  const running =
+    row?.runningSince && Date.now() - row.runningSince.getTime() < SYNC_LOCK_STALE_MS ? row.runningSince : null;
   return {
+    runningSince: running,
+    lastFinishedAt: row?.lastFinishedAt ?? null,
+    lastDurationMs: row?.lastDurationMs ?? null,
+    lastResult: row?.lastResult ?? null,
+    lastMessage: row?.lastMessage ?? null,
     lastSuccessAt: row?.lastSuccessAt ?? null,
     lastFailureAt: row?.lastFailureAt ?? null,
     lastFailureError: row?.lastFailureError ?? null,

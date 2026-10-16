@@ -4,12 +4,14 @@
 export function DashboardStat({
   label,
   value,
+  className,
 }: {
   label: string;
   value: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-3.5">
+    <div className={`min-w-0 rounded-xl border border-border bg-surface px-4 py-3.5 ${className ?? ""}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
     </div>

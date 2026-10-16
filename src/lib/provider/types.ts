@@ -111,6 +111,20 @@ export interface ProviderAvailability {
  * read has no such context: it is discovering both sides at once, so the
  * service travels with the pair.
  */
+/** What getCatalogSnapshot() could read this time. */
+export interface CatalogSnapshot {
+  entries: ProviderCatalogEntry[];
+  /** Our country slugs whose prices were read (an empty list counts: the
+   *  country sells nothing right now). */
+  countriesRead: string[];
+  /** Our country slugs that were asked about but could not be read. */
+  countriesFailed: string[];
+  /** Every country the supplier lists. */
+  countriesTotal: number;
+  /** Set when the supplier's rate limit stopped the run early. */
+  rateLimited?: boolean;
+}
+
 export interface ProviderCatalogEntry {
   service: ProviderService;
   country: ProviderCountry;
@@ -257,6 +271,18 @@ export interface NumberProvider {
    * purely about how many requests it takes to collect it.
    */
   getFullCatalog?(): Promise<ProviderCatalogEntry[]>;
+
+  /**
+   * The catalog read in a bounded amount of time, for a supplier that needs
+   * one request per country and limits how fast they may come (Server II).
+   * Countries are read in `countryOrder` first (the sync passes the ones
+   * refreshed longest ago), and reading stops at `deadline` (epoch ms).
+   * The answer says which countries were read: only those are refreshed,
+   * and every other country keeps the rows its last sync wrote, so a
+   * partial run never removes anything it did not look at. The sync
+   * prefers this over getFullCatalog() when an adapter offers it.
+   */
+  getCatalogSnapshot?(options: { deadline: number; countryOrder?: string[] }): Promise<CatalogSnapshot>;
 
   /** Xencodes' remaining credit with the supplier, in US cents (suppliers
    *  in this space bill and hold balance in USD), when the supplier exposes

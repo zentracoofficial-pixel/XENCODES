@@ -155,7 +155,7 @@ export async function syncProviderAction(providerId: string): Promise<ProviderSy
 export async function syncAllProvidersAction(): Promise<ProviderSyncResult> {
   const admin = await requireAdmin();
 
-  const result = await runProviderSync();
+  const result = await runProviderSync(undefined, { trigger: "manual_all" });
   await recordAudit({
     actor: admin,
     action: "provider.sync_all",
