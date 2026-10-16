@@ -1,5 +1,5 @@
 import { GrizzlySmsProvider } from "./grizzlysms";
-import { DogeSmsProvider } from "./dogesms";
+import { DogeSmsProvider, settingsCatalogStore } from "./dogesms";
 import type { NumberProvider } from "./types";
 
 /**
@@ -114,6 +114,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
       const waitSeconds = Number(process.env.DOGESMS_ALLOCATION_WAIT_SECONDS);
       return new DogeSmsProvider({
         apiKey,
+        catalogStore: settingsCatalogStore,
         apiOrigin: process.env.DOGESMS_API_ORIGIN || undefined,
         // How long a purchase waits for a number to be allocated before the
         // order is cancelled and the next server is tried (default 15s).

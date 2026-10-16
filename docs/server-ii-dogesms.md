@@ -24,12 +24,18 @@ error or routing detail reaches a customer page, API response or browser bundle 
   server is refused while one runs), and reports each server separately: success, partial, failed or
   already running. Every run is kept in Admin → Providers → Sync history (start, duration, result).
 - DogeSMS has no bulk price endpoint: prices are read one country at a time
-  (`GET /v1/catalog/prices?country_code=`), and it rate-limits those reads (HTTP 429). A sync reads
-  three countries at a time, drops to one at a time after a 429, waits as DogeSMS asks (Retry-After,
-  else exponential back-off) and stops after about 38 seconds so the request ends inside Vercel's
-  60-second limit. Countries refreshed longest ago go first, so repeated syncs cover them all; a run
-  that could not read every country is reported as partial, and the countries it did not read keep
-  their last synced prices.
+  (`GET /v1/catalog/prices?country_code=`), and its answers are slow (1 to 11 seconds each in
+  production; the 130 KB service list can take several seconds). A sync reads five countries at a
+  time, drops to one at a time after a 429, waits as DogeSMS asks (Retry-After, else exponential
+  back-off), gives each request up to 20 seconds (cut short at the sync's deadline), and stops
+  reading after about 44 seconds so the request ends inside Vercel's 60-second limit. Never-synced
+  countries go first (the best-known ones before the rest), then those synced longest ago, so
+  repeated syncs cover every country. A run that could not read every country is reported as
+  partial; the countries it did not read keep their last synced prices. Expect a first full
+  coverage to take a few presses of Sync now (or a few daily runs).
+- DogeSMS's service and country lists are saved in the settings table (`dogesms_catalog_v1`) and
+  reused for six hours, so a sync does not depend on those slow calls every time; if DogeSMS cannot
+  answer them, a copy up to a week old keeps the sync going (prices are always read fresh).
 - A failed read changes nothing. A whole-catalog answer less than half the size of the last good one
   writes what came back but removes nothing. Only rows for countries a run actually read can be
   removed, and only for this server.
