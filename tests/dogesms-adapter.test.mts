@@ -202,6 +202,24 @@ test("balance in cents, and the key never appears in what comes back", async () 
   assert.ok(!JSON.stringify(test1).includes(KEY));
 });
 
+test("balance: a 429 is waited out and asked again, so a busy moment is not reported as a failure", async () => {
+  let asked = 0;
+  handler = (req) => {
+    if (req.path !== "/v1/balance") return catalog(req);
+    asked += 1;
+    return asked < 3
+      ? { status: 429, body: { error: { code: "RATE_LIMITED" } } }
+      : { status: 200, body: { data: { balance_cents: 777 } } };
+  };
+  assert.equal(await provider().getProviderBalanceUsdCents(), 777);
+  assert.equal(asked, 3);
+});
+
+test("balance: still limited after every attempt is reported as a rate limit, not hidden", async () => {
+  handler = (req) => (req.path === "/v1/balance" ? { status: 429, body: { error: { code: "RATE_LIMITED" } } } : catalog(req));
+  await assert.rejects(() => provider().getProviderBalanceUsdCents(), /RATE_LIMITED/);
+});
+
 test("service names map to house listings only when clearly the same", () => {
   assert.equal(houseServiceSlug("instagram", directory), "instagram-threads");
   assert.equal(houseServiceSlug("whatsapp", directory), "whatsapp");

@@ -103,6 +103,9 @@ const MAX_RATE_LIMIT_RETRIES = 3;
  *  would only lengthen DogeSMS's limit. The rest wait for the next run. */
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
 const MAX_COOLDOWN_MS = 20_000;
+const BALANCE_ATTEMPTS = 3;
+const BALANCE_TIMEOUT_MS = 6_000;
+const BALANCE_MAX_WAIT_MS = 5_000;
 
 export const DOGESMS_PROVIDER_ID = "dogesms";
 
@@ -764,8 +767,23 @@ export class DogeSmsProvider implements NumberProvider {
   }
 
   async getProviderBalanceUsdCents(): Promise<number | null> {
-    const data = (await this.getJson("/v1/balance")) as Json | null;
-    return data ? int(data.balance_cents) : null;
+    // A balance read is one small request, but it shares DogeSMS's rate limit
+    // with the price reads, so it can be refused while a sync is running.
+    // Wait out the cooldown and ask again rather than reporting a failure
+    // for what is only a busy moment.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < BALANCE_ATTEMPTS; attempt += 1) {
+      const wait = DogeSmsProvider.cooldownUntil - Date.now();
+      if (wait > 0) await this.sleep(Math.min(wait, BALANCE_MAX_WAIT_MS));
+      try {
+        const data = (await this.getJson("/v1/balance", undefined, BALANCE_TIMEOUT_MS)) as Json | null;
+        return data ? int(data.balance_cents) : null;
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof DogeSmsRateLimitedError)) throw error;
+      }
+    }
+    throw lastError;
   }
 
   async testConnection(): Promise<{ ok: boolean; message: string }> {

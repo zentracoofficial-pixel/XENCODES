@@ -29,6 +29,8 @@ export const dynamic = "force-dynamic";
 
 const ACTIVITY_LIMIT = 15;
 const TREND_DAYS = 14;
+// A balance read within this long is shown again rather than asked for anew.
+const BALANCE_REUSE_MS = 2 * 60 * 1000;
 
 export default async function AdminDashboardPage() {
   await requireAdmin();
@@ -151,11 +153,22 @@ export default async function AdminDashboardPage() {
   // sync cron) balance monitoring rides along on, rather than polling on
   // its own schedule.
   const enabledProviders = await getEnabledProviders();
-  const primaryProvider = enabledProviders[0];
-  const providerBalanceUsdCents = primaryProvider
-    ? (await checkProviderBalance(primaryProvider.id, primaryProvider.label, primaryProvider.provider)).balanceUsdCents
-    : null;
-  const providerBalanceStatus = primaryProvider ? await getProviderBalanceStatus(primaryProvider.id) : null;
+  // One reading per enabled server, each kept in its own record so a
+  // failing or low server shows up on its own card.
+  const providerBalances = await Promise.all(
+    enabledProviders.map(async ({ id, label, provider }) => {
+      await checkProviderBalance(id, label, provider, { maxAgeMs: BALANCE_REUSE_MS }).catch((error) => {
+        console.error(`[admin] balance check threw for "${id}":`, error);
+      });
+      return {
+        id,
+        label,
+        supportsBalance: typeof provider.getProviderBalanceUsdCents === "function",
+        status: await getProviderBalanceStatus(id),
+      };
+    }),
+  );
+  const providerBalanceStatus = providerBalances.find((entry) => entry.status?.isLow)?.status ?? null;
 
   const health = await getSystemHealth();
 
@@ -282,12 +295,19 @@ export default async function AdminDashboardPage() {
 
       <AttentionPanel items={attention} />
 
-      <ProviderBalanceCard
-        label={primaryProvider?.label ?? "Number provider"}
-        connected={Boolean(primaryProvider)}
-        supportsBalance={typeof primaryProvider?.provider.getProviderBalanceUsdCents === "function"}
-        status={providerBalanceStatus}
-      />
+      {providerBalances.length === 0 ? (
+        <ProviderBalanceCard label="Number provider" connected={false} supportsBalance={false} status={null} />
+      ) : (
+        providerBalances.map((entry) => (
+          <ProviderBalanceCard
+            key={entry.id}
+            label={entry.label}
+            connected
+            supportsBalance={entry.supportsBalance}
+            status={entry.status}
+          />
+        ))
+      )}
 
       <section>
         <SectionHeading
@@ -336,28 +356,26 @@ export default async function AdminDashboardPage() {
             href="/admin/support"
             tone={openSupport > 0 ? "warning" : "default"}
           />
-          <Metric
-            label="Provider balance"
-            value={
-              !resolved.connected
-                ? "Not connected"
-                : providerBalanceUsdCents === null
-                  ? "Not reported"
-                  : formatMoney(providerBalanceUsdCents, "USD")
-            }
-            hint={
-              !resolved.connected
-                ? "No provider to hold credit with"
-                : providerBalanceUsdCents === null
-                  ? "This provider does not report one"
-                  : "Credit remaining with the provider, in USD"
-            }
-            tone={
-              providerBalanceUsdCents !== null && providerBalanceUsdCents <= 0
-                ? "danger"
-                : "default"
-            }
-          />
+          {providerBalances.length === 0 ? (
+            <Metric label="Provider balance" value="Not connected" hint="No provider to hold credit with" />
+          ) : (
+            providerBalances.map((entry) => {
+              const cents = entry.status?.currentBalanceUsdCents ?? null;
+              return (
+                <Metric
+                  key={entry.id}
+                  label={`${entry.label} balance`}
+                  value={cents === null ? (entry.supportsBalance ? "Not reported" : "Not available") : formatMoney(cents, "USD")}
+                  hint={
+                    entry.status?.lastCheckError
+                      ? "Last check failed; showing the last reading"
+                      : "Credit remaining with the provider, in USD"
+                  }
+                  tone={entry.status?.isLow || (cents !== null && cents <= 0) ? "danger" : "default"}
+                />
+              );
+            })
+          )}
         </MetricGrid>
       </section>
 

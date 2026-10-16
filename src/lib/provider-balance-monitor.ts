@@ -112,9 +112,25 @@ export async function checkProviderBalance(
   providerId: string,
   label: string,
   provider: NumberProvider,
+  options: { maxAgeMs?: number } = {},
 ): Promise<ProviderBalanceCheckResult> {
   if (typeof provider.getProviderBalanceUsdCents !== "function") {
     return { ok: true, balanceUsdCents: null };
+  }
+
+  // A reading taken moments ago is reused instead of asking the supplier
+  // again: the dashboard is opened often, and suppliers rate-limit.
+  if (options.maxAgeMs) {
+    const last = await prisma.providerBalanceStatus.findUnique({ where: { id: providerId } }).catch(() => null);
+    if (
+      last &&
+      !last.lastCheckError &&
+      last.currentBalanceUsdCents !== null &&
+      last.lastSuccessfulCheckAt &&
+      Date.now() - last.lastSuccessfulCheckAt.getTime() < options.maxAgeMs
+    ) {
+      return { ok: true, balanceUsdCents: last.currentBalanceUsdCents };
+    }
   }
 
   let balanceUsdCents: number | null;
