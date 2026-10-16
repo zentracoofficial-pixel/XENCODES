@@ -126,6 +126,9 @@ export async function deleteUserAction(userId: string) {
   revalidatePath("/admin/users");
 }
 
+/** The largest single admin adjustment, in the wallet's main unit. */
+const MAX_ADJUSTMENT_MAJOR = 10_000_000;
+
 export interface CreditWalletState {
   error?: string;
   success?: boolean;
@@ -152,6 +155,15 @@ export async function adminCreditWalletAction(
   // means is the target account's own, never assumed to be Naira.
   const target = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const minorAmount = majorToMinor(amount, target.currency);
+  if (minorAmount === 0) return { error: "That amount is too small to record." };
+  // A typo (an extra zero) or a debit larger than the balance must not
+  // silently put a wallet below zero or mint a huge balance.
+  if (Math.abs(amount) > MAX_ADJUSTMENT_MAJOR) {
+    return { error: `An adjustment can be at most ${MAX_ADJUSTMENT_MAJOR.toLocaleString("en")} at a time.` };
+  }
+  if (minorAmount < 0 && target.walletBalanceKobo + minorAmount < 0) {
+    return { error: "That debit is more than the customer's balance." };
+  }
   await creditWallet(userId, minorAmount, "ADJUSTMENT", note, target.currency);
   await recordAudit({
     actor: admin,
