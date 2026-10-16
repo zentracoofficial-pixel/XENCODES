@@ -22,7 +22,7 @@ error or routing detail reaches a customer page, API response or browser bundle 
 
 - Sync all runs every enabled server side by side, each with its own lock (a second sync of the same
   server is refused while one runs), and reports each server separately: success, partial, failed or
-  already running. Every run is kept in Admin → Providers → Sync history (start, duration, result).
+  already running. Each server card shows its latest run (result, time taken, what it did).
 - DogeSMS has no bulk price endpoint: prices are read one country at a time
   (`GET /v1/catalog/prices?country_code=`), and its answers are slow (1 to 11 seconds each in
   production; the 130 KB service list can take several seconds). A sync keeps eight country requests in flight at a

@@ -696,11 +696,6 @@ export function summarize(outcomes: ProviderSyncOutcome[]): ProviderSyncResult {
   };
 }
 
-/** The most recent sync runs, newest first, for the admin. */
-export async function getRecentSyncRuns(limit = 8) {
-  return prisma.providerSyncRun.findMany({ orderBy: { startedAt: "desc" }, take: limit });
-}
-
 /**
  * Balance monitoring is observability riding along on the same daily sync,
  * not part of what the sync reports success/failure on — a supplier balance
