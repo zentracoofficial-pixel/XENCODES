@@ -119,9 +119,10 @@ function flagFromIso2(iso2: string): string {
  *  matched to the same country the first one already sells under. */
 export function resolveIso2(name: string): string | null {
   // A "(2)", "(3)" suffix is the label Xencodes itself adds when a supplier
-  // lists one country as several separately priced pools; the country is the
-  // same one, so its flag and dial code come from the name without it.
-  const key = name.trim().toLowerCase().replace(/\s*\(\d+\)$/, "");
+  // lists one country as several separately priced pools, and a supplier may
+  // add its own note such as "(Virtual)"; the country is the same one, so its
+  // flag and dial code come from the name without it.
+  const key = name.trim().toLowerCase().replace(/(\s*\([^)]*\))+$/, "").trim();
   if (!key) return null;
 
   const direct = NAME_TO_ISO2.get(key);

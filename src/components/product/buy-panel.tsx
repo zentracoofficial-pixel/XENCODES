@@ -19,6 +19,7 @@ import {
 import { toggleFavoriteServiceAction } from "@/app/dashboard/favorites-actions";
 import { expandCountryQuery } from "@/lib/search-aliases";
 import { CountryBrowser, type CountryServiceRow } from "@/components/product/country-browser";
+import { Flag } from "@/components/ui/flag";
 
 /**
  * The buy interface: search the live catalog, pick a country that service
@@ -552,9 +553,7 @@ export function BuyPanel({
     // no tag here: the price is shown per server once a country is chosen.
     hint: item.dialCode,
     leading: (
-      <span aria-hidden className="text-lg leading-none">
-        {item.flag}
-      </span>
+      <Flag flag={item.flag} />
     ),
   }));
 
@@ -583,9 +582,7 @@ export function BuyPanel({
         label: country.name,
         hint: country.dialCode,
         leading: (
-          <span aria-hidden className="text-lg leading-none">
-            {country.flag}
-          </span>
+          <Flag flag={country.flag} />
         ),
       }
     : null;
