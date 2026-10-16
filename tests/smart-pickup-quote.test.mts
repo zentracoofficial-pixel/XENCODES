@@ -101,8 +101,12 @@ const expectedServerTwo = (cents: number, currency: Awaited<ReturnType<typeof ge
   const rate = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
   const cost = Math.round((cents / 100) * rate * 100);
   const step = currency.code === "NGN" ? 100 : 1;
+  // Premium's profit is capped in Naira (NGN 3,000 at a NGN 1,400 cost, NGN 5,000 from NGN 6,000).
+  const costNgn = cost / (currency.code === "NGN" ? 100 : 100 * (rate / (currency.ngnPerUsd ?? rate)));
+  const capNgn = costNgn <= 1400 ? 3000 : costNgn >= 6000 ? 5000 : 3000 + ((costNgn - 1400) / 4600) * 2000;
   const pricedCents = cents <= 40 ? cents * 4 : cents <= 150 ? 160 + (cents - 40) * 2.5 : cents <= 300 ? 435 + (cents - 150) * 1.6 : 675 + (cents - 300) * 1.15;
-  const price = Math.ceil((cost * pricedCents) / cents / step - 1e-9) * step;
+  const capMinor = currency.code === "NGN" ? capNgn * 100 : (capNgn / (currency.ngnPerUsd ?? rate)) * rate * 100;
+  const price = Math.ceil(Math.min((cost * pricedCents) / cents, cost + capMinor) / step - 1e-9) * step;
   return currency.code === "NGN" ? Math.max(price, 50_000) : price;
 };
 

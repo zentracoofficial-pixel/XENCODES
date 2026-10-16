@@ -46,7 +46,7 @@ export function SmartPickupCard({ settings, providers, performance, ambiguous }:
           <h2 className="text-sm font-semibold">Smart Pickup</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Each server is priced its own way: Server I by the platform price rules, Server II (shown to customers as Premium) at 4&times; its
-            own cost, tapering on dearer numbers. The cheapest server is asked first and the next only when it cannot sell; a dearer server
+            own cost, tapering on dearer numbers and with profit capped at ₦5,000 a number. The cheapest server is asked first and the next only when it cannot sell; a dearer server
             is never used without the customer confirming its price. Between servers at the same price, the order
             goes to the one most likely to deliver a code, judged from Xencodes&apos; own finished orders for that
             exact service and country. A customer whose Server I order ends without a code is offered Server II.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { quoteForProvider, quoteForPair, effectiveProviderMultiplier, type MarginRules } from "../src/lib/pricing";
+import { quoteForProvider, quoteForPair, effectiveProviderMultiplier, premiumProfitCapNgn, type MarginRules } from "../src/lib/pricing";
 import type { CurrencyConfigEntry } from "../src/lib/currency-config";
 
 const rules: MarginRules = { defaultMultiplier: 3, exclusiveMultiplier: 2, serviceOverrides: new Map([["telegram", 5]]) };
@@ -80,4 +80,35 @@ test("Server II price tapers on dearer numbers, never falls as cost rises, and l
   }
   // No tiers for the other server.
   assert.equal(effectiveProviderMultiplier("grizzlysms", 100), undefined);
+});
+
+test("Premium profit is capped in Naira: about NGN 3,000 on a NGN 1,400 cost, NGN 5,000 at most from NGN 6,000", () => {
+  assert.equal(premiumProfitCapNgn(1_000), 3_000);
+  assert.equal(premiumProfitCapNgn(1_400), 3_000);
+  assert.equal(premiumProfitCapNgn(3_700), 4_000);
+  assert.equal(premiumProfitCapNgn(6_000), 5_000);
+  assert.equal(premiumProfitCapNgn(60_000), 5_000);
+
+  const profitNgn = (cents: number, currency: CurrencyConfigEntry) => {
+    const q = quoteForProvider(rules, "dogesms", cents, "whatsapp", "usa", currency);
+    return currency.code === "NGN" ? q.grossProfitKobo / 100 : (q.grossProfitKobo / 100) * (currency.ngnPerUsd ?? 1400);
+  };
+  // $1.00 = NGN 1,400 cost: the tiers earn NGN 2,940, under the cap, so they stand.
+  assert.equal(profitNgn(100, ngn), 2_940);
+  // $4.29 = about NGN 6,000 cost: the tiers would earn far more; the cap holds it to NGN 5,000.
+  assert.ok(profitNgn(429, ngn) <= 5_000 + 1, `${profitNgn(429, ngn)}`);
+  // $10 = NGN 14,000 cost: still NGN 5,000 profit, not NGN 6,800.
+  assert.ok(profitNgn(1000, ngn) <= 5_000 + 1);
+  assert.ok(profitNgn(1000, ngn) > 4_990);
+  // The same price to a dollar wallet, to within a cent.
+  assert.ok(Math.abs(profitNgn(1000, usd) - 5_000) < 1600 * 0.02);
+  // A cost in the first tier is untouched.
+  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", ngn).customerPriceKobo, 184_800);
+  // The price still never falls as the cost rises.
+  let last = 0;
+  for (let cents = 1; cents <= 5000; cents += 7) {
+    const price = quoteForProvider(rules, "dogesms", cents, "whatsapp", "usa", ngn).customerPriceKobo;
+    assert.ok(price >= last, `price fell at ${cents}c`);
+    last = price;
+  }
 });

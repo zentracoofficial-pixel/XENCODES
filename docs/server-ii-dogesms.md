@@ -54,7 +54,7 @@ error or routing detail reaches a customer page, API response or browser bundle 
 - Each server is priced its own way. Server I follows the platform price rules (multipliers, minimums,
   repeat-listing and fixed pair prices). Server II sells at **4× its own cost up to 40 cents of cost, and less on the part above that** (2.5× from 40¢ to $1.50,
   1.6× to $3, 1.15× beyond; `PROVIDER_PRICE_TIERS` in `src/lib/pricing.ts`) in every currency, so cheap numbers are unchanged
-  and dear ones stop being four times dear ($1.00 cost → $3.10, $2.00 → $5.15, $5.00 → $9.05, $10.00 → $14.80). A Premium price more than 3× the cheapest
+  and dear ones stop being four times dear ($1.00 cost → $3.10, $2.00 → $5.15, $5.00 → $9.05, $10.00 → $14.80). Premium's profit is also capped in Naira, whatever the tiers say: about ₦3,000 on a ₦1,400 cost, rising evenly to ₦5,000 at a ₦6,000 cost and ₦5,000 at most beyond (`PREMIUM_PROFIT_CAP_NGN`; a dollar wallet gets the same profit at the market rate). A Premium price more than 3× the cheapest
   server's for the same pair is not offered beside it (`PREMIUM_MAX_PRICE_OVER_CHEAPEST`); a pair only Premium can sell keeps it. Customers see it as
   **Premium** (`src/lib/server-names.ts`): the cost is converted at the market Naira rate,
   the same rate a Naira price is shown at in dollars, so a dollar wallet sees 4× too. Rounded up only
