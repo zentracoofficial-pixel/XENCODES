@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { Wordmark } from "@/components/layout/wordmark";
 import { SERVICE_PAGES } from "@/data/service-pages";
+import { GUIDES } from "@/data/guides";
 
 /**
  * Grouped so a visitor (and a crawler) can see the shape of the site at a
@@ -15,16 +16,24 @@ const columns: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: "/buy", label: "Get a number" },
       { href: "/services", label: "Supported services" },
+      { href: "/countries", label: "Numbers by country" },
       { href: "/how-it-works", label: "How it works" },
       { href: "/pricing", label: "Pricing" },
     ],
   },
   {
     title: "Popular",
-    links: SERVICE_PAGES.map((page) => ({
+    links: SERVICE_PAGES.slice(0, 6).map((page) => ({
       href: `/services/${page.slug}`,
       label: `${page.name} verification number`,
     })),
+  },
+  {
+    title: "Guides",
+    links: [
+      ...GUIDES.slice(0, 4).map((guide) => ({ href: `/guides/${guide.slug}`, label: guide.metaTitle.replace(/:.*$/, "") })),
+      { href: "/guides", label: "All guides" },
+    ],
   },
   {
     title: "Company",
@@ -47,7 +56,7 @@ const columns: { title: string; links: { href: string; label: string }[] }[] = [
 export function Footer() {
   return (
     <footer className="mt-auto border-t border-border bg-surface">
-      <Container className="grid gap-10 py-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
+      <Container className="grid gap-10 py-12 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,3fr)]">
         <div>
           <Wordmark />
           <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
@@ -56,7 +65,7 @@ export function Footer() {
           </p>
         </div>
 
-        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-4">
+        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
           {columns.map((column) => (
             <div key={column.title}>
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-foreground">

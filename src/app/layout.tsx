@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_NAME}`,
   },
   description:
-    "Xencodes is a virtual SMS verification platform. Search for the service you need, choose a country, and receive your SMS verification code in real time. Pay as you go, with an automatic refund when no code arrives.",
+    "Xencodes is a worldwide virtual SMS verification platform. Search for the service you need, choose from numbers in countries around the world, and receive your SMS verification code in real time. Pay as you go, with an automatic refund when no code arrives.",
   applicationName: SITE_NAME,
   openGraph: {
     type: "website",

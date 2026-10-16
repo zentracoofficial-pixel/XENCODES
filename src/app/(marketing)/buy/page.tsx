@@ -27,7 +27,7 @@ export default async function BuyPage({
 }: {
   searchParams: Promise<{ service?: string; country?: string; activation?: string }>;
 }) {
-  const { service: serviceSlug, activation: activationId } = await searchParams;
+  const { service: serviceSlug, country: countrySlug, activation: activationId } = await searchParams;
   const session = await auth();
 
   // A signed-in customer belongs in the dashboard, not on the marketing
@@ -38,6 +38,7 @@ export default async function BuyPage({
   if (session?.user?.id) {
     const params = new URLSearchParams();
     if (serviceSlug) params.set("service", serviceSlug);
+    if (countrySlug) params.set("country", countrySlug);
     if (activationId) params.set("activation", activationId);
     const query = params.toString();
     redirect(query ? `/dashboard/buy?${query}` : "/dashboard/buy");
@@ -75,6 +76,7 @@ export default async function BuyPage({
           <BuyPanel
             initialServices={services}
             initialServiceSlug={serviceSlug}
+            initialCountrySlug={countrySlug}
             signedIn={false}
             walletBalanceKobo={0}
             currency={visitorCurrency.code}

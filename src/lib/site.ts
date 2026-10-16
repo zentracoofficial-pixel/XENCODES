@@ -55,3 +55,13 @@ export const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL ?? "Xencodeshq@gmail.com
 export const SALES_NOTIFICATION_EMAIL = (
   process.env.SALES_NOTIFICATION_EMAIL ?? SUPPORT_EMAIL
 ).trim();
+
+/** The organisation as a small, self-contained structured-data object, for
+ *  pages other than the homepage (a bare "@id" reference is not followed
+ *  across pages). */
+export const ORGANIZATION_REF = {
+  "@type": "Organization",
+  "@id": `${SITE_URL}/#organization`,
+  name: SITE_NAME,
+  url: SITE_URL,
+} as const;
