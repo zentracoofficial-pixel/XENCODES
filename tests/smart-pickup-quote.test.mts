@@ -95,17 +95,18 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-/** Server II's price at 4x, rounded up to NGN 1 or 1 cent, never under the
- *  NGN 500 minimum. */
+/** Server II's price (4x the first 40 cents of cost, 2.5x up to $1.50),
+ *  rounded up to NGN 1 or 1 cent, never under the NGN 500 minimum. */
 const expectedServerTwo = (cents: number, currency: Awaited<ReturnType<typeof getDefaultCurrency>>) => {
   const rate = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
   const cost = Math.round((cents / 100) * rate * 100);
   const step = currency.code === "NGN" ? 100 : 1;
-  const price = Math.ceil((cost * 4) / step - 1e-9) * step;
+  const pricedCents = cents <= 40 ? cents * 4 : 160 + (cents - 40) * 2.5;
+  const price = Math.ceil((cost * pricedCents) / cents / step - 1e-9) * step;
   return currency.code === "NGN" ? Math.max(price, 50_000) : price;
 };
 
-test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own 4x price", async () => {
+test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own tiered price", async () => {
   dogeCents = 100;
   DogeSmsProvider.resetForTests();
   const currency = await getDefaultCurrency();

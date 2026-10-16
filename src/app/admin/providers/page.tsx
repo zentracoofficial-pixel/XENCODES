@@ -8,7 +8,7 @@ import {
 } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
-import { PROVIDER_COST_MULTIPLIERS } from "@/lib/pricing";
+import { providerCostMultiplier } from "@/lib/pricing";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
 import { getPoolQualityReport, getSellerDeliveryReport } from "@/lib/provider-pool-quality";
@@ -23,7 +23,7 @@ import { SmartPickupCard } from "./smart-pickup-card";
 import { readSmartPickupSettings, getProviderPerformance, listAmbiguousAttempts } from "@/lib/smart-pickup";
 
 /** Admin-only names for the servers; customers only ever see Xencodes. */
-const SERVER_NAME: Record<string, string> = { grizzlysms: "Server I", dogesms: "Server II" };
+const SERVER_NAME: Record<string, string> = { grizzlysms: "Server I", dogesms: "Server II (Premium)" };
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -85,7 +85,7 @@ export default async function AdminProvidersPage() {
       const status = statuses.get(definition.id) ?? null;
       // Read-only: the reading the dashboard and the daily sync already keep.
       const balance = await getProviderBalanceStatus(definition.id);
-      const multiplier = PROVIDER_COST_MULTIPLIERS[definition.id];
+      const multiplier = providerCostMultiplier(definition.id);
 
       return {
         id: definition.id,
@@ -94,7 +94,7 @@ export default async function AdminProvidersPage() {
         enabled: entry.enabled,
         priority: entry.priority,
         hasCredentials,
-        pricingNote: multiplier ? `Sells at ${multiplier}× its cost` : "Sells by the platform price rules",
+        pricingNote: multiplier ? `Sells at ${multiplier}× its cost, less on dearer numbers` : "Sells by the platform price rules",
         balance: balance
           ? {
               usdCents: balance.currentBalanceUsdCents,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, BarChart3, Loader2, Sparkles, Star, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { serverName } from "@/lib/server-names";
 import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
@@ -472,7 +473,7 @@ export function BuyPanel({
       if (result.error) {
         setError(
           result.error === "unavailable" && server && serverOptions.length > 1
-            ? `Server ${server} has no numbers for this right now. Try the other server or another country.`
+            ? `${serverName(server)} has no numbers for this right now. Try the other server or another country.`
             : errorCopy[result.error],
         );
         setErrorCode(result.error);
@@ -839,7 +840,7 @@ export function BuyPanel({
                           className="h-4 w-4 shrink-0 accent-[var(--forest)]"
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold">Server {option.server}</span>
+                          <span className="block text-sm font-semibold">{serverName(option.server)}</span>
                           {lowest ? (
                             <span className="block text-[11px] font-medium text-forest">Lowest price</span>
                           ) : null}

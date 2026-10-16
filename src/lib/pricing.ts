@@ -351,31 +351,68 @@ export function quoteForPair(
   );
 }
 
-/**
- * Providers whose numbers are priced at a fixed multiple of their own cost,
- * set by the owner, instead of the platform's margin rules. Server II
- * (DogeSMS) sells at 4x what it bills, in every currency: the cost is
- * converted into the currency being priced (Naira at the market rate, the
- * one a Naira price is shown at in dollars, not the platform's pricing
- * rate) and multiplied, and the result is
- * rounded up only to the smallest step that currency is shown in (NGN 1, or
- * 1 cent), not to the whole-unit step the margin rules use, so the price
- * stays 4x the cost. The owner's minimum prices (NGN 500, TikTok NGN 750,
+/*
+ * Providers whose numbers are priced from their own cost, set by the owner,
+ * instead of the platform's margin rules: Server II (DogeSMS), sold to
+ * customers as Premium. The cost is converted into the currency being priced
+ * (Naira at the market rate, the one a Naira price is shown at in dollars,
+ * not the platform's pricing rate) and multiplied by the tiered multiple
+ * below, and the result is rounded up only to the smallest step that
+ * currency is shown in (NGN 1, or 1 cent), not to the whole-unit step the
+ * margin rules use. The owner's minimum prices (NGN 500, TikTok NGN 750,
  * UK NGN 1,000) still apply on top. No profit band, repeat-listing price or
  * fixed pair price is applied to these.
  */
-export const PROVIDER_COST_MULTIPLIERS: Readonly<Record<string, number>> = {
-  dogesms: 4,
+
+/**
+ * Premium (Server II) is not a flat 4x all the way up. The first slice of a
+ * number's cost is marked up 4x, as the owner set; each slice above that is
+ * marked up less, so a dear number is no longer four times dear. A cheap
+ * number's price is exactly what it was: the first tier covers everything up
+ * to 40 cents of cost, so nothing cheap moves. Like income tax, only the
+ * part of the cost inside a tier gets that tier's multiplier, so the price
+ * rises smoothly with cost and never drops as cost goes up.
+ *
+ * Tiers are in US cents of the supplier's cost, applied before any currency
+ * conversion, so a Naira and a dollar wallet get the same price in dollars.
+ *
+ *   cost $0.40 -> $1.60 (4.0x)   cost $1.00 -> $3.10 (3.1x)
+ *   cost $2.00 -> $5.25 (2.6x)   cost $5.00 -> $10.25 (2.0x)
+ */
+export const PROVIDER_PRICE_TIERS: Readonly<Record<string, ReadonlyArray<{ upToUsdCents: number; multiplier: number }>>> = {
+  dogesms: [
+    { upToUsdCents: 40, multiplier: 4 },
+    { upToUsdCents: 150, multiplier: 2.5 },
+    { upToUsdCents: 400, multiplier: 1.8 },
+    { upToUsdCents: Infinity, multiplier: 1.4 },
+  ],
 };
 
-/** The fixed multiple of cost a provider is priced at, if it has one. */
+/** The flat multiple a provider is priced at for its first tier, if it has tiers. */
 export function providerCostMultiplier(providerId: string): number | undefined {
-  return PROVIDER_COST_MULTIPLIERS[providerId];
+  return PROVIDER_PRICE_TIERS[providerId]?.[0]?.multiplier;
+}
+
+/**
+ * The effective multiple of cost for a provider at a given cost: the tiered
+ * price divided by the cost. 4 for any cost inside the first tier.
+ */
+export function effectiveProviderMultiplier(providerId: string, usdCents: number): number | undefined {
+  const tiers = PROVIDER_PRICE_TIERS[providerId];
+  if (!tiers || !(usdCents > 0)) return undefined;
+  let priced = 0;
+  let lower = 0;
+  for (const tier of tiers) {
+    if (usdCents <= lower) break;
+    priced += (Math.min(usdCents, tier.upToUsdCents) - lower) * tier.multiplier;
+    lower = tier.upToUsdCents;
+  }
+  return priced / usdCents;
 }
 
 /**
  * The price of a number from one specific provider: its fixed multiple of
- * cost when it has one (see PROVIDER_COST_MULTIPLIERS), otherwise the
+ * cost when it has one (see PROVIDER_PRICE_TIERS), otherwise the
  * platform rules exactly as quoteForPair() / quoteForCurrency() apply them.
  * Pass a country to include that country's minimum price.
  */
@@ -387,7 +424,7 @@ export function quoteForProvider(
   countrySlug: string | null,
   currency: CurrencyConfigEntry,
 ): PriceQuote {
-  const multiplier = PROVIDER_COST_MULTIPLIERS[providerId];
+  const multiplier = effectiveProviderMultiplier(providerId, usdCents);
   if (multiplier === undefined) {
     return countrySlug === null
       ? quoteForCurrency(rules, usdCents, serviceSlug, currency)
@@ -416,7 +453,7 @@ export function quoteForProvider(
     targetMarginPercent: Math.round((1 - 1 / multiplier) * 100),
     realisedMarginPercent: realisedMargin(customerPriceKobo, costMinor),
     rule: "provider",
-    ruleLabel: `Server price, ${formatMultiplier(multiplier)} cost`,
+    ruleLabel: `Premium price, ${formatMultiplier(multiplier)} cost`,
   };
   return withMinimumPrice(quote, minimumPriceKobo(serviceSlug, countrySlug), currency);
 }
