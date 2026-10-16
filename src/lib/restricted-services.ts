@@ -342,13 +342,48 @@ export function isRestrictedService(slug: string, name?: string | null): boolean
  *  reason for each blocked one. */
 export function splitRestricted<T extends { slug: string; name: string }>(
   services: T[],
+  /** Names already blocked on another server, by compactName(); a service
+   *  with the same name is blocked here too, whatever the rules say. */
+  alsoBlocked?: ReadonlyMap<string, RestrictedMatch>,
+  /** A category the supplier itself gives a service, if it gives one. */
+  supplierCategory?: (service: T) => string | null | undefined,
 ): { allowed: T[]; blocked: Array<T & RestrictedMatch> } {
   const allowed: T[] = [];
   const blocked: Array<T & RestrictedMatch> = [];
   for (const service of services) {
-    const match = restrictedMatch(service.name, service.slug);
+    const match =
+      restrictedMatch(service.name, service.slug) ??
+      alsoBlocked?.get(compactName(service.name)) ??
+      alsoBlocked?.get(compactName(service.slug)) ??
+      categoryMatch(supplierCategory?.(service));
     if (match) blocked.push({ ...service, ...match });
     else allowed.push(service);
   }
   return { allowed, blocked };
+}
+
+/** A service's name reduced to letters and digits, so "Bet 365", "bet-365"
+ *  and "BET365" are the same key. */
+export function compactName(text: string): string {
+  return compactOf(text);
+}
+
+const CATEGORY_HINTS: Array<[RegExp, RestrictedCategory]> = [
+  [/gambl|betting|casino|lotter|sportsbook/, "gambling"],
+  [/forex|trading|invest|crypto|broker|finance trading/, "trading"],
+  [/dating|singles/, "dating"],
+  [/adult|18\+|erotic|escort|porn/, "adult"],
+  [/tobacco|vap(e|ing)|cigar/, "tobacco"],
+  [/alcohol|liquor|wine|beer|spirits/, "alcohol"],
+];
+
+/** A restricted category named by the supplier's own label for a service
+ *  ("Gambling", "Dating"), when it gives one. */
+export function categoryMatch(label: string | null | undefined): RestrictedMatch | null {
+  if (!label) return null;
+  const text = label.toLowerCase();
+  for (const [pattern, category] of CATEGORY_HINTS) {
+    if (pattern.test(text)) return { category, term: `supplier category "${label}"` };
+  }
+  return null;
 }

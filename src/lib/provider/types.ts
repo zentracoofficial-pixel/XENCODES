@@ -199,6 +199,9 @@ export interface NumberProvider {
    *  (trading and investments, gambling, tobacco, alcohol, adult, dating), for the admin to
    *  check. Optional: an adapter that does not report them is simply silent. */
   getBlockedServices?(): Array<{ name: string; slug: string; category: string; term: string }>;
+  /** The same list, reading the service list first when this process has not
+   *  yet (for the admin page, which would otherwise show an empty list). */
+  listBlockedServices?(): Promise<Array<{ name: string; slug: string; category: string; term: string }>>;
 
   /**
    * The countries this one service can be bought in, priced. Pairs with no

@@ -231,7 +231,20 @@ export default async function AdminServicesPage({
   const page = Math.min(totalPages, Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1));
   const pageRows = services.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const blocked = enabledProviders.flatMap(({ provider }) => provider.getBlockedServices?.() ?? []);
+  // Every server's blocked services (read from its saved service list when
+  // this process has not read it yet), each name once.
+  const blockedByServer = await Promise.all(
+    enabledProviders.map(async ({ provider }) =>
+      provider.listBlockedServices ? provider.listBlockedServices().catch(() => []) : (provider.getBlockedServices?.() ?? []),
+    ),
+  );
+  const blockedSeen = new Set<string>();
+  const blocked = blockedByServer.flat().filter((item) => {
+    const key = `${item.slug}|${item.name}`;
+    if (blockedSeen.has(key)) return false;
+    blockedSeen.add(key);
+    return true;
+  });
   const onSale = all.filter((row) => row.enabled).length;
   const switchedOff = all.length - onSale;
   const ownPrice = all.filter((row) => row.overrideMultiplier !== null).length;
