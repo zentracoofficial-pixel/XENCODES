@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import type { ProviderSyncResult } from "@/lib/provider-sync";
-import { syncAllProvidersAction } from "./actions";
+import type { ProviderSyncResult } from "@/lib/sync-result";
+import { runUntilCurrent } from "@/lib/sync-runner";
+import { syncAllProvidersAction, syncProviderAction } from "./actions";
 import { SyncReport } from "./sync-report";
 
 /** Syncs every enabled server side by side, the same job the daily cron
- *  runs, and reports each server's own result. A second click while one is
- *  running is refused by the server's lock as well as by this button. */
+ *  runs. A server read country by country that needs more than one pass is
+ *  carried on automatically, so one click runs until everything is current.
+ *  A second click while one is running is refused by the server's lock as
+ *  well as by this button. */
 export function SyncAllButton({
   labels,
   runningSince,
@@ -20,14 +23,31 @@ export function SyncAllButton({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ProviderSyncResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [pass, setPass] = useState(1);
+  const leftPage = useRef(false);
+
+  useEffect(() => {
+    leftPage.current = false;
+    return () => {
+      leftPage.current = true;
+    };
+  }, []);
 
   function run() {
     setFailure(null);
+    setPass(1);
     startTransition(async () => {
       try {
-        setResult(await syncAllProvidersAction());
+        await runUntilCurrent({
+          first: syncAllProvidersAction,
+          again: syncProviderAction,
+          onUpdate: (next, number) => {
+            setResult(next);
+            setPass(number);
+          },
+          shouldStop: () => leftPage.current,
+        });
       } catch (error) {
-        setResult(null);
         setFailure(
           error instanceof Error
             ? `The sync request did not finish: ${error.message}. Each server keeps its last synced data.`
@@ -42,11 +62,21 @@ export function SyncAllButton({
     <div className="w-full max-w-md space-y-2 sm:w-auto">
       <div className="flex justify-end">
         <Button type="button" variant="outline" onClick={run} disabled={busy} aria-busy={busy}>
-          {pending ? "Syncing all servers…" : runningSince && !result ? "Sync running…" : "Sync all enabled"}
+          {pending
+            ? pass > 1
+              ? `Syncing, pass ${pass}…`
+              : "Syncing all servers…"
+            : runningSince && !result
+              ? "Sync running…"
+              : "Sync all enabled"}
         </Button>
       </div>
       {pending ? (
-        <p className="text-right text-xs text-muted-foreground">Reading each server&apos;s catalog. This can take up to a minute.</p>
+        <p className="text-right text-xs text-muted-foreground">
+          {pass > 1
+            ? "Carrying on with the countries still to read. Keep this page open until it finishes."
+            : "Reading each server's catalog. This can take up to a minute."}
+        </p>
       ) : null}
       {!pending && runningSince && !result ? (
         <p className="text-right text-xs text-muted-foreground">

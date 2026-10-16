@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import {
   testProviderConnectionAction,
   syncProviderAction,
 } from "./actions";
-import type { ProviderSyncResult } from "@/lib/provider-sync";
+import type { ProviderSyncResult } from "@/lib/sync-result";
+import { runUntilCurrent } from "@/lib/sync-runner";
 import { SyncReport, formatDuration, formatWhen, syncResultBadge } from "./sync-report";
 
 export interface ProviderCardProps {
@@ -79,10 +80,30 @@ export function ProviderCard({
     });
   }
 
+  const [pass, setPass] = useState(1);
+  const leftPage = useRef(false);
+  useEffect(() => {
+    leftPage.current = false;
+    return () => {
+      leftPage.current = true;
+    };
+  }, []);
+
+  // Carries on by itself while this server still has countries to read, so
+  // one click runs until it is current.
   function runSync() {
+    setPass(1);
     startSync(async () => {
       try {
-        setSyncResult(await syncProviderAction(id));
+        await runUntilCurrent({
+          first: () => syncProviderAction(id),
+          again: syncProviderAction,
+          onUpdate: (next, number) => {
+            setSyncResult(next);
+            setPass(number);
+          },
+          shouldStop: () => leftPage.current,
+        });
       } catch (error) {
         setSyncResult({
           ok: false,
@@ -251,7 +272,7 @@ export function ProviderCard({
         </Button>
 
         <Button type="button" variant="outline" size="sm" disabled={syncing} onClick={runSync}>
-          {syncing ? "Syncing…" : "Sync now"}
+          {syncing ? (pass > 1 ? `Syncing, pass ${pass}…` : "Syncing…") : "Sync now"}
         </Button>
       </div>
 

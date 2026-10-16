@@ -240,46 +240,10 @@ export async function removeRestrictedOffers(): Promise<number> {
   return result.count;
 }
 
-/** What one sync did: "success" read everything; "partial" refreshed part
- *  of the catalog and kept the last good data for the rest; "failed"
- *  changed nothing; "skipped" did not start because a sync of that server
- *  was already running. */
-export type SyncResultKind = "success" | "partial" | "failed" | "skipped";
-
-export interface ProviderSyncResult {
-  ok: boolean;
-  /** Across every provider this run touched: "success" when all of them
-   *  fully synced, "failed" when none changed anything, "partial" between. */
-  result?: SyncResultKind;
-  /** Combined across every provider this run touched. Not deduplicated: a
-   *  service two providers both sell counts twice. Good enough for "did
-   *  this run do something"; see `providers` for the real per-provider
-   *  breakdown a dashboard should actually display. */
-  servicesSynced?: number;
-  countriesSynced?: number;
-  offersSynced?: number;
-  error?: string;
-  providers?: ProviderSyncOutcome[];
-}
-
-export interface ProviderSyncOutcome {
-  id: string;
-  label: string;
-  ok: boolean;
-  result: SyncResultKind;
-  servicesSynced?: number;
-  countriesSynced?: number;
-  offersSynced?: number;
-  /** For a provider read country by country (Server II). */
-  countriesRead?: number;
-  countriesTotal?: number;
-  durationMs?: number;
-  /** What the admin is told about this run. Safe to show: no raw API text. */
-  message?: string;
-  error?: string;
-  /** When this provider last fully synced, after this run. */
-  lastSuccessAt?: string | null;
-}
+import type { ProviderSyncOutcome, ProviderSyncResult, SyncResultKind } from "@/lib/sync-result";
+export { summarize } from "@/lib/sync-result";
+export type { ProviderSyncOutcome, ProviderSyncResult, SyncResultKind } from "@/lib/sync-result";
+import { summarize } from "@/lib/sync-result";
 
 export type SyncTrigger = "manual" | "manual_all" | "cron";
 
@@ -308,21 +272,54 @@ interface CollectedCatalog {
   countriesRead?: string[];
   countriesFailed?: string[];
   countriesTotal?: number;
+  allCountries?: string[];
   rateLimited?: boolean;
+}
+
+/**
+ * When each country of a country-by-country provider was last read, kept in
+ * the settings table. Needed because a country with nothing on sale has no
+ * synced row to take a date from: ordering by rows alone made such countries
+ * look "never synced" and read them first on every run, so repeated syncs
+ * kept re-reading the same empty countries instead of reaching the rest.
+ */
+const countryReadsKey = (providerId: string) => `provider_country_reads_${providerId}`;
+/** A country read within this long counts as current. */
+const COVERAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+async function readCountryReads(providerId: string): Promise<Record<string, number>> {
+  const row = await prisma.setting.findUnique({ where: { key: countryReadsKey(providerId) } });
+  if (!row) return {};
+  try {
+    const parsed = JSON.parse(row.value) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).filter(([, v]) => typeof v === "number")) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+async function writeCountryReads(providerId: string, reads: Record<string, number>): Promise<void> {
+  const value = JSON.stringify(reads);
+  await prisma.setting.upsert({
+    where: { key: countryReadsKey(providerId) },
+    create: { key: countryReadsKey(providerId), value },
+    update: { value },
+  });
 }
 
 async function collectCatalog(id: string, provider: NumberProvider, deadline: number): Promise<CollectedCatalog> {
   if (provider.getCatalogSnapshot) {
-    // Countries refreshed longest ago first, so repeated runs work through
-    // the whole list even when one run cannot read every country.
-    const ages = await prisma.syncedOffer.groupBy({
-      by: ["countrySlug"],
-      where: { providerId: id },
-      _max: { syncedAt: true },
-    });
-    const countryOrder = ages
-      .sort((a, b) => (a._max.syncedAt?.getTime() ?? 0) - (b._max.syncedAt?.getTime() ?? 0))
-      .map((row) => row.countrySlug);
+    // Countries read longest ago first, so repeated runs work through the
+    // whole list even when one run cannot read every country. A country with
+    // no recorded read (and no synced rows to infer one from) goes first.
+    const [reads, ages] = await Promise.all([
+      readCountryReads(id),
+      prisma.syncedOffer.groupBy({ by: ["countrySlug"], where: { providerId: id }, _max: { syncedAt: true } }),
+    ]);
+    const lastRead = new Map<string, number>();
+    for (const row of ages) lastRead.set(row.countrySlug, row._max.syncedAt?.getTime() ?? 0);
+    for (const [slug, at] of Object.entries(reads)) lastRead.set(slug, Math.max(at, lastRead.get(slug) ?? 0));
+    const countryOrder = [...lastRead.entries()].sort((a, b) => a[1] - b[1]).map(([slug]) => slug);
     const snapshot = await provider.getCatalogSnapshot({ deadline, countryOrder });
     return snapshot;
   }
@@ -556,26 +553,45 @@ async function runOneSync(
       `[provider-sync] "${id}" write complete, removed ${staleRemoved} stale offers (${Date.now() - startedAt}ms total)`,
     );
 
-    const stats = {
-      // Counted from what was actually priced and written, not from what
-      // was asked about: a service the supplier listed but quoted nothing
-      // for was not synchronized, and saying it was would overstate this.
-      servicesSynced: serviceSlugs.size,
-      countriesSynced: countrySlugs.size,
-      offersSynced: rows.length,
-    };
+    // For a provider read country by country, remember what this run read,
+    // and count a sync as complete once every country has been read
+    // recently, whether in this run or an earlier one.
+    let current: number | undefined;
+    if (partialRead) {
+      const reads = await readCountryReads(id);
+      const now = Date.now();
+      for (const slug of collected.countriesRead!) reads[slug] = now;
+      await writeCountryReads(id, reads);
+      const all = collected.allCountries ?? [];
+      current = all.filter((slug) => (reads[slug] ?? 0) >= now - COVERAGE_MAX_AGE_MS).length;
+    }
+
+    // What the whole stored catalog holds now, for a partial read; what this
+    // run wrote, for a whole-catalog read.
+    const stats = partialRead
+      ? await storedCatalogStats(id)
+      : {
+          // Counted from what was actually priced and written, not from what
+          // was asked about: a service the supplier listed but quoted nothing
+          // for was not synchronized, and saying it was would overstate this.
+          servicesSynced: serviceSlugs.size,
+          countriesSynced: countrySlugs.size,
+          offersSynced: rows.length,
+        };
 
     const read = collected.countriesRead?.length;
     const total = collected.countriesTotal;
-    const complete = !shrunk && (!partialRead || (read === total && (collected.countriesFailed?.length ?? 0) === 0));
+    const complete = !shrunk && (!partialRead || (current !== undefined && current === total));
     const result: SyncResultKind = complete ? "success" : "partial";
     const message = shrunk
       ? `Only ${rows.length} offers came back against ${previousOffers} last time, so nothing was removed. Sync again later.`
       : partialRead && !complete
-        ? `${read} of ${total} countries refreshed this run${
+        ? `${read} ${read === 1 ? "country" : "countries"} refreshed this run; ${current} of ${total} are current${
             collected.rateLimited ? ` (${label} limits how fast prices can be read)` : ""
-          }. The other countries keep their last synced prices; sync again to continue.`
-        : `Synced ${stats.servicesSynced} services in ${stats.countriesSynced} countries (${stats.offersSynced} offers).`;
+          }. The rest keep their last synced prices; sync again to continue.`
+        : partialRead
+          ? `All ${total} countries are current (${read} refreshed this run): ${stats.servicesSynced} services, ${stats.offersSynced} offers.`
+          : `Synced ${stats.servicesSynced} services in ${stats.countriesSynced} countries (${stats.offersSynced} offers).`;
 
     if (complete) {
       // Cleared on success so a stale error from an older run cannot keep
@@ -598,10 +614,20 @@ async function runOneSync(
       ok: true,
       result,
       ...stats,
-      ...(partialRead ? { countriesRead: read, countriesTotal: total } : {}),
+      ...(partialRead ? { countriesRead: read, countriesTotal: total, countriesCurrent: current } : {}),
       message,
     };
   }
+}
+
+/** What one provider's stored catalog holds right now. */
+async function storedCatalogStats(providerId: string) {
+  const [services, countries, offers] = await Promise.all([
+    prisma.syncedOffer.groupBy({ by: ["serviceSlug"], where: { providerId } }),
+    prisma.syncedOffer.groupBy({ by: ["countrySlug"], where: { providerId } }),
+    prisma.syncedOffer.count({ where: { providerId } }),
+  ]);
+  return { servicesSynced: services.length, countriesSynced: countries.length, offersSynced: offers };
 }
 
 /** A failure reason fit for the admin screen: short, and never a key, a
@@ -670,31 +696,6 @@ export async function runProviderSync(
   return summarize(outcomes);
 }
 
-/** One result for a run over one or more providers. */
-export function summarize(outcomes: ProviderSyncOutcome[]): ProviderSyncResult {
-  const result: SyncResultKind = outcomes.every((o) => o.result === "success")
-    ? "success"
-    : outcomes.some((o) => o.result === "success" || o.result === "partial")
-      ? "partial"
-      : outcomes.every((o) => o.result === "skipped")
-        ? "skipped"
-        : "failed";
-  return {
-    ok: result === "success",
-    result,
-    servicesSynced: outcomes.reduce((sum, o) => sum + (o.servicesSynced ?? 0), 0),
-    countriesSynced: outcomes.reduce((sum, o) => sum + (o.countriesSynced ?? 0), 0),
-    offersSynced: outcomes.reduce((sum, o) => sum + (o.offersSynced ?? 0), 0),
-    error:
-      result === "success"
-        ? undefined
-        : outcomes
-            .filter((o) => o.result !== "success")
-            .map((o) => `${o.label}: ${o.error ?? o.message ?? o.result}`)
-            .join("; "),
-    providers: outcomes,
-  };
-}
 
 /**
  * Balance monitoring is observability riding along on the same daily sync,

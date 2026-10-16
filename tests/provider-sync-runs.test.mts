@@ -53,12 +53,14 @@ beforeEach(async () => {
   await prisma.syncedOffer.deleteMany({ where: { providerId: ID } });
   await prisma.providerSyncRun.deleteMany({ where: { providerId: ID } });
   await prisma.providerSyncStatus.deleteMany({ where: { id: ID } });
+  await prisma.setting.deleteMany({ where: { key: `provider_country_reads_${ID}` } });
 });
 
 after(async () => {
   await prisma.syncedOffer.deleteMany({ where: { providerId: ID } });
   await prisma.providerSyncRun.deleteMany({ where: { providerId: ID } });
   await prisma.providerSyncStatus.deleteMany({ where: { id: ID } });
+  await prisma.setting.deleteMany({ where: { key: `provider_country_reads_${ID}` } });
   await prisma.$disconnect();
 });
 
@@ -70,6 +72,7 @@ test("a partial read refreshes only the countries it read; the rest keep their r
       countriesRead: ["aa"],
       countriesFailed: [],
       countriesTotal: 2,
+      allCountries: ["aa", "bb"],
       rateLimited: true,
     }),
   });
@@ -77,7 +80,7 @@ test("a partial read refreshes only the countries it read; the rest keep their r
   assert.equal(outcome.result, "partial");
   assert.equal(outcome.countriesRead, 1);
   assert.equal(outcome.countriesTotal, 2);
-  assert.match(outcome.message ?? "", /1 of 2 countries/);
+  assert.match(outcome.message ?? "", /1 country refreshed this run; 1 of 2 are current/);
   const rows = await rowsNow();
   // aa: st-a updated, st-b gone (no longer sold there); bb untouched.
   assert.deepEqual(rows.map((r) => [r.serviceSlug, r.countrySlug, r.costUsdCents]), [["st-a", "aa", 15], ["st-a", "bb", 20]]);
@@ -157,4 +160,66 @@ test("Sync all: every server's result is reported, and the overall result follow
   const mixed = summarize([ok, bad]);
   assert.equal(mixed.providers?.length, 2);
   assert.match(mixed.error ?? "", /C: down/);
+});
+
+test("countries with nothing on sale are remembered as read, so they are not re-read first every run", async () => {
+  const seen: string[][] = [];
+  // Three countries: "aa" and "bb" have offers, "empty" has none.
+  const all = ["aa", "bb", "empty"];
+  const read = (slugs: string[]) =>
+    fake({
+      getCatalogSnapshot: async ({ countryOrder }) => {
+        seen.push(countryOrder ?? []);
+        return {
+          entries: slugs.filter((slug) => slug !== "empty").map((slug) => entry("st-a", slug, 10)),
+          countriesRead: slugs,
+          countriesFailed: [],
+          countriesTotal: all.length,
+          allCountries: all,
+        };
+      },
+    });
+  await syncOneProvider(ID, "Synctest", read(["empty", "aa"]), "manual", Date.now() + 5_000);
+  await syncOneProvider(ID, "Synctest", read(["bb"]), "manual", Date.now() + 5_000);
+  // On the second run the empty country already has a recorded read, so it is
+  // ordered by age with the others instead of counting as never read.
+  assert.deepEqual([...seen[0]].sort(), [], "nothing known on the first run");
+  assert.ok(seen[1].includes("empty"), "the empty country is remembered");
+  assert.ok(seen[1].includes("aa"));
+  assert.ok(!seen[1].includes("bb"), "bb has not been read yet, so it goes first");
+});
+
+test("a sync is complete once every country has been read recently, across several runs", async () => {
+  const all = ["aa", "bb", "cc"];
+  const read = (slugs: string[]) =>
+    fake({
+      getCatalogSnapshot: async () => ({
+        entries: slugs.map((slug) => entry("st-a", slug, 10)),
+        countriesRead: slugs,
+        countriesFailed: [],
+        countriesTotal: all.length,
+        allCountries: all,
+        rateLimited: true,
+      }),
+    });
+  const first = await syncOneProvider(ID, "Synctest", read(["aa"]), "manual", Date.now() + 5_000);
+  assert.equal(first.result, "partial");
+  assert.equal(first.countriesCurrent, 1);
+  assert.match(first.message ?? "", /1 of 3 are current/);
+  assert.equal((await prisma.providerSyncStatus.findUniqueOrThrow({ where: { id: ID } })).lastSuccessAt, null);
+
+  const second = await syncOneProvider(ID, "Synctest", read(["bb"]), "manual", Date.now() + 5_000);
+  assert.equal(second.result, "partial");
+  assert.equal(second.countriesCurrent, 2);
+
+  const third = await syncOneProvider(ID, "Synctest", read(["cc"]), "manual", Date.now() + 5_000);
+  assert.equal(third.result, "success");
+  assert.equal(third.countriesCurrent, 3);
+  assert.match(third.message ?? "", /All 3 countries are current/);
+  // The totals describe the whole stored catalog, not just the last run.
+  assert.equal(third.countriesSynced, 3);
+  assert.equal(third.offersSynced, 3);
+  const status = await prisma.providerSyncStatus.findUniqueOrThrow({ where: { id: ID } });
+  assert.ok(status.lastSuccessAt);
+  assert.equal(status.countriesSynced, 3);
 });

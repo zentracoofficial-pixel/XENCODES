@@ -121,6 +121,9 @@ export interface CatalogSnapshot {
   countriesFailed: string[];
   /** Every country the supplier lists. */
   countriesTotal: number;
+  /** Our slugs for all of them, so a sync can tell which are still
+   *  outstanding across runs. */
+  allCountries: string[];
   /** Set when the supplier's rate limit stopped the run early. */
   rateLimited?: boolean;
 }

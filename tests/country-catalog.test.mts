@@ -82,3 +82,42 @@ test("the country list counts only what can be bought", async () => {
 test("an unknown country is not offered", async () => {
   assert.equal(await getCountryServices("zz-nowhere", await getDefaultCurrency()), null);
 });
+
+test("country names sort alphabetically, repeat listings right after the plain one", async () => {
+  const { compareCountryNames } = await import("../src/lib/country-variant");
+  const shuffled = ["Uruguay", "USA (2)", "Canada", "USA", "Åland Islands", "Brazil", "United Kingdom", "Canada (2)", "Albania", "USA (3)"];
+  assert.deepEqual(
+    [...shuffled].sort(compareCountryNames),
+    ["Åland Islands", "Albania", "Brazil", "Canada", "Canada (2)", "United Kingdom", "Uruguay", "USA", "USA (2)", "USA (3)"],
+  );
+});
+
+test("a service's country list is alphabetical, whatever the delivery record or price", async () => {
+  const slug = "cc-alpha-order";
+  const mk = (countrySlug: string, name: string, cents: number) =>
+    prisma.syncedOffer.create({
+      data: {
+        providerId: "grizzlysms", serviceSlug: slug, serviceName: "Ccalphaorder", serviceColor: "#000000", category: "All services",
+        countrySlug, countryName: name, countryFlag: "🏳️", dialCode: "+9", nationalDigits: 9,
+        costUsdCents: cents, priceKobo: 1, stock: "in_stock", stockCount: 40, syncedAt: new Date(),
+      },
+    });
+  try {
+    await prisma.syncedOffer.deleteMany({ where: { serviceSlug: slug } });
+    await mk("zeta", "Zetaland", 5);
+    await mk("alpha", "Alphaland", 90);
+    await mk("mid", "Midland", 20);
+    await mk("mid-2", "Midland (2)", 10);
+    // The list reads the synced catalog only while it is fresh.
+    await prisma.providerSyncStatus.upsert({
+      where: { id: "grizzlysms" },
+      create: { id: "grizzlysms", lastSuccessAt: new Date() },
+      update: { lastSuccessAt: new Date() },
+    });
+    const { getServiceCountries } = await import("../src/lib/inventory");
+    const list = await getServiceCountries(slug, await getDefaultCurrency());
+    assert.deepEqual(list.map((c) => c.name), ["Alphaland", "Midland", "Midland (2)", "Zetaland"]);
+  } finally {
+    await prisma.syncedOffer.deleteMany({ where: { serviceSlug: slug } });
+  }
+});

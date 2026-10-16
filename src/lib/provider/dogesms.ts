@@ -510,7 +510,14 @@ export class DogeSmsProvider implements NumberProvider {
     if (rateLimited) {
       console.log(`[dogesms] catalog read was rate limited: ${read.length}/${all.length} countries read this run`);
     }
-    return { entries, countriesRead: read, countriesFailed: failed, countriesTotal: all.length, rateLimited };
+    return {
+      entries,
+      countriesRead: read,
+      countriesFailed: failed,
+      countriesTotal: all.length,
+      allCountries: all,
+      rateLimited,
+    };
   }
 
   private entriesFor(catalog: CatalogCache, countrySlug: string, prices: PriceTable): ProviderCatalogEntry[] {
@@ -815,8 +822,10 @@ function terminalFailure(status: string | null): string | null {
   return status && /^(failed|cancelled|canceled|expired)$/i.test(status) ? status.toLowerCase() : null;
 }
 
+/** "+" and digits only, the same shape Server I's numbers have, so every
+ *  number is shown and copied the same way. */
 function normalizePhone(phone: string): string {
-  return phone.replace(/[^\d]/g, "");
+  return `+${phone.replace(/[^\d]/g, "")}`;
 }
 
 /** DogeSMS's order states as the shared status every order uses. */

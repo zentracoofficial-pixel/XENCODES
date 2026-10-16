@@ -26,6 +26,7 @@ import {
 } from "@/lib/activation-lifecycle";
 
 export type { ActivationState } from "@/lib/activation-lifecycle";
+export type { CustomerServer } from "@/lib/provider/customer-servers";
 
 /**
  * Buying a number, and waiting for its code.

@@ -29,7 +29,8 @@ test("customer messages about availability say nothing about suppliers or config
   const { CUSTOMER_UNAVAILABLE_MESSAGE } = await import("../src/lib/inventory");
   assert.doesNotMatch(CUSTOMER_UNAVAILABLE_MESSAGE, /provider|supplier|credential|configur|deployment/i);
   const quoteRoute = readFileSync("src/app/api/inventory/quote/route.ts", "utf8");
-  const messages = quoteRoute.match(/"[^"\n]{20,}"/g) ?? [];
+  // Import paths ("@/lib/provider/...") are code, not words a customer reads.
+  const messages = (quoteRoute.match(/"[^"\n]{20,}"/g) ?? []).filter((text) => !text.startsWith('"@/'));
   for (const message of messages) assert.doesNotMatch(message, /provider|supplier/i, message);
 });
 
