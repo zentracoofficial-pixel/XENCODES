@@ -289,7 +289,7 @@ const SYNC_LOCK_STALE_MS = 10 * 60 * 1000;
 /** How long a provider read country by country keeps reading before it
  *  writes what it has, so the whole request ends inside the 60-second
  *  limit with room for the database writes. */
-const SNAPSHOT_READ_BUDGET_MS = 38_000;
+const SNAPSHOT_READ_BUDGET_MS = 44_000;
 
 /**
  * Collects one provider's whole catalog.

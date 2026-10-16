@@ -64,6 +64,24 @@ export class DogeSmsRateLimitedError extends ProviderError {
 
 const DEFAULT_API_ORIGIN = "https://api.dogesms.com";
 const REQUEST_TIMEOUT_MS = 12_000;
+/** Catalog reads (service list, country list, one country's prices) are
+ *  slow on DogeSMS's side: the service list is 130 KB and took up to
+ *  several seconds, a country's prices up to 11 s in production. A 12 s
+ *  limit cut the service list off mid-answer and failed the whole sync. */
+const CATALOG_TIMEOUT_MS = 20_000;
+/** A catalog request started this close to a sync's deadline is cut short
+ *  rather than allowed to run past it, so the whole request still ends
+ *  inside the platform's 60-second limit. */
+const MIN_CATALOG_TIMEOUT_MS = 3_000;
+/** A live price check for one country, while a customer waits for a quote:
+ *  shorter than a sync's, so a slow DogeSMS does not hold the page up. */
+const LIVE_PRICE_TIMEOUT_MS = 9_000;
+/** The saved copy of the service and country lists is used without asking
+ *  DogeSMS again for this long, and as a fallback when DogeSMS is too slow
+ *  to answer for much longer than that. */
+const STORED_CATALOG_FRESH_MS = 6 * 60 * 60 * 1000;
+const STORED_CATALOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const STORED_CATALOG_KEY = "dogesms_catalog_v1";
 const CATALOG_TTL_MS = 10 * 60 * 1000;
 /** How long a purchase waits for DogeSMS to allocate a number when the
  *  order is created before one is ready. */
@@ -77,7 +95,7 @@ const DEFAULT_SESSION_SECONDS = 20 * 60;
  *  request per country and rate-limits them (HTTP 429): ten at a time was
  *  refused within a second in production. After the first 429 the sync
  *  drops to one at a time and waits as DogeSMS asks. */
-const SNAPSHOT_CONCURRENCY = 3;
+const SNAPSHOT_CONCURRENCY = 5;
 /** How often one country is retried after a 429 before it counts as failed
  *  for this run (its previous rows are kept). */
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -87,6 +105,13 @@ const MAX_CONSECUTIVE_RATE_LIMITS = 5;
 const MAX_COOLDOWN_MS = 20_000;
 
 export const DOGESMS_PROVIDER_ID = "dogesms";
+
+/** Read first when nothing has been synced yet: where most orders are. */
+const POPULAR_COUNTRIES = [
+  "usa", "united-kingdom", "canada", "nigeria", "india", "germany", "france", "spain", "brazil",
+  "australia", "indonesia", "philippines", "south-africa", "kenya", "ghana", "mexico", "italy",
+  "netherlands", "poland", "ukraine", "russia", "turkey", "egypt", "vietnam", "thailand",
+];
 
 type Json = Record<string, unknown>;
 
@@ -108,7 +133,43 @@ export interface DogeSmsOptions {
   allocationWaitMs?: number;
   sleep?: (ms: number) => Promise<void>;
   newIdempotencyKey?: () => string;
+  /** Where the service and country lists are saved between requests. */
+  catalogStore?: CatalogStore | null;
 }
+
+/** The raw service and country answers, saved so a slow DogeSMS does not
+ *  stop a sync that only needs these lists to know what to ask about. */
+export interface StoredCatalog {
+  servicesRaw: unknown;
+  countriesRaw: unknown;
+  at: number;
+}
+export interface CatalogStore {
+  read(): Promise<StoredCatalog | null>;
+  write(value: StoredCatalog): Promise<void>;
+}
+
+/** Saves the lists in the settings table. */
+export const settingsCatalogStore: CatalogStore = {
+  async read() {
+    const row = await prisma.setting.findUnique({ where: { key: STORED_CATALOG_KEY } });
+    if (!row) return null;
+    try {
+      const value = JSON.parse(row.value) as StoredCatalog;
+      return value && typeof value.at === "number" && value.servicesRaw && value.countriesRaw ? value : null;
+    } catch {
+      return null;
+    }
+  },
+  async write(value) {
+    const data = JSON.stringify(value);
+    await prisma.setting.upsert({
+      where: { key: STORED_CATALOG_KEY },
+      create: { key: STORED_CATALOG_KEY, value: data },
+      update: { value: data },
+    });
+  },
+};
 
 interface CountryEntry {
   code: string;
@@ -143,6 +204,7 @@ export class DogeSmsProvider implements NumberProvider {
   private readonly allocationWaitMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly newIdempotencyKey: () => string;
+  private readonly catalogStore: CatalogStore | null;
 
   private static catalog: CatalogCache | null = null;
   /** our country slug -> that country's prices, by our service slug */
@@ -163,6 +225,7 @@ export class DogeSmsProvider implements NumberProvider {
     this.allocationWaitMs = options.allocationWaitMs ?? DEFAULT_ALLOCATION_WAIT_MS;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.newIdempotencyKey = options.newIdempotencyKey ?? randomUUID;
+    this.catalogStore = options.catalogStore ?? null;
   }
 
   /** For tests: forget the cached catalog and learned behaviour. */
@@ -179,7 +242,7 @@ export class DogeSmsProvider implements NumberProvider {
   private async request(
     method: "GET" | "POST",
     path: string,
-    options: { query?: Record<string, string>; body?: Json; idempotencyKey?: string } = {},
+    options: { query?: Record<string, string>; body?: Json; idempotencyKey?: string; timeoutMs?: number } = {},
   ): Promise<{ status: number; body: unknown; retryAfterMs: number | null }> {
     const url = new URL(path, this.origin);
     for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
@@ -192,20 +255,25 @@ export class DogeSmsProvider implements NumberProvider {
 
     const startedAt = Date.now();
     let response: Response;
+    let text: string;
     try {
+      const signal = AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
       response = await this.fetchImpl(url.toString(), {
         method,
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
         cache: "no-store",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal,
       });
+      // The answer's body is read under the same limit: a reply whose headers
+      // arrive and whose body stalls must fail like any other timeout, not
+      // escape as a raw error.
+      text = await response.text();
     } catch (error) {
       const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
       console.error(`[dogesms] <- ${method} ${path} ${timedOut ? "timed out" : "failed"} after ${Date.now() - startedAt}ms`);
       throw new ProviderError(timedOut ? "DogeSMS did not respond in time." : "DogeSMS could not be reached.", "network");
     }
-    const text = await response.text();
     console.log(`[dogesms] <- ${method} ${path} HTTP ${response.status}, ${text.length} bytes, ${Date.now() - startedAt}ms`);
     let body: unknown = null;
     if (text) {
@@ -231,8 +299,8 @@ export class DogeSmsProvider implements NumberProvider {
     return new ProviderError(message, status >= 500 ? "network" : "unknown");
   }
 
-  private async getJson(path: string, query?: Record<string, string>): Promise<unknown> {
-    const { status, body, retryAfterMs } = await this.request("GET", path, { query });
+  private async getJson(path: string, query?: Record<string, string>, timeoutMs = CATALOG_TIMEOUT_MS): Promise<unknown> {
+    const { status, body, retryAfterMs } = await this.request("GET", path, { query, timeoutMs });
     if (status === 429) {
       DogeSmsProvider.cooldownUntil = Math.max(
         DogeSmsProvider.cooldownUntil,
@@ -250,11 +318,7 @@ export class DogeSmsProvider implements NumberProvider {
     const current = DogeSmsProvider.catalog;
     if (!force && current && Date.now() - current.at < CATALOG_TTL_MS) return current;
 
-    const [servicesRaw, countriesRaw, directory] = await Promise.all([
-      this.getJson("/v1/catalog/services"),
-      this.getJson("/v1/catalog/countries"),
-      this.directory().catch(() => ({ countrySlugByIso2: new Map(), serviceSlugs: new Set<string>() })),
-    ]);
+    const { servicesRaw, countriesRaw, directory } = await this.readCatalogLists(force);
 
     const serviceRows = listOf(servicesRaw, ["services", "items"]).flatMap((row) => {
       const code = str(row.code) ?? str(row.service_code) ?? str(row.id);
@@ -303,13 +367,58 @@ export class DogeSmsProvider implements NumberProvider {
     return catalog;
   }
 
+  /**
+   * The service and country lists: the saved copy while it is under six
+   * hours old (they change rarely, and DogeSMS is slow to send them), else
+   * fresh from DogeSMS and saved. When DogeSMS cannot answer, a saved copy up
+   * to a week old keeps a sync going: the lists only say what to ask about,
+   * every price still comes fresh.
+   */
+  private async readCatalogLists(force: boolean) {
+    const directory = await this.directory().catch(() => ({
+      countrySlugByIso2: new Map(),
+      serviceSlugs: new Set<string>(),
+    }));
+    const stored = await this.catalogStore?.read().catch(() => null);
+    const age = stored ? Date.now() - stored.at : Infinity;
+    if (stored && age < STORED_CATALOG_FRESH_MS && !force) {
+      return { servicesRaw: stored.servicesRaw, countriesRaw: stored.countriesRaw, directory };
+    }
+    try {
+      const [servicesRaw, countriesRaw] = await Promise.all([
+        this.getJson("/v1/catalog/services"),
+        this.getJson("/v1/catalog/countries"),
+      ]);
+      await this.catalogStore?.write({ servicesRaw, countriesRaw, at: Date.now() }).catch((error) => {
+        console.error("[dogesms] could not save the catalog lists:", error instanceof Error ? error.message : error);
+      });
+      return { servicesRaw, countriesRaw, directory };
+    } catch (error) {
+      if (stored && age < STORED_CATALOG_MAX_AGE_MS) {
+        console.error(
+          `[dogesms] catalog lists unavailable (${error instanceof Error ? error.message : "error"}); using the copy saved ${Math.round(age / 60000)} min ago`,
+        );
+        return { servicesRaw: stored.servicesRaw, countriesRaw: stored.countriesRaw, directory };
+      }
+      throw error;
+    }
+  }
+
   /** One country's prices, from cache unless `fresh`. */
-  private async pricesFor(catalog: CatalogCache, countrySlug: string, fresh = false): Promise<PriceTable | null> {
+  private async pricesFor(
+    catalog: CatalogCache,
+    countrySlug: string,
+    fresh = false,
+    timeoutMs = CATALOG_TIMEOUT_MS,
+  ): Promise<PriceTable | null> {
     const country = catalog.countries.get(countrySlug);
     if (!country) return null;
     const cached = DogeSmsProvider.prices.get(countrySlug);
     if (!fresh && cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.table;
-    const table = this.parsePrices(await this.getJson("/v1/catalog/prices", { country_code: country.code }), catalog.codeToSlug);
+    const table = this.parsePrices(
+      await this.getJson("/v1/catalog/prices", { country_code: country.code }, timeoutMs),
+      catalog.codeToSlug,
+    );
     DogeSmsProvider.prices.set(countrySlug, { table, at: Date.now() });
     return table;
   }
@@ -323,10 +432,18 @@ export class DogeSmsProvider implements NumberProvider {
    */
   async getCatalogSnapshot(options: { deadline: number; countryOrder?: string[] }): Promise<CatalogSnapshot> {
     const { deadline } = options;
-    const catalog = await this.loadCatalog(true);
+    const catalog = await this.loadCatalog(false);
     const all = [...catalog.countries.keys()];
     const rank = new Map((options.countryOrder ?? []).map((slug, index) => [slug, index]));
-    const queue = [...all].sort((a, b) => (rank.get(a) ?? -1) - (rank.get(b) ?? -1));
+    // Never-synced countries first, the best-known ones before the rest;
+    // then the ones synced longest ago.
+    const popular = new Map(POPULAR_COUNTRIES.map((slug, index) => [slug, index]));
+    const queue = [...all].sort((a, b) => {
+      const ra = rank.get(a) ?? -1;
+      const rb = rank.get(b) ?? -1;
+      if (ra !== rb) return ra - rb;
+      return (popular.get(a) ?? 1e6) - (popular.get(b) ?? 1e6);
+    });
 
     const entries: ProviderCatalogEntry[] = [];
     const read: string[] = [];
@@ -346,7 +463,12 @@ export class DogeSmsProvider implements NumberProvider {
       const results = await Promise.all(
         batch.map(async (slug) => {
           try {
-            return { slug, table: await this.pricesFor(catalog, slug, true) };
+            // Cut short at the deadline rather than allowed to run past it.
+            const timeoutMs = Math.max(
+              MIN_CATALOG_TIMEOUT_MS,
+              Math.min(CATALOG_TIMEOUT_MS, deadline - Date.now()),
+            );
+            return { slug, table: await this.pricesFor(catalog, slug, true, timeoutMs) };
           } catch (error) {
             return { slug, error };
           }
@@ -487,7 +609,7 @@ export class DogeSmsProvider implements NumberProvider {
   async getAvailability(serviceSlug: string, countrySlug: string): Promise<ProviderAvailability | null> {
     const catalog = await this.loadCatalog();
     if (!catalog.countries.has(countrySlug) || !catalog.services.has(serviceSlug)) return null;
-    return this.availabilityFor(catalog, serviceSlug, countrySlug, await this.pricesFor(catalog, countrySlug, true));
+    return this.availabilityFor(catalog, serviceSlug, countrySlug, await this.pricesFor(catalog, countrySlug, true, LIVE_PRICE_TIMEOUT_MS));
   }
 
   async getFullCatalog(): Promise<ProviderCatalogEntry[]> {

@@ -255,3 +255,71 @@ test("sync read: countries never synced come first, then the ones synced longest
   assert.equal(order[0], "KE");
   assert.deepEqual(order.slice(1), ["US", "NG"]);
 });
+
+/** An in-memory stand-in for the settings-table copy of the lists. */
+function memoryStore(initial: { servicesRaw: unknown; countriesRaw: unknown; at: number } | null = null) {
+  let value = initial;
+  return {
+    read: async () => value,
+    write: async (next: { servicesRaw: unknown; countriesRaw: unknown; at: number }) => void (value = next),
+    get: () => value,
+  };
+}
+const listsOf = () => ({
+  // As saved: the answer with its envelope already removed.
+  servicesRaw: [{ code: "wa", name: "WhatsApp" }],
+  countriesRaw: [{ code: "US", name: "United States", phone_prefix: "1" }],
+});
+
+test("a reply whose body stalls is a timeout error, not a raw one", async () => {
+  // Headers arrive, then the body is cut off by the request's time limit.
+  const stalled = (async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        setTimeout(() => controller.error(new DOMException("The operation was aborted due to timeout", "TimeoutError")), 20);
+      },
+    });
+    return new Response(body, { status: 200 });
+  }) as typeof fetch;
+  await assert.rejects(
+    provider({ fetchImpl: stalled, catalogStore: null }).getServices(),
+    (error: unknown) => error instanceof ProviderError && error.code === "network" && /did not respond in time/.test(error.message),
+  );
+});
+
+test("the saved lists are used without asking DogeSMS while they are fresh", async () => {
+  const store = memoryStore({ ...listsOf(), at: Date.now() - 60_000 });
+  const slow: Handler = (req) => (req.path.startsWith("/v1/catalog/") && req.path !== "/v1/catalog/prices" ? new Error("must not be asked") : catalog(req));
+  handler = slow;
+  const services = await provider({ catalogStore: store }).getServices();
+  assert.deepEqual(services.map((s) => s.slug), ["whatsapp"]);
+  assert.equal(calls.filter((c) => c.path === "/v1/catalog/services").length, 0);
+});
+
+test("fresh lists are saved; a slow DogeSMS falls back to an older saved copy, a very old one does not", async () => {
+  const store = memoryStore();
+  await provider({ catalogStore: store }).getServices();
+  assert.ok(store.get(), "saved after a successful read");
+
+  DogeSmsProvider.resetForTests();
+  const old = memoryStore({ ...listsOf(), at: Date.now() - 24 * 60 * 60 * 1000 });
+  handler = (req) => (req.path.startsWith("/v1/catalog/") && req.path !== "/v1/catalog/prices" ? new Error("down") : catalog(req));
+  const services = await provider({ catalogStore: old }).getServices();
+  assert.deepEqual(services.map((s) => s.slug), ["whatsapp"]);
+
+  DogeSmsProvider.resetForTests();
+  const ancient = memoryStore({ ...listsOf(), at: Date.now() - 30 * 24 * 60 * 60 * 1000 });
+  await assert.rejects(provider({ catalogStore: ancient }).getServices(), ProviderError);
+});
+
+test("sync read: with nothing synced yet, the best-known countries are read first", async () => {
+  const order: string[] = [];
+  handler = (req) => {
+    if (req.path === "/v1/catalog/prices") order.push(req.query.get("country_code")!);
+    return catalog(req);
+  };
+  // Concurrency is 5 and there are 3 countries, so the order requests are
+  // sent in is the order they were queued in.
+  await provider().getCatalogSnapshot({ deadline: Date.now() + 60_000 });
+  assert.deepEqual(order, ["US", "NG", "KE"]);
+});
