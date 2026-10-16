@@ -6,11 +6,24 @@ export interface MessageAttachmentInfo {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
+  /** Set when the file was deleted because the ticket was closed. */
+  purgedAt?: Date | null;
 }
 
 /** A file in a support message: a thumbnail for an image, a file chip for a PDF. */
 export function MessageAttachment({ attachment }: { attachment: MessageAttachmentInfo }) {
   const href = `/api/support/attachments/${attachment.id}`;
+  if (attachment.purgedAt) {
+    return (
+      <p className="mt-2 flex max-w-sm items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+        <FileText aria-hidden className="h-4 w-4 shrink-0" />
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{attachment.fileName}</span>
+          <span className="block">Deleted when the ticket was closed</span>
+        </span>
+      </p>
+    );
+  }
   if (attachment.mimeType.startsWith("image/")) {
     return (
       <a href={href} target="_blank" rel="noopener" className="mt-2 inline-block max-w-full">

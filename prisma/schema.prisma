@@ -687,7 +687,9 @@ model SupportMessage {
 /// A file sent in a support conversation: PNG, JPEG or PDF, up to 4 MB,
 /// checked by its first bytes and not only its name. Kept in the database
 /// itself (no third-party storage) and only ever served to the ticket's own
-/// customer or an admin, through /api/support/attachments/[id].
+/// customer or an admin, through /api/support/attachments/[id]. When the
+/// ticket is closed the file's bytes are deleted (data becomes null and
+/// purgedAt is set); the name stays so the thread still says a file was sent.
 model SupportAttachment {
   id        String         @id @default(cuid())
   messageId String
@@ -695,7 +697,8 @@ model SupportAttachment {
   fileName  String
   mimeType  String
   sizeBytes Int
-  data      Bytes
+  data      Bytes?
+  purgedAt  DateTime?
   createdAt DateTime       @default(now())
 
   @@index([messageId])

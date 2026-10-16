@@ -106,7 +106,7 @@ export default async function AdminSupportPage({
       <MetricGrid>
         <Metric label="Open tickets" value={openCount} tone={openCount > 0 ? "danger" : "default"} />
         <Metric label="Pending tickets" value={pendingCount} />
-        <Metric label="Resolved tickets" value={resolvedCount} />
+        <Metric label="Closed tickets" value={resolvedCount} />
         <Metric label="Failed orders today" value={failedToday} tone={failedToday > 0 ? "warning" : "default"} />
         <Metric
           label="Verification requests"
@@ -144,7 +144,7 @@ export default async function AdminSupportPage({
                     })}
                   </time>
                   <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>
-                    {ticket.status}
+                    {ticket.status === "RESOLVED" ? "CLOSED" : ticket.status}
                   </Badge>
                 </Link>
               </li>

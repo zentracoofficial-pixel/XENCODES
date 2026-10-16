@@ -31,7 +31,7 @@ const TICKET_STATUS_VARIANT = {
 const TICKET_STATUS_LABEL = {
   OPEN: "Open",
   PENDING: "Waiting on us",
-  RESOLVED: "Resolved",
+  RESOLVED: "Closed",
 } as const;
 
 export default async function TicketDetailPage({
@@ -47,7 +47,7 @@ export default async function TicketDetailPage({
   // one customer cannot read another's thread by guessing an id.
   const ticket = await prisma.supportTicket.findFirst({
     where: { id, userId },
-    include: { messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true }, orderBy: { createdAt: "asc" } } } } },
+    include: { messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, purgedAt: true }, orderBy: { createdAt: "asc" } } } } },
   });
   if (!ticket) notFound();
 
@@ -154,7 +154,19 @@ export default async function TicketDetailPage({
         </ul>
       </Card>
 
-      <TicketReplyForm ticketId={ticket.id} />
+      {ticket.status === "RESOLVED" ? (
+        <Card className="space-y-2 p-5">
+          <h2 className="text-sm font-semibold">This ticket is closed</h2>
+          <p className="text-sm text-muted-foreground">
+            Files sent in it have been deleted. If you have another problem, start a new ticket and we will help.
+          </p>
+          <Link href="/dashboard/support" className="inline-block text-sm font-medium text-forest hover:underline">
+            Start a new ticket
+          </Link>
+        </Card>
+      ) : (
+        <TicketReplyForm ticketId={ticket.id} />
+      )}
     </div>
   );
 }

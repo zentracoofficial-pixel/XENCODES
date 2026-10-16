@@ -26,7 +26,7 @@ const TICKET_STATUS_VARIANT = {
 const TICKET_STATUS_LABEL = {
   OPEN: "Open",
   PENDING: "Waiting on us",
-  RESOLVED: "Resolved",
+  RESOLVED: "Closed",
 } as const;
 
 /** Tickets per page. */

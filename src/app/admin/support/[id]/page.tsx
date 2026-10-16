@@ -39,7 +39,7 @@ export default async function AdminTicketDetailPage({
     where: { id },
     include: {
       user: true,
-      messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true }, orderBy: { createdAt: "asc" } } } },
+      messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, purgedAt: true }, orderBy: { createdAt: "asc" } } } },
     },
   });
   if (!ticket) notFound();
@@ -63,7 +63,7 @@ export default async function AdminTicketDetailPage({
             <Link href={`/admin/users/${ticket.userId}`} className="hover:text-forest hover:underline">
               {ticket.user.email}
             </Link>
-            <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>{ticket.status}</Badge>
+            <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>{ticket.status === "RESOLVED" ? "CLOSED" : ticket.status}</Badge>
           </p>
         </div>
       </div>

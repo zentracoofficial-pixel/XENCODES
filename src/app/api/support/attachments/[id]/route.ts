@@ -23,6 +23,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return new Response("Not found.", { status: 404 });
   }
 
+  // Deleted when the ticket was closed: only the name is left.
+  if (!attachment.data) return new Response("This file was deleted when the ticket was closed.", { status: 410 });
+
   const inline = attachment.mimeType === "image/png" || attachment.mimeType === "image/jpeg";
   const name = attachment.fileName.replace(/[^\w.\- ]/g, "_");
   return new Response(new Uint8Array(attachment.data), {
