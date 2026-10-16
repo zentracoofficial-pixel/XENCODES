@@ -12,7 +12,7 @@ import { FaqSection, LinkGrid, StatRow, Steps } from "@/components/seo/blocks";
 import { getServicePageContent } from "@/data/service-pages";
 import { getSeoIndex, getSeoMoney } from "@/lib/seo-catalog";
 import { isIndexedPair, loadSeoService } from "@/lib/seo-pages";
-import { plural, REFUND_SENTENCE, serviceFaqs } from "@/lib/seo-copy";
+import { plural, REFUND_SENTENCE, serviceFaqs, withArticle } from "@/lib/seo-copy";
 import { SITE_URL, ORGANIZATION_REF } from "@/lib/site";
 
 // Built on the first visit and served from the cache, refreshed hourly.
@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   return {
     title: `${name} Virtual Number for SMS Verification`,
-    description: `Get a ${name} virtual number and receive your SMS verification code online${count ? ` from ${plural(count, "country", "countries")}` : ""}${from ? `, from ${from}` : ""}. Pay per number, refunded automatically if no code arrives.`,
+    description: `Get ${withArticle(name)} virtual number and receive your SMS verification code online${count ? ` from ${plural(count, "country", "countries")}` : ""}${from ? `, from ${from}` : ""}. Pay per number, refunded automatically if no code arrives.`,
     alternates: { canonical: `/services/${slug}` },
     robots: indexable ? { index: true, follow: true } : { index: false, follow: true },
     openGraph: { title: `${name} virtual number for SMS verification`, type: "website", url: `/services/${slug}` },
@@ -188,7 +188,7 @@ export default async function ServicePage({ params }: { params: Promise<{ slug: 
 
           <div className="mt-10 grid gap-4">
             <Steps
-              title={`How to get a ${name} number`}
+              title={`How to get ${withArticle(name)} number`}
               steps={[
                 { title: "Choose a country", body: howItWorks },
                 { title: "Pay from your wallet", body: "Add funds once, then each number is paid for from the wallet. The exact price is shown before you buy." },
@@ -223,7 +223,7 @@ export default async function ServicePage({ params }: { params: Promise<{ slug: 
             moreLabel="All services"
           />
 
-          <CtaBand title={`Get a ${name} number`} body="See live availability and pick your country." href={`/buy?service=${slug}`} label="Buy a number" />
+          <CtaBand title={`Get ${withArticle(name)} number`} body="See live availability and pick your country." href={`/buy?service=${slug}`} label="Buy a number" />
         </div>
       </Container>
     </>

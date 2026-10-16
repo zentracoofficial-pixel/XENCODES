@@ -11,7 +11,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { FaqSection, LinkGrid, StatRow, Steps } from "@/components/seo/blocks";
 import { getSeoMoney } from "@/lib/seo-catalog";
 import { isIndexedPair, loadSeoCountry, loadSeoService } from "@/lib/seo-pages";
-import { pairFaqs, plural, REFUND_SENTENCE } from "@/lib/seo-copy";
+import { pairFaqs, plural, REFUND_SENTENCE, withArticle } from "@/lib/seo-copy";
 import { SITE_URL, ORGANIZATION_REF } from "@/lib/site";
 
 // Built once and served from the cache: nothing here depends on who is looking.
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   return {
     title: `${name} Number for ${country.name} (${country.dialCode})`,
-    description: `Buy a ${country.name} virtual number (${country.dialCode}) to receive your ${name} verification code, from ${from}. Pay per number and get an automatic refund if no code arrives.`,
+    description: `Buy ${withArticle(country.name)} virtual number (${country.dialCode}) to receive your ${name} verification code, from ${from}. Pay per number and get an automatic refund if no code arrives.`,
     alternates: { canonical: `/services/${slug}/${countrySlug}` },
     robots: indexed ? { index: true, follow: true } : { index: false, follow: true },
   };
@@ -99,7 +99,7 @@ export default async function ServiceInCountryPage({ params }: { params: Promise
             </span>
           </span>
         }
-        description={`Receive your ${name} verification code on a ${country.name} (${country.dialCode}) virtual number, from ${price.usd}. ${REFUND_SENTENCE}`}
+        description={`Receive your ${name} verification code on ${withArticle(country.name)} (${country.dialCode}) virtual number, from ${price.usd}. ${REFUND_SENTENCE}`}
       >
         <Button href={`/buy?service=${slug}&country=${countrySlug}`} variant="accent" size="lg">
           Buy a {country.name} number
@@ -119,7 +119,7 @@ export default async function ServiceInCountryPage({ params }: { params: Promise
 
           <div className="mt-10 grid gap-4">
             <Steps
-              title={`How to get a ${country.name} number for ${name}`}
+              title={`How to get ${withArticle(country.name)} number for ${name}`}
               steps={[
                 { title: "Choose the number", body: `Pick ${name} and ${country.name} on the buy page. The exact price is confirmed before anything is charged.` },
                 { title: "Enter it in " + name, body: `Type the number exactly as shown, including ${country.dialCode || "the country code"}, where ${name} asks for a phone number, then request the code.` },
@@ -178,7 +178,7 @@ export default async function ServiceInCountryPage({ params }: { params: Promise
             .
           </p>
 
-          <CtaBand title={`Get a ${country.name} number for ${name}`} body="See the exact price and buy in a few clicks." href={`/buy?service=${slug}&country=${countrySlug}`} label="Buy a number" />
+          <CtaBand title={`Get ${withArticle(country.name)} number for ${name}`} body="See the exact price and buy in a few clicks." href={`/buy?service=${slug}&country=${countrySlug}`} label="Buy a number" />
         </div>
       </Container>
     </>
