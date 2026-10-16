@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 /**
  * Smart Pickup inside the live quote, with both servers stubbed at the
  * network edge and evidence in the real database:
- *  - each server is priced its own way: Server II at 3.5x its cost, in every
+ *  - each server is priced its own way: Server II at 4x its cost, in every
  *    currency; the cheapest server is the customer's price and goes first;
  *  - a dearer server never jumps ahead, whatever its record;
  *  - between servers at the same price, the one that delivers goes first;
@@ -30,6 +30,8 @@ const saved = new Map<string, string | null>();
 const userIds: string[] = [];
 /** What Server II bills for the pair, in US cents. Changed per test. */
 let dogeCents = 100;
+/** When set, Server II never answers (a stalled server). */
+let dogeStalled = false;
 
 before(async () => {
   DogeSmsProvider.resetForTests();
@@ -69,6 +71,7 @@ before(async () => {
       return new Response(typeof body === "string" ? body : JSON.stringify(body), { status: 200 });
     }
     if (url.hostname === "api.dogesms.com") {
+      if (dogeStalled) return new Promise<Response>(() => {});
       const body =
         url.pathname === "/v1/catalog/services" ? { data: [{ code: "dqx", name: SERVICE }] }
         : url.pathname === "/v1/catalog/countries" ? { data: [{ code: "US", name: "United States", phone_prefix: "1" }] }
@@ -92,17 +95,17 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-/** Server II's price at 3.5x, rounded up to NGN 1 or 1 cent, never under the
+/** Server II's price at 4x, rounded up to NGN 1 or 1 cent, never under the
  *  NGN 500 minimum. */
 const expectedServerTwo = (cents: number, currency: Awaited<ReturnType<typeof getDefaultCurrency>>) => {
   const rate = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
   const cost = Math.round((cents / 100) * rate * 100);
   const step = currency.code === "NGN" ? 100 : 1;
-  const price = Math.ceil((cost * 3.5) / step - 1e-9) * step;
+  const price = Math.ceil((cost * 4) / step - 1e-9) * step;
   return currency.code === "NGN" ? Math.max(price, 50_000) : price;
 };
 
-test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own 3.5x price", async () => {
+test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own 4x price", async () => {
   dogeCents = 100;
   DogeSmsProvider.resetForTests();
   const currency = await getDefaultCurrency();
@@ -121,7 +124,7 @@ test("Server II dearer: Server I is the price and goes first; Server II is the f
   assert.ok(fallback.quote.customerPriceKobo > q.quote.customerPriceKobo);
 });
 
-test("Server II on its own, in Naira and in US dollars, is exactly 3.5x its cost", async () => {
+test("Server II on its own, in Naira and in US dollars, is exactly 4x its cost", async () => {
   dogeCents = 37;
   DogeSmsProvider.resetForTests();
   for (const code of ["NGN", "USD"]) {
@@ -134,9 +137,9 @@ test("Server II on its own, in Naira and in US dollars, is exactly 3.5x its cost
     assert.equal(q.fallbacks, undefined);
     assert.equal(q.quote.customerPriceKobo, expectedServerTwo(37, currency!), code);
     if (code === "USD") {
-      // 37 cents x 3.5 = 129.5, so $1.30: not pushed up to a whole dollar.
+      // 37 cents x 4 = $1.48: not pushed up to a whole dollar.
       assert.equal(q.quote.providerCostKobo, 37);
-      assert.equal(q.quote.customerPriceKobo, 130);
+      assert.equal(q.quote.customerPriceKobo, 148);
     }
   }
 });
@@ -203,4 +206,24 @@ test("the quote lists every server that can sell the pair with its own price, ch
   if (!one.ok) return;
   assert.equal(one.provider, "grizzlysms");
   assert.equal(one.quote.customerPriceKobo, q.options[0].priceKobo);
+});
+
+test("a stalled Server II does not hold up or change Server I's quote", async () => {
+  dogeCents = 100;
+  dogeStalled = true;
+  DogeSmsProvider.resetForTests();
+  try {
+    const currency = await getDefaultCurrency();
+    const started = Date.now();
+    const q = await quotePair(SLUG, "usa", currency);
+    assert.equal(q.ok, true);
+    if (!q.ok) return;
+    assert.deepEqual(q.options.map((o) => o.provider), ["grizzlysms"]);
+    const rules = await loadMarginRules();
+    assert.equal(q.quote.customerPriceKobo, quoteForPair(rules, 30, SLUG, "usa", currency).customerPriceKobo);
+    assert.ok(Date.now() - started < 9_000, "Server I's quote came back without waiting out the stalled server");
+  } finally {
+    dogeStalled = false;
+    DogeSmsProvider.resetForTests();
+  }
 });

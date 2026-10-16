@@ -8,33 +8,34 @@ const rules: MarginRules = { defaultMultiplier: 3, exclusiveMultiplier: 2, servi
 const ngn = { code: "NGN", usdRate: 1600, ngnPerUsd: 1400 } as CurrencyConfigEntry;
 const usd = { code: "USD", usdRate: 1, ngnPerUsd: 1600 } as CurrencyConfigEntry;
 
-test("Server II is 3.5x its cost in Naira at the market rate, rounded up to NGN 1", () => {
-  // $0.50 = NGN 700 at the market rate; x3.5 = NGN 2,450.
+test("Server II is 4x its cost in Naira at the market rate, rounded up to NGN 1", () => {
+  // $0.50 = NGN 700 at the market rate; x4 = NGN 2,800.
   const q = quoteForProvider(rules, "dogesms", 50, "whatsapp", "usa", ngn);
   assert.equal(q.providerCostKobo, 70_000);
-  assert.equal(q.customerPriceKobo, 245_000);
-  assert.equal(q.multiplier, 3.5);
+  assert.equal(q.customerPriceKobo, 280_000);
+  assert.equal(q.multiplier, 4);
   assert.equal(q.rule, "provider");
-  // $0.33 = NGN 462; x3.5 = NGN 1,617.
-  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", ngn).customerPriceKobo, 161_700);
-  // Shown to a dollar wallet at that same market rate: $1.75, 3.5x $0.50.
-  assert.equal(Math.round((q.customerPriceKobo / 100 / 1400) * 100), 175);
+  // $0.33 = NGN 462; x4 = NGN 1,848.
+  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", ngn).customerPriceKobo, 184_800);
+  // Shown to a dollar wallet at that same market rate: $2.00, 4x $0.50.
+  assert.equal(Math.round((q.customerPriceKobo / 100 / 1400) * 100), 200);
 });
 
 test("without a fresh market rate, Naira falls back to the platform rate", () => {
   const q = quoteForProvider(rules, "dogesms", 50, "whatsapp", "usa", { ...ngn, ngnPerUsd: undefined });
-  assert.equal(q.customerPriceKobo, 280_000);
+  // $0.50 = NGN 800 at the platform rate; x4 = NGN 3,200.
+  assert.equal(q.customerPriceKobo, 320_000);
 });
 
-test("Server II is 3.5x its cost in US dollars, to the cent", () => {
-  assert.equal(quoteForProvider(rules, "dogesms", 50, "whatsapp", "usa", usd).customerPriceKobo, 175);
-  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", usd).customerPriceKobo, 116); // 115.5 up
+test("Server II is 4x its cost in US dollars, to the cent", () => {
+  assert.equal(quoteForProvider(rules, "dogesms", 50, "whatsapp", "usa", usd).customerPriceKobo, 200);
+  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", usd).customerPriceKobo, 132);
 });
 
 test("Server II ignores service overrides; the owner's minimum prices still apply", () => {
   // A service override (5x) is a platform rule, not Server II's price.
-  assert.equal(quoteForProvider(rules, "dogesms", 50, "telegram", "usa", ngn).customerPriceKobo, 245_000);
-  // $0.05 = NGN 70; x3.5 = NGN 245, under the NGN 500 minimum.
+  assert.equal(quoteForProvider(rules, "dogesms", 50, "telegram", "usa", ngn).customerPriceKobo, 280_000);
+  // $0.05 = NGN 70; x4 = NGN 280, under the NGN 500 minimum.
   assert.equal(quoteForProvider(rules, "dogesms", 5, "whatsapp", "usa", ngn).customerPriceKobo, 50_000);
   assert.equal(quoteForProvider(rules, "dogesms", 10, "tiktok", "usa", ngn).customerPriceKobo, 75_000);
   assert.equal(quoteForProvider(rules, "dogesms", 10, "whatsapp", "united-kingdom", ngn).customerPriceKobo, 100_000);

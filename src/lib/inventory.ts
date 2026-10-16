@@ -796,6 +796,17 @@ function humanizeSlug(slug: string): string {
     .join(" ");
 }
 
+/** How long one server may take to answer a live quote before it is left out. */
+export const PROVIDER_LOOKUP_TIMEOUT_MS = 6_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
+
 /**
  * The authoritative quote for one pair, priced from a cost fetched right
  * now with no cache in the way.
@@ -855,13 +866,17 @@ export async function quotePair(
   // hold up the quote by its whole wait; the answers are then read in
   // admin priority order (see getEnabledProviders), so a price tie below
   // resolves to the higher-priority provider without a separate rule.
+  // Each server also gets only so long: a server that is slow or stuck is
+  // treated as not answering for this quote, and the other server's price is
+  // shown without it.
   const lookups = await Promise.all(
     providers.map(async ({ id, provider }) => {
       try {
-        const [offer, services] = await Promise.all([
-          provider.getAvailability(serviceSlug, countrySlug),
-          provider.getServices(),
-        ]);
+        const [offer, services] = await withTimeout(
+          Promise.all([provider.getAvailability(serviceSlug, countrySlug), provider.getServices()]),
+          PROVIDER_LOOKUP_TIMEOUT_MS,
+          `${id} did not answer in time`,
+        );
         return { id, provider, offer, services };
       } catch (error) {
         console.error(

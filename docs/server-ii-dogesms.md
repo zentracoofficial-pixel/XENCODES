@@ -52,9 +52,9 @@ error or routing detail reaches a customer page, API response or browser bundle 
 ## How an order is filled
 
 - Each server is priced its own way. Server I follows the platform price rules (multipliers, minimums,
-  repeat-listing and fixed pair prices). Server II sells at **3.5× its own cost** in every currency
+  repeat-listing and fixed pair prices). Server II sells at **4× its own cost** in every currency
   (`PROVIDER_COST_MULTIPLIERS` in `src/lib/pricing.ts`): the cost is converted at the market Naira rate,
-  the same rate a Naira price is shown at in dollars, so a dollar wallet sees 3.5× too. Rounded up only
+  the same rate a Naira price is shown at in dollars, so a dollar wallet sees 4× too. Rounded up only
   to ₦1 or 1 cent. The owner's minimums (₦500, TikTok ₦750, UK ₦1,000) still apply on top.
 - After a customer picks a service and a country, the buy panel shows **Server I** and **Server II**
   with each one's price (the cheaper is marked "Lowest price"; cheapest is selected by default). The

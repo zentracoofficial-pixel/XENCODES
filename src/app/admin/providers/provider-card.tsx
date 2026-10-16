@@ -21,6 +21,10 @@ export interface ProviderCardProps {
   enabled: boolean;
   priority: number;
   hasCredentials: boolean;
+  /** How this server's prices are set, in a few words. */
+  pricingNote: string;
+  /** The last supplier balance reading kept on record (US cents). */
+  balance: { usdCents: number | null; state: string; checkedAt: string | null } | null;
   connected: boolean;
   capabilities: {
     bulkCatalog: boolean;
@@ -54,6 +58,8 @@ export function ProviderCard({
   enabled,
   priority,
   hasCredentials,
+  pricingNote,
+  balance,
   connected,
   capabilities,
   status,
@@ -147,60 +153,30 @@ export function ProviderCard({
 
       <dl className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-            Last successful sync
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Last synced</dt>
           <dd className="mt-1 text-sm font-medium">
             {status?.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleString("en-NG") : "Never"}
           </dd>
         </div>
         <div className="rounded-lg border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-            Last failed sync
-          </dt>
-          <dd className="mt-1 text-sm font-medium">
-            {status?.lastFailureAt
-              ? new Date(status.lastFailureAt).toLocaleString("en-NG")
-              : "None recorded"}
-          </dd>
-        </div>
-        <div className="rounded-lg border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-            Services / countries
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Services / countries</dt>
           <dd className="mt-1 text-sm font-medium tabular-nums">
             {status?.servicesSynced ?? "—"} / {status?.countriesSynced ?? "—"}
           </dd>
         </div>
         <div className="rounded-lg border border-border px-4 py-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Catalog cache</dt>
-          <dd className="mt-1 text-sm font-medium">
-            {status?.isFresh ? "Fresh" : status?.lastSuccessAt ? "Stale" : "Never synced"}
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Balance</dt>
+          <dd className="mt-1 text-sm font-medium tabular-nums">
+            {balance?.usdCents !== null && balance?.usdCents !== undefined ? `$${(balance.usdCents / 100).toFixed(2)}` : "Not read yet"}
+            {balance?.state === "LOW_BALANCE" ? <span className="ml-1.5 text-xs text-danger">low</span> : null}
+            {balance?.state === "BALANCE_CHECK_FAILED" ? <span className="ml-1.5 text-xs text-warning">check failing</span> : null}
           </dd>
         </div>
-      </dl>
-
-      {status?.runningSince || status?.lastResult ? (
-        <div className="mt-3 rounded-lg border border-border px-4 py-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Latest run</span>
-            {status.runningSince ? (
-              <span className="text-xs font-medium">Running since {formatWhen(status.runningSince)}</span>
-            ) : (
-              <>
-                {syncResultBadge(status.lastResult)}
-                <span className="text-xs text-muted-foreground">
-                  {formatWhen(status.lastFinishedAt)}
-                  {status.lastDurationMs ? ` · ${formatDuration(status.lastDurationMs)}` : ""}
-                </span>
-              </>
-            )}
-          </div>
-          {!status.runningSince && status.lastMessage ? (
-            <p className="mt-1 text-xs text-muted-foreground">{status.lastMessage}</p>
-          ) : null}
+        <div className="rounded-lg border border-border px-4 py-3">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Pricing</dt>
+          <dd className="mt-1 text-sm font-medium">{pricingNote}</dd>
         </div>
-      ) : null}
+      </dl>
 
       {status?.lastFailureError && status.lastResult !== "success" ? (
         <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
@@ -208,16 +184,40 @@ export function ProviderCard({
         </p>
       ) : null}
 
-      {capabilities ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Capabilities: bulk catalog read {capabilities.bulkCatalog ? "yes" : "no"}, balance{" "}
-          {capabilities.balance ? "yes" : "no"}, catalog freshness{" "}
-          {capabilities.catalogFreshness ? "yes" : "no"}, connection test{" "}
-          {capabilities.connectionTest ? "yes" : "no (falls back to a plain catalog read)"}.
-        </p>
-      ) : null}
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+        <Button
+          type="button"
+          variant={enabled ? "outline" : "primary"}
+          size="sm"
+          disabled={toggling}
+          onClick={() =>
+            startToggle(async () => {
+              await toggleProviderAction(id, !enabled);
+            })
+          }
+        >
+          {toggling ? "Saving" : enabled ? "Disable" : "Enable"}
+        </Button>
 
-      <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-border pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={testing || !hasCredentials}
+          onClick={runTest}
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </Button>
+
+        <Button type="button" variant="outline" size="sm" disabled={syncing} onClick={runSync}>
+          {syncing ? (pass > 1 ? `Syncing, pass ${pass}…` : "Syncing…") : "Sync now"}
+        </Button>
+      </div>
+
+      <details className="mt-3 text-sm">
+        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">More details</summary>
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground" htmlFor={`priority-${id}`}>
             Priority
@@ -247,34 +247,40 @@ export function ProviderCard({
           </div>
         </div>
 
-        <Button
-          type="button"
-          variant={enabled ? "outline" : "primary"}
-          size="sm"
-          disabled={toggling}
-          onClick={() =>
-            startToggle(async () => {
-              await toggleProviderAction(id, !enabled);
-            })
-          }
-        >
-          {toggling ? "Saving" : enabled ? "Disable" : "Enable"}
-        </Button>
+          </div>
+      {status?.runningSince || status?.lastResult ? (
+        <div className="rounded-lg border border-border px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Latest run</span>
+            {status.runningSince ? (
+              <span className="text-xs font-medium">Running since {formatWhen(status.runningSince)}</span>
+            ) : (
+              <>
+                {syncResultBadge(status.lastResult)}
+                <span className="text-xs text-muted-foreground">
+                  {formatWhen(status.lastFinishedAt)}
+                  {status.lastDurationMs ? ` · ${formatDuration(status.lastDurationMs)}` : ""}
+                </span>
+              </>
+            )}
+          </div>
+          {!status.runningSince && status.lastMessage ? (
+            <p className="mt-1 text-xs text-muted-foreground">{status.lastMessage}</p>
+          ) : null}
+        </div>
+      ) : null}
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={testing || !hasCredentials}
-          onClick={runTest}
-        >
-          {testing ? "Testing…" : "Test connection"}
-        </Button>
+      {capabilities ? (
+        <p className="text-xs text-muted-foreground">
+          Capabilities: bulk catalog read {capabilities.bulkCatalog ? "yes" : "no"}, balance{" "}
+          {capabilities.balance ? "yes" : "no"}, catalog freshness{" "}
+          {capabilities.catalogFreshness ? "yes" : "no"}, connection test{" "}
+          {capabilities.connectionTest ? "yes" : "no (falls back to a plain catalog read)"}.
+        </p>
+      ) : null}
 
-        <Button type="button" variant="outline" size="sm" disabled={syncing} onClick={runSync}>
-          {syncing ? (pass > 1 ? `Syncing, pass ${pass}…` : "Syncing…") : "Sync now"}
-        </Button>
-      </div>
+        </div>
+      </details>
 
       {testResult ? (
         <p

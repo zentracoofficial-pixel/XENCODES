@@ -7,6 +7,8 @@ import {
   getProviderCapabilities,
 } from "@/lib/provider";
 import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
+import { getProviderBalanceStatus } from "@/lib/provider-balance-monitor";
+import { PROVIDER_COST_MULTIPLIERS } from "@/lib/pricing";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
 import { getPoolQualityReport, getSellerDeliveryReport } from "@/lib/provider-pool-quality";
@@ -81,6 +83,9 @@ export default async function AdminProvidersPage() {
       // customers, not only after.
       const resolution = hasCredentials ? await resolveProvider(definition.id) : null;
       const status = statuses.get(definition.id) ?? null;
+      // Read-only: the reading the dashboard and the daily sync already keep.
+      const balance = await getProviderBalanceStatus(definition.id);
+      const multiplier = PROVIDER_COST_MULTIPLIERS[definition.id];
 
       return {
         id: definition.id,
@@ -89,6 +94,14 @@ export default async function AdminProvidersPage() {
         enabled: entry.enabled,
         priority: entry.priority,
         hasCredentials,
+        pricingNote: multiplier ? `Sells at ${multiplier}× its cost` : "Sells by the platform price rules",
+        balance: balance
+          ? {
+              usdCents: balance.currentBalanceUsdCents,
+              state: balance.state,
+              checkedAt: balance.lastSuccessfulCheckAt?.toISOString() ?? null,
+            }
+          : null,
         connected: resolution?.connected === true,
         capabilities:
           resolution?.connected === true ? getProviderCapabilities(resolution.provider) : null,
@@ -129,13 +142,10 @@ export default async function AdminProvidersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Providers</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Every number supplier Xencodes can buy from. Each server is priced its own way (Server I
-            by the platform price rules, Server II at 3.5&times; its cost); the cheapest server for a
-            service and country is asked first, and Smart Pickup (below) orders servers at the same
-            price. A server that is down or out of stock for a pair is skipped in favour of the
-            next, never at a higher price without the customer confirming it.{" "}
+            Server I and Server II work on their own: each has its own sync, balance and on/off
+            switch, so one being slow, empty or switched off never changes the other.{" "}
             {enabledCount > 0
-              ? `${enabledCount} provider${enabledCount === 1 ? "" : "s"} live right now.`
+              ? `${enabledCount} of ${rows.length} live right now.`
               : "None are live right now."}
           </p>
         </div>
@@ -148,6 +158,14 @@ export default async function AdminProvidersPage() {
         ))}
       </div>
 
+      <details className="group rounded-xl border border-border bg-surface">
+        <summary className="cursor-pointer select-none px-5 py-4 text-sm font-medium">
+          Advanced settings and reports
+          <span className="ml-2 font-normal text-muted-foreground">
+            Smart Pickup, price checks, failures and delivery quality
+          </span>
+        </summary>
+        <div className="space-y-5 border-t border-border p-5">
       <SmartPickupCard
         settings={smartPickup}
         providers={PROVIDER_DEFINITIONS.map((definition) => ({ id: definition.id, label: displayLabel(definition.id) }))}
@@ -204,6 +222,8 @@ export default async function AdminProvidersPage() {
       <SellerDeliveryCard rows={sellerDelivery} />
 
       <PoolQualityReportCard rows={poolQuality} />
+        </div>
+      </details>
     </div>
   );
 }
