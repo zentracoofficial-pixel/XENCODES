@@ -377,16 +377,27 @@ export function quoteForPair(
  * conversion, so a Naira and a dollar wallet get the same price in dollars.
  *
  *   cost $0.40 -> $1.60 (4.0x)   cost $1.00 -> $3.10 (3.1x)
- *   cost $2.00 -> $5.25 (2.6x)   cost $5.00 -> $10.25 (2.0x)
+ *   cost $2.00 -> $5.15 (2.6x)   cost $5.00 -> $9.05 (1.8x)
+ *   cost $10.00 -> $14.80 (1.5x)
  */
 export const PROVIDER_PRICE_TIERS: Readonly<Record<string, ReadonlyArray<{ upToUsdCents: number; multiplier: number }>>> = {
   dogesms: [
     { upToUsdCents: 40, multiplier: 4 },
     { upToUsdCents: 150, multiplier: 2.5 },
-    { upToUsdCents: 400, multiplier: 1.8 },
-    { upToUsdCents: Infinity, multiplier: 1.4 },
+    { upToUsdCents: 300, multiplier: 1.6 },
+    { upToUsdCents: Infinity, multiplier: 1.15 },
   ],
 };
+
+/**
+ * A Premium price more than this many times the cheapest server's price for
+ * the same service and country is not offered next to it: nobody is helped by
+ * a 20x option beside a normal one, and it only makes the page look
+ * overpriced. It is the cheapest price that counts, so this never hides
+ * the only server that can sell a pair, and never sells below cost (it only
+ * removes an option, it does not change a price).
+ */
+export const PREMIUM_MAX_PRICE_OVER_CHEAPEST = 3;
 
 /** The flat multiple a provider is priced at for its first tier, if it has tiers. */
 export function providerCostMultiplier(providerId: string): number | undefined {
@@ -394,10 +405,34 @@ export function providerCostMultiplier(providerId: string): number | undefined {
 }
 
 /**
- * The effective multiple of cost for a provider at a given cost: the tiered
- * price divided by the cost. 4 for any cost inside the first tier.
+ * The most profit, in Naira, a Premium number may earn at a given cost in
+ * Naira, set by the owner: about NGN 3,000 on a NGN 1,400 cost, rising in a
+ * straight line to NGN 5,000 at a NGN 6,000 cost, and NGN 5,000 at most
+ * beyond that. A dear number's price is therefore its cost plus a capped
+ * profit, however dear the supplier makes it. Below NGN 1,400 the tiers
+ * above already earn less than the cap, so cheap numbers are untouched.
  */
-export function effectiveProviderMultiplier(providerId: string, usdCents: number): number | undefined {
+export const PREMIUM_PROFIT_CAP_NGN = {
+  lowCostNgn: 1_400,
+  lowProfitNgn: 3_000,
+  highCostNgn: 6_000,
+  highProfitNgn: 5_000,
+} as const;
+
+export function premiumProfitCapNgn(costNgn: number): number {
+  const { lowCostNgn, lowProfitNgn, highCostNgn, highProfitNgn } = PREMIUM_PROFIT_CAP_NGN;
+  if (costNgn <= lowCostNgn) return lowProfitNgn;
+  if (costNgn >= highCostNgn) return highProfitNgn;
+  return lowProfitNgn + ((costNgn - lowCostNgn) / (highCostNgn - lowCostNgn)) * (highProfitNgn - lowProfitNgn);
+}
+
+/**
+ * The effective multiple of cost for a provider at a given cost: the tiered
+ * price (capped at cost plus the profit cap above, when the Naira rate is
+ * known) divided by the cost. 4 for any cost inside the first tier.
+ * `ngnPerUsd` is the market rate used to turn the cost into Naira for the cap.
+ */
+export function effectiveProviderMultiplier(providerId: string, usdCents: number, ngnPerUsd?: number): number | undefined {
   const tiers = PROVIDER_PRICE_TIERS[providerId];
   if (!tiers || !(usdCents > 0)) return undefined;
   let priced = 0;
@@ -406,6 +441,11 @@ export function effectiveProviderMultiplier(providerId: string, usdCents: number
     if (usdCents <= lower) break;
     priced += (Math.min(usdCents, tier.upToUsdCents) - lower) * tier.multiplier;
     lower = tier.upToUsdCents;
+  }
+  if (ngnPerUsd && ngnPerUsd > 0) {
+    const costNgn = (usdCents / 100) * ngnPerUsd;
+    const capUsdCents = (premiumProfitCapNgn(costNgn) / ngnPerUsd) * 100;
+    priced = Math.min(priced, usdCents + capUsdCents);
   }
   return priced / usdCents;
 }
@@ -424,7 +464,9 @@ export function quoteForProvider(
   countrySlug: string | null,
   currency: CurrencyConfigEntry,
 ): PriceQuote {
-  const multiplier = effectiveProviderMultiplier(providerId, usdCents);
+  // The market Naira rate, for the profit cap whatever currency is priced.
+  const marketNgnPerUsd = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.ngnPerUsd;
+  const multiplier = effectiveProviderMultiplier(providerId, usdCents, marketNgnPerUsd);
   if (multiplier === undefined) {
     return countrySlug === null
       ? quoteForCurrency(rules, usdCents, serviceSlug, currency)

@@ -12,6 +12,7 @@ import {
   loadMarginRules,
   quoteForProvider,
   providerCostMultiplier,
+  PREMIUM_MAX_PRICE_OVER_CHEAPEST,
   isUsableUsdCost,
   variantPriceKobo,
   setQuoteToPrice,
@@ -1021,12 +1022,22 @@ export async function quotePair(
     });
   }
 
+  // A Premium price far above the cheapest server's is dropped from the
+  // choice (see PREMIUM_MAX_PRICE_OVER_CHEAPEST); a pair only Premium can
+  // sell keeps it, however dear, because it is then the only way to buy.
+  const cheapestPrice = Math.min(...fillsUnordered.map((fill) => fill.ladder[0].quote.customerPriceKobo));
+  const offered = fillsUnordered.filter(
+    (fill) =>
+      providerCostMultiplier(fill.provider) === undefined ||
+      fill.ladder[0].quote.customerPriceKobo <= cheapestPrice * PREMIUM_MAX_PRICE_OVER_CHEAPEST,
+  );
+
   // Cheapest first; candidates are already in admin priority order, so a
   // tie keeps the higher-priority provider first. Between providers at the
   // same price, Smart Pickup (src/lib/smart-pickup.ts) decides who is asked
   // first from Xencodes' own delivery record.
   const priceOf = (fill: Fill) => fill.ladder[0].quote.customerPriceKobo;
-  let fills = [...fillsUnordered].sort((a, b) => priceOf(a) - priceOf(b));
+  let fills = [...offered].sort((a, b) => priceOf(a) - priceOf(b));
   let pickup: { mode: string; order: string[] } | undefined;
   if (fills.length > 1) {
     try {
@@ -1086,7 +1097,7 @@ export async function quotePair(
     providerOfferId: primaryFill.providerOfferId,
     ladder: primaryFill.ladder,
     ...(pickup ? { pickup } : {}),
-    options: fillsUnordered
+    options: offered
       .map((fill) => ({ provider: fill.provider, priceKobo: priceOf(fill) }))
       .sort((a, b) => a.priceKobo - b.priceKobo),
     service: toInventoryService(winner.service),

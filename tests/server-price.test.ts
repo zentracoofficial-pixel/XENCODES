@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { quoteForProvider, quoteForPair, effectiveProviderMultiplier, type MarginRules } from "../src/lib/pricing";
+import { quoteForProvider, quoteForPair, effectiveProviderMultiplier, premiumProfitCapNgn, type MarginRules } from "../src/lib/pricing";
 import type { CurrencyConfigEntry } from "../src/lib/currency-config";
 
 const rules: MarginRules = { defaultMultiplier: 3, exclusiveMultiplier: 2, serviceOverrides: new Map([["telegram", 5]]) };
@@ -61,11 +61,12 @@ test("Server I keeps the platform rules exactly", () => {
 test("Server II price tapers on dearer numbers, never falls as cost rises, and leaves cheap ones alone", () => {
   // Anything up to 40 cents is exactly 4x, as before.
   for (const cents of [1, 5, 10, 25, 33, 40]) assert.equal(effectiveProviderMultiplier("dogesms", cents), 4, `${cents}c`);
-  // $1.00 -> $3.10, $2.00 -> $5.25, $5.00 -> $10.25.
+  // $1.00 -> $3.10, $2.00 -> $5.15, $5.00 -> $9.05, $10.00 -> $14.80.
   const priced = (cents: number) => Math.round((effectiveProviderMultiplier("dogesms", cents) ?? 0) * cents);
   assert.equal(priced(100), 310);
-  assert.equal(priced(200), 525);
-  assert.equal(priced(500), 1025);
+  assert.equal(priced(200), 515);
+  assert.equal(priced(500), 905);
+  assert.equal(priced(1000), 1480);
   // Dearer cost, dearer price; and the multiple only ever falls.
   let previousPrice = 0;
   let previousMultiple = Infinity;
@@ -73,10 +74,41 @@ test("Server II price tapers on dearer numbers, never falls as cost rises, and l
     const multiple = effectiveProviderMultiplier("dogesms", cents)!;
     assert.ok(multiple * cents >= previousPrice - 1e-9, `price dropped at ${cents}c`);
     assert.ok(multiple <= previousMultiple + 1e-9, `multiple rose at ${cents}c`);
-    assert.ok(multiple >= 1.4 - 1e-9, `below the last tier's multiple at ${cents}c`);
+    assert.ok(multiple >= 1.15 - 1e-9, `below the last tier's multiple at ${cents}c`);
     previousPrice = multiple * cents;
     previousMultiple = multiple;
   }
   // No tiers for the other server.
   assert.equal(effectiveProviderMultiplier("grizzlysms", 100), undefined);
+});
+
+test("Premium profit is capped in Naira: about NGN 3,000 on a NGN 1,400 cost, NGN 5,000 at most from NGN 6,000", () => {
+  assert.equal(premiumProfitCapNgn(1_000), 3_000);
+  assert.equal(premiumProfitCapNgn(1_400), 3_000);
+  assert.equal(premiumProfitCapNgn(3_700), 4_000);
+  assert.equal(premiumProfitCapNgn(6_000), 5_000);
+  assert.equal(premiumProfitCapNgn(60_000), 5_000);
+
+  const profitNgn = (cents: number, currency: CurrencyConfigEntry) => {
+    const q = quoteForProvider(rules, "dogesms", cents, "whatsapp", "usa", currency);
+    return currency.code === "NGN" ? q.grossProfitKobo / 100 : (q.grossProfitKobo / 100) * (currency.ngnPerUsd ?? 1400);
+  };
+  // $1.00 = NGN 1,400 cost: the tiers earn NGN 2,940, under the cap, so they stand.
+  assert.equal(profitNgn(100, ngn), 2_940);
+  // $4.29 = about NGN 6,000 cost: the tiers would earn far more; the cap holds it to NGN 5,000.
+  assert.ok(profitNgn(429, ngn) <= 5_000 + 1, `${profitNgn(429, ngn)}`);
+  // $10 = NGN 14,000 cost: still NGN 5,000 profit, not NGN 6,800.
+  assert.ok(profitNgn(1000, ngn) <= 5_000 + 1);
+  assert.ok(profitNgn(1000, ngn) > 4_990);
+  // The same price to a dollar wallet, to within a cent.
+  assert.ok(Math.abs(profitNgn(1000, usd) - 5_000) < 1600 * 0.02);
+  // A cost in the first tier is untouched.
+  assert.equal(quoteForProvider(rules, "dogesms", 33, "whatsapp", "usa", ngn).customerPriceKobo, 184_800);
+  // The price still never falls as the cost rises.
+  let last = 0;
+  for (let cents = 1; cents <= 5000; cents += 7) {
+    const price = quoteForProvider(rules, "dogesms", cents, "whatsapp", "usa", ngn).customerPriceKobo;
+    assert.ok(price >= last, `price fell at ${cents}c`);
+    last = price;
+  }
 });
