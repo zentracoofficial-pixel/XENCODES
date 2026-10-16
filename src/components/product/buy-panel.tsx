@@ -548,30 +548,12 @@ export function BuyPanel({
   const countryOptions: ComboboxOption[] = visibleCountries.map((item) => ({
     value: item.slug,
     label: item.name,
-    // No delivery-rate text here: the supplier has no deliverability field to
-    // source a real one from, and most pairs never reach the minimum
-    // sample size for Xencodes' own historical rate, so showing anything
-    // here was almost always an uninformative "not enough data yet"
-    // placeholder. The internally-computed rate still exists and still
-    // drives which variant gets recommended below — it just isn't printed
-    // as a number or label here anymore.
-    hint: [item.recommended ? "Recommended" : null, item.dialCode].filter(Boolean).join(" · "),
+    // Just the country and its dialling code, in A-Z order. No price and
+    // no tag here: the price is shown per server once a country is chosen.
+    hint: item.dialCode,
     leading: (
       <span aria-hidden className="text-lg leading-none">
         {item.flag}
-      </span>
-    ),
-    trailing: (
-      <span className="flex shrink-0 flex-col items-end gap-0.5">
-        {item.recommended ? (
-          <span className="flex items-center gap-1 text-[11px] font-semibold text-forest">
-            <Sparkles className="h-3 w-3" />
-            Recommended
-          </span>
-        ) : null}
-        <span className="text-sm font-semibold tabular-nums">
-          {priceText(item.priceKobo)}
-        </span>
       </span>
     ),
   }));
