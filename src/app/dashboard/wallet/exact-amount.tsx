@@ -67,9 +67,8 @@ export function ExactAmount({
       <p className="mt-2.5 flex items-start gap-1.5 text-xs text-muted-foreground">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
-          Send the full amount. If you send less, the payment does not complete and the money is
-          returned to you automatically, so your wallet is not credited. Pay again with the exact
-          amount.
+          Send this exact amount. If you send less, it is refunded to you automatically and your
+          wallet is not credited.
         </span>
       </p>
     </div>

@@ -2,6 +2,7 @@
 
 import { useState, type ComponentProps } from "react";
 import { useSearchParams } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   FUNDING_CURRENCIES,
@@ -9,7 +10,6 @@ import {
   fundingCurrencyForCountry,
   type FundingCurrencyCode,
 } from "@/lib/funding-currencies";
-import { CURRENCY_COUNTRIES } from "@/lib/currency-meta";
 import { USDT_FUNDING } from "@/lib/usdt";
 import { useDisplayMoney } from "@/components/currency/currency-provider";
 import { AddFunds } from "./add-funds";
@@ -18,15 +18,16 @@ import { UsdtComingSoonNotice } from "./usdt-coming-soon";
 import { UsdtFunding } from "./usdt-funding";
 
 /**
- * The wallet's funding area: every payment currency as a card in one grid,
- * the available ones selectable, the rest shown greyed out with the reason
- * when tapped.
+ * The wallet's funding area, kept light: a standing note on what happens to
+ * a short payment, the payment options that work today as a row of pills
+ * (none when there is only one), the amount form, and the currencies not yet
+ * available on one line.
  *
  * The currency the customer picked in the currency selector is the one
  * selected here, so choosing GHS up top means paying in GHS. Naira funding is
  * the original flow. A local currency is selectable when an admin has
  * switched it on (server decided, see getFundingOptions()); the server checks
- * it again on every quote. USDT is a "coming soon" card and nothing more.
+ * it again on every quote. USDT is listed once Cryptomus is configured.
  */
 
 export interface LocalOption {
@@ -42,7 +43,6 @@ type CardStatus = "available" | "unavailable" | "coming_soon";
 
 interface CardModel {
   id: string;
-  chip: string;
   code: string;
   name: string;
   methods: string;
@@ -72,8 +72,6 @@ export function FundWallet({
   // A manual pick is remembered only for the display currency it was made
   // under: choosing a new currency in the selector moves funding to it.
   const [picked, setPicked] = useState<{ id: string; forDisplay: string } | null>(null);
-  // Same for the "why is this greyed out" message.
-  const [tapNotice, setTapNotice] = useState<{ text: string | null; forDisplay: string } | null>(null);
 
   // Coming back from KoraPay (either kind of payment): only the status card.
   if (searchParams.get("reference")) {
@@ -85,7 +83,6 @@ export function FundWallet({
   const cards: CardModel[] = [
     {
       id: "NGN",
-      chip: "NG",
       code: "NGN",
       name: "Naira",
       methods: "Card, bank transfer",
@@ -94,7 +91,6 @@ export function FundWallet({
     ...FUNDING_CURRENCY_CODES.map(
       (code): CardModel => ({
         id: code,
-        chip: CURRENCY_COUNTRIES[code][0],
         code,
         name: FUNDING_CURRENCIES[code].name,
         methods: FUNDING_CURRENCIES[code].methods.join(", "),
@@ -104,7 +100,6 @@ export function FundWallet({
     ),
     {
       id: USDT_FUNDING.code,
-      chip: "₮",
       code: USDT_FUNDING.code,
       name: USDT_FUNDING.name,
       methods: "USDT",
@@ -139,94 +134,70 @@ export function FundWallet({
               : "Please check back soon."
         }`
       : null;
-  const notice = tapNotice && tapNotice.forDisplay === display ? tapNotice.text : null;
   const noLocal = !cards.some((c) => c.id !== "NGN" && c.status === "available");
   const showUsdtNotice = !usdt.enabled && (display === "USD" || (noLocal && display !== "NGN" && country !== "NG"));
 
-  function reasonFor(card: CardModel): string | null {
-    switch (card.status) {
-      case "coming_soon":
-        return card.id === USDT_FUNDING.code
-          ? USDT_FUNDING.comingSoonMessage
-          : `${card.code} payments are coming soon. Please choose another currency for now.`;
-      case "unavailable":
-        return card.id === "NGN"
-          ? "Naira payments are not connected right now. Please check back soon."
-          : `${card.code} payments are not available yet. Please choose another currency.`;
-      default:
-        return null;
-    }
-  }
+  const available = ordered.filter((card) => card.status === "available");
+  const comingSoon = ordered.filter((card) => card.status !== "available").map((card) => card.code);
+  const payingUsdt = active === USDT_FUNDING.code;
 
   return (
     <section className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="font-semibold">Fund wallet</h2>
+      <h2 className="font-semibold">Add funds</h2>
 
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        Select payment currency
-      </p>
-      <div role="radiogroup" aria-label="Payment currency" className="mt-3 grid grid-cols-2 gap-3 max-[340px]:grid-cols-1 sm:grid-cols-4">
-        {ordered.map((card) => {
-          const isActive = card.id === active;
-          const usable = card.status === "available";
-          return (
-            <button
-              key={card.id}
-              type="button"
-              role="radio"
-              aria-checked={isActive}
-              aria-disabled={!usable}
-              title={usable ? card.methods : (reasonFor(card) ?? undefined)}
-              onClick={() => {
-                if (usable) {
-                  setPicked({ id: card.id, forDisplay: display });
-                  setTapNotice(null);
-                } else {
-                  setTapNotice({ text: reasonFor(card), forDisplay: display });
-                }
-              }}
-              className={cn(
-                "flex min-h-[4.25rem] min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-3 text-left transition-colors sm:gap-3 sm:px-3",
-                isActive
-                  ? "border-mint bg-mint-soft"
-                  : usable
-                    ? "border-border bg-background hover:border-mint"
-                    : "border-border bg-background opacity-50",
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold sm:h-9 sm:w-9 sm:text-[11px]",
-                  isActive ? "bg-forest text-white" : "bg-mint-soft text-forest",
-                )}
-              >
-                {card.chip}
-              </span>
-              <span className="min-w-0">
-                <span className={cn("block text-sm font-semibold", isActive ? "text-forest" : "text-foreground")}>
-                  {card.code}
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground sm:text-xs">
-                  {card.status === "coming_soon" ? "Coming soon" : card.name}
-                </span>
-              </span>
-            </button>
-          );
-        })}
+      {/* Always visible, whatever the method: what happens to a short payment. */}
+      <div role="note" className="mt-3 flex items-start gap-2.5 rounded-lg border border-mint/40 bg-mint-soft px-3.5 py-2.5">
+        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-forest" />
+        <p className="text-sm text-forest">
+          {payingUsdt ? (
+            <>
+              <span className="font-semibold">Pay the exact amount.</span> If you send less USDT, you can send the rest
+              before the payment page expires. If you don&apos;t, contact support and it is returned to you.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold">Pay the exact amount.</span> If you send less, the payment is cancelled and
+              your money is refunded to you automatically. Your wallet is only credited for a full payment.
+            </>
+          )}
+        </p>
       </div>
 
-      {notice ? (
-        <p role="status" className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">
-          {notice}
-        </p>
-      ) : displayNote ? (
-        <p className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">{displayNote}</p>
+      {available.length > 1 ? (
+        <div role="radiogroup" aria-label="Pay with" className="mt-4 flex flex-wrap gap-2">
+          {available.map((card) => {
+            const isActive = card.id === active;
+            return (
+              <button
+                key={card.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => setPicked({ id: card.id, forDisplay: display })}
+                className={cn(
+                  "inline-flex h-10 items-center gap-2 rounded-full border px-3.5 text-sm transition-colors",
+                  isActive ? "border-forest bg-forest text-white" : "border-border bg-background hover:border-mint",
+                )}
+              >
+                <span className="font-semibold">{card.code}</span>
+                <span className={cn("text-xs", isActive ? "text-white/70" : "text-muted-foreground")}>{card.methods}</span>
+              </button>
+            );
+          })}
+        </div>
       ) : null}
-      {activeCard && activeCard.id !== USDT_FUNDING.code ? (
+
+      {activeCard ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          Pay with {activeCard.methods}. Your balance goes up as soon as the payment is confirmed.
+          {available.length > 1 ? "" : `Paying in ${activeCard.code}. `}
+          {payingUsdt
+            ? "Pay in USDT on the network you choose. Your balance goes up once the payment is confirmed."
+            : `Pay by ${activeCard.methods.toLowerCase().replace(/, (?=[^,]*$)/, " or ")}. Your balance goes up as soon as the payment is confirmed.`}
         </p>
+      ) : null}
+
+      {displayNote ? (
+        <p className="mt-3 rounded-lg bg-warning-soft px-3.5 py-2.5 text-sm text-warning">{displayNote}</p>
       ) : null}
 
       <div className="mt-5 border-t border-border pt-5">
@@ -239,7 +210,7 @@ export function FundWallet({
             minMinor={activeOption.minMinor}
             maxMinor={activeOption.maxMinor}
           />
-        ) : active === USDT_FUNDING.code ? (
+        ) : payingUsdt ? (
           <UsdtFunding minCents={usdt.minCents} maxCents={usdt.maxCents} />
         ) : active === "NGN" ? (
           <AddFunds {...naira} walletCurrency={walletCurrency} embedded />
@@ -248,8 +219,12 @@ export function FundWallet({
         )}
       </div>
 
+      {comingSoon.length > 0 ? (
+        <p className="mt-5 text-xs text-muted-foreground">Coming soon: {comingSoon.join(", ")}.</p>
+      ) : null}
+
       {showUsdtNotice ? (
-        <div className="mt-5">
+        <div className="mt-4">
           <UsdtComingSoonNotice />
         </div>
       ) : null}
