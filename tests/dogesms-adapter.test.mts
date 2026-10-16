@@ -220,6 +220,23 @@ test("balance: still limited after every attempt is reported as a rate limit, no
   await assert.rejects(() => provider().getProviderBalanceUsdCents(), /RATE_LIMITED/);
 });
 
+test("balance: keeps asking through a longer limit, with growing pauses, and the connection test calls a busy DogeSMS reachable", async () => {
+  let asked = 0;
+  const waits: number[] = [];
+  handler = (req) => {
+    if (req.path !== "/v1/balance") return catalog(req);
+    asked += 1;
+    return asked < 5 ? { status: 429, body: { error: { code: "RATE_LIMITED" } } } : { status: 200, body: { data: { balance_cents: 4200 } } };
+  };
+  assert.equal(await provider({ sleep: async (ms) => void waits.push(ms) }).getProviderBalanceUsdCents(), 4200);
+  assert.equal(asked, 5);
+  assert.ok(waits.length >= 2 && waits[waits.length - 1] >= waits[0], "pauses grow");
+
+  handler = (req) => (req.path === "/v1/balance" ? { status: 429, body: { error: { code: "RATE_LIMITED" } } } : catalog(req));
+  const check = await provider().testConnection();
+  assert.equal(check.ok, true);
+});
+
 test("service names map to house listings only when clearly the same", () => {
   assert.equal(houseServiceSlug("instagram", directory), "instagram-threads");
   assert.equal(houseServiceSlug("whatsapp", directory), "whatsapp");

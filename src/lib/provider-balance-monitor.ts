@@ -141,6 +141,19 @@ export async function checkProviderBalance(
     // credential-free message — see grizzlysms.ts's call(), which never
     // includes the request URL or api_key in what it throws.
     const message = error instanceof Error ? error.message : "Unknown error reading provider balance.";
+    // A supplier refusing us for asking too fast is a busy moment, not an
+    // outage. With a good reading already on record, keep showing it (and
+    // keep tracking from it) instead of flagging the balance check as failing.
+    if (/RATE_LIMITED|HTTP 429/i.test(message)) {
+      const last = await prisma.providerBalanceStatus.findUnique({ where: { id: providerId } }).catch(() => null);
+      if (last && last.currentBalanceUsdCents !== null) {
+        console.warn(`[provider-balance] "${providerId}" was rate limited; keeping the last reading.`);
+        await prisma.providerBalanceStatus
+          .update({ where: { id: providerId }, data: { lastCheckedAt: new Date(), lastCheckError: null } })
+          .catch(() => undefined);
+        return { ok: true, balanceUsdCents: last.currentBalanceUsdCents };
+      }
+    }
     await recordCheckFailure(providerId, message);
     return { ok: false, balanceUsdCents: null, error: message };
   }
