@@ -103,9 +103,9 @@ const MAX_RATE_LIMIT_RETRIES = 3;
  *  would only lengthen DogeSMS's limit. The rest wait for the next run. */
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
 const MAX_COOLDOWN_MS = 20_000;
-const BALANCE_ATTEMPTS = 3;
+const BALANCE_ATTEMPTS = 6;
 const BALANCE_TIMEOUT_MS = 6_000;
-const BALANCE_MAX_WAIT_MS = 5_000;
+const BALANCE_MAX_WAIT_MS = 6_000;
 
 export const DOGESMS_PROVIDER_ID = "dogesms";
 
@@ -768,12 +768,12 @@ export class DogeSmsProvider implements NumberProvider {
 
   async getProviderBalanceUsdCents(): Promise<number | null> {
     // A balance read is one small request, but it shares DogeSMS's rate limit
-    // with the price reads, so it can be refused while a sync is running.
-    // Wait out the cooldown and ask again rather than reporting a failure
-    // for what is only a busy moment.
+    // with the price reads (and with other server instances running a sync,
+    // which this instance's own cooldown cannot see). So a refusal is only a
+    // busy moment: wait it out, with a growing pause, and ask again.
     let lastError: unknown;
     for (let attempt = 0; attempt < BALANCE_ATTEMPTS; attempt += 1) {
-      const wait = DogeSmsProvider.cooldownUntil - Date.now();
+      const wait = Math.max(DogeSmsProvider.cooldownUntil - Date.now(), attempt === 0 ? 0 : 1_000 * 2 ** (attempt - 1));
       if (wait > 0) await this.sleep(Math.min(wait, BALANCE_MAX_WAIT_MS));
       try {
         const data = (await this.getJson("/v1/balance", undefined, BALANCE_TIMEOUT_MS)) as Json | null;
@@ -791,6 +791,9 @@ export class DogeSmsProvider implements NumberProvider {
       const cents = await this.getProviderBalanceUsdCents();
       return { ok: true, message: cents === null ? "Connected." : `Connected. Balance $${(cents / 100).toFixed(2)}.` };
     } catch (error) {
+      // Refused for going too fast means DogeSMS answered and the key is
+      // accepted: reachable, just busy.
+      if (error instanceof DogeSmsRateLimitedError) return { ok: true, message: "Connected (DogeSMS is busy; balance read later)." };
       return { ok: false, message: error instanceof Error ? error.message : "Connection failed." };
     }
   }

@@ -53,7 +53,14 @@ export async function getSystemHealth(): Promise<HealthSignal[]> {
   } else {
     for (const { id, label, provider } of enabled) {
       const status = syncStatuses.get(id);
-      const connected = await provider.testConnection?.().catch(() => false) ?? true;
+      // A balance reading taken in the last half hour already proves the
+      // supplier is reachable; asking again would only spend its rate limit.
+      const recentBalance = typeof provider.getProviderBalanceUsdCents === "function" ? await getProviderBalanceStatus(id) : null;
+      const reachedRecently =
+        Boolean(recentBalance?.lastSuccessfulCheckAt) &&
+        !recentBalance?.lastCheckError &&
+        Date.now() - (recentBalance?.lastSuccessfulCheckAt?.getTime() ?? 0) < 30 * 60 * 1000;
+      const connected = reachedRecently ? true : ((await provider.testConnection?.().catch(() => false)) ?? true);
       signals.push({
         label,
         state: connected ? "ok" : "error",

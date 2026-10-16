@@ -52,7 +52,7 @@ test("a recent reading is reused when allowed, and a fresh one is read when not"
 test("a failed check keeps the last good reading and is reported as failed", async () => {
   await checkProviderBalance(ID, "Balancetest", fake(async () => 5_000));
   const failed = await checkProviderBalance(ID, "Balancetest", fake(async () => {
-    throw new Error("DogeSMS GET /v1/balance: HTTP 429 RATE_LIMITED");
+    throw new Error("DogeSMS GET /v1/balance: HTTP 503 UNAVAILABLE");
   }));
   assert.equal(failed.ok, false);
   const status = await getProviderBalanceStatus(ID);
@@ -61,4 +61,25 @@ test("a failed check keeps the last good reading and is reported as failed", asy
   // The next good check clears the failure.
   await checkProviderBalance(ID, "Balancetest", fake(async () => 4_500));
   assert.equal((await getProviderBalanceStatus(ID))?.state, "HEALTHY");
+});
+
+test("a rate-limited check keeps the last reading and does not flag the balance check as failing", async () => {
+  await checkProviderBalance(ID, "Balancetest", fake(async () => 5_000));
+  const limited = fake(async () => {
+    throw new Error("DogeSMS GET /v1/balance: HTTP 429 RATE_LIMITED");
+  });
+  const result = await checkProviderBalance(ID, "Balancetest", limited);
+  assert.deepEqual([result.ok, result.balanceUsdCents], [true, 5_000]);
+  const status = await getProviderBalanceStatus(ID);
+  assert.equal(status?.lastCheckError, null);
+  assert.equal(status?.state, "HEALTHY");
+});
+
+test("a rate limit with no reading on record is still reported, so a never-working check is not hidden", async () => {
+  const limited = fake(async () => {
+    throw new Error("DogeSMS GET /v1/balance: HTTP 429 RATE_LIMITED");
+  });
+  const result = await checkProviderBalance(ID, "Balancetest", limited);
+  assert.equal(result.ok, false);
+  assert.match((await getProviderBalanceStatus(ID))?.lastCheckError ?? "", /RATE_LIMITED/);
 });
