@@ -27,7 +27,6 @@ const nextConfig: NextConfig = {
       // since whether a service still exists depends on the live catalog.
       { source: "/support", destination: "/dashboard/support", permanent: true },
       { source: "/contact", destination: "/about#contact", permanent: true },
-      { source: "/acceptable-use", destination: "/terms", permanent: true },
       { source: "/numbers", destination: "/services", permanent: true },
     ];
   },

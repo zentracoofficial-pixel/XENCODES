@@ -25,6 +25,7 @@ const STATIC_PAGES: Array<{ path: string; priority: number; changefreq: string }
   { path: "/about", priority: 0.7, changefreq: "monthly" },
   { path: "/faq", priority: 0.7, changefreq: "monthly" },
   { path: "/refund-policy", priority: 0.4, changefreq: "monthly" },
+  { path: "/acceptable-use", priority: 0.4, changefreq: "monthly" },
   { path: "/terms", priority: 0.3, changefreq: "monthly" },
   { path: "/privacy", priority: 0.3, changefreq: "monthly" },
 ];
@@ -64,24 +65,36 @@ export async function buildSitemapIndex(): Promise<string> {
   return `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${rows}</sitemapindex>`;
 }
 
+function coreEntries(index: Awaited<ReturnType<typeof getSeoIndex>>): Entry[] {
+  const entries: Entry[] = [...STATIC_PAGES];
+  const serviceSlugs = new Set<string>([...SERVICE_PAGES.map((page) => page.slug), ...index.services.map((service) => service.slug)]);
+  for (const slug of serviceSlugs) {
+    entries.push({ path: `/services/${slug}`, priority: 0.7, changefreq: "daily" });
+  }
+  for (const country of index.countries) {
+    entries.push({ path: `/countries/${country.slug}`, priority: 0.7, changefreq: "daily" });
+  }
+  for (const guide of GUIDES) {
+    entries.push({ path: `/guides/${guide.slug}`, priority: 0.7, changefreq: "monthly", lastmod: guide.published });
+  }
+  return entries;
+}
+
+/** Every absolute URL in the sitemaps, for IndexNow. */
+export async function listIndexableUrls(): Promise<string[]> {
+  const index = await getSeoIndex();
+  const paths = [
+    ...coreEntries(index).map((entry) => entry.path),
+    ...index.pairs.map((pair) => `/services/${pair.service}/${pair.country}`),
+  ];
+  return [...new Set(paths)].map((path) => SITE_URL + path);
+}
+
 /** One sitemap file by name ("core.xml", "pairs-2.xml"), or null. */
 export async function buildSitemap(name: string): Promise<string | null> {
   const index = await getSeoIndex();
 
-  if (name === "core.xml") {
-    const entries: Entry[] = [...STATIC_PAGES];
-    const serviceSlugs = new Set<string>([...SERVICE_PAGES.map((page) => page.slug), ...index.services.map((service) => service.slug)]);
-    for (const slug of serviceSlugs) {
-      entries.push({ path: `/services/${slug}`, priority: 0.7, changefreq: "daily" });
-    }
-    for (const country of index.countries) {
-      entries.push({ path: `/countries/${country.slug}`, priority: 0.7, changefreq: "daily" });
-    }
-    for (const guide of GUIDES) {
-      entries.push({ path: `/guides/${guide.slug}`, priority: 0.7, changefreq: "monthly", lastmod: guide.published });
-    }
-    return urlset(entries);
-  }
+  if (name === "core.xml") return urlset(coreEntries(index));
 
   const match = /^pairs-(\d+)\.xml$/.exec(name);
   if (match) {
