@@ -28,6 +28,9 @@ import {
 } from "@/lib/inventory";
 import { HOMEPAGE_SHOWCASE_ROWS } from "@/data/homepage-showcase";
 import { faqs } from "@/data/faq";
+import { GUIDES } from "@/data/guides";
+import { Flag } from "@/components/ui/flag";
+import { getSeoIndex } from "@/lib/seo-catalog";
 import { SITE_NAME, SITE_URL, SITE_LOGO_URL, SUPPORT_EMAIL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -80,12 +83,15 @@ const PRICING_POINTS = [
 ];
 
 export default async function HomePage() {
-  const [status, services, serviceCount, highlights] = await Promise.all([
+  const [status, services, serviceCount, highlights, seoIndex] = await Promise.all([
     getInventoryStatus(),
     searchServices("").catch(() => []),
     countServices().catch(() => 0),
     getCatalogHighlights().catch(() => ({ startingPriceKobo: null, countryCount: null })),
+    getSeoIndex().catch(() => ({ services: [], countries: [], pairs: [] })),
   ]);
+  const topCountries = [...seoIndex.countries].sort((a, b) => b.serviceCount - a.serviceCount).slice(0, 12);
+  const topServices = seoIndex.services.filter((service) => service.featured).slice(0, 12);
 
   // "Numbers on sale now" and the live counts only when that is true.
   const live = status.connected && serviceCount > 0;
@@ -100,7 +106,7 @@ export default async function HomePage() {
           name: SITE_NAME,
           url: SITE_URL,
           description:
-            "Xencodes is a virtual SMS verification platform: virtual phone numbers for receiving SMS verification codes across supported online services, priced and paid in your local currency.",
+            "Xencodes is a virtual SMS verification platform: virtual phone numbers for receiving SMS verification codes across supported online services, available to customers worldwide, in more than one country and currency.",
           publisher: { "@id": `${SITE_URL}/#organization` },
           inLanguage: "en",
         }}
@@ -363,6 +369,83 @@ export default async function HomePage() {
           </ul>
         </Container>
       </section>
+
+      {/* Browse by country and by service: real links to the pages that
+          rank for "virtual number for <country>" and "<service> number". */}
+      {topCountries.length > 0 ? (
+        <section className="border-y border-border bg-surface">
+          <Container className="py-14 sm:py-16">
+            <SectionHeading
+              eyebrow="Worldwide"
+              title="Virtual numbers from countries around the world"
+              description="Choose a country to see which services it works for and what a number costs. You do not need to be there."
+              action={
+                <Link href="/countries" className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline">
+                  All countries
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              }
+            />
+            <ul className="mt-8 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+              {topCountries.map((country) => (
+                <li key={country.slug}>
+                  <Link
+                    href={`/countries/${country.slug}`}
+                    className="flex items-center gap-3 rounded-xl border border-border bg-background/60 px-3.5 py-3 transition-colors hover:border-mint/50 hover:bg-mint-soft/40"
+                  >
+                    <Flag flag={country.flag} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{country.name} number</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {country.dialCode} · {country.serviceCount.toLocaleString("en-US")} services
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {topServices.length > 0 ? (
+              <p className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Popular:</span>
+                {topServices.map((service) => (
+                  <Link key={service.slug} href={`/services/${service.slug}`} className="text-forest underline-offset-4 hover:underline">
+                    {service.name} number
+                  </Link>
+                ))}
+              </p>
+            ) : null}
+          </Container>
+        </section>
+      ) : null}
+
+      <Section className="py-14 sm:py-16">
+        <Container>
+          <SectionHeading
+            eyebrow="Guides"
+            title="Learn how SMS verification works"
+            action={
+              <Link href="/guides" className="inline-flex items-center gap-1.5 py-3 -my-3 text-sm font-medium text-forest hover:underline">
+                All guides
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            }
+          />
+          <ul className="mt-8 grid gap-3 sm:grid-cols-2">
+            {GUIDES.slice(0, 4).map((guide) => (
+              <li key={guide.slug}>
+                <Link
+                  href={`/guides/${guide.slug}`}
+                  className="block h-full rounded-xl border border-border bg-surface p-5 transition-colors hover:border-mint/50 hover:bg-mint-soft/40"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-forest">{guide.category}</span>
+                  <span className="mt-1 block text-[15px] font-semibold leading-snug">{guide.title}</span>
+                  <span className="mt-1.5 block text-sm text-muted-foreground">{guide.readingMinutes} min read</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Container>
+      </Section>
 
       {/* FAQ. */}
       <Section className="py-14 sm:py-16">

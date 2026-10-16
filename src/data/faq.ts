@@ -22,7 +22,7 @@ export const faqs: FaqItem[] = [
   {
     question: "What currency does Xencodes use?",
     answer:
-      "Xencodes currently operates in Nigerian Naira (NGN) only. You fund your wallet by card, bank transfer or USSD through KoraPay, and every number is priced in NGN. This is separate from which countries you can buy a virtual number for. You can still verify accounts for services in the US, UK and elsewhere, paid for from your NGN wallet.",
+      "Xencodes serves customers worldwide. Prices can be shown in Naira or US dollars, and you see the exact price before you buy. Wallet top-ups are processed through KoraPay by card, bank transfer or USSD, and USDT top-ups are being added. Which country a number comes from is a separate choice: you can verify accounts for services in the US, UK and elsewhere from wherever you are.",
   },
   {
     question: "How long does it take to receive an SMS?",
@@ -52,7 +52,7 @@ export const faqs: FaqItem[] = [
   {
     question: "Which countries are available?",
     answer:
-      "Availability changes with stock, so each service shows only the countries that can receive its codes right now. Nigeria, the United States, the United Kingdom and several others are covered.",
+      "Availability changes with stock, so each service shows only the countries that can receive its codes right now. Numbers are available from dozens of countries around the world, including the United States, the United Kingdom, Nigeria and many more. See the full list on the countries page.",
   },
   {
     question: "Can I use one number more than once?",

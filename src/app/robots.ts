@@ -27,6 +27,9 @@ export default function robots(): MetadataRoute.Robots {
         "/reset-password",
         "/two-factor",
         "/verify-email",
+        // The buy page with a service or country preselected is the same
+        // page as /buy; the public pages are the ones to index.
+        "/buy?*",
       ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,

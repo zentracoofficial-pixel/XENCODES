@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,13 +10,43 @@ import { CurrencySelector } from "@/components/currency/currency-selector";
 
 const navLinks = [
   { href: "/services", label: "Services" },
+  { href: "/countries", label: "Countries" },
   { href: "/pricing", label: "Pricing" },
   { href: "/how-it-works", label: "How It Works" },
+  { href: "/guides", label: "Guides" },
   { href: "/faq", label: "FAQ" },
 ];
 
-export function Header({ signedIn = false }: { signedIn?: boolean }) {
+export function Header({
+  signedIn: signedInProp = false,
+  showCurrency = true,
+  detectSession = false,
+}: {
+  signedIn?: boolean;
+  /** The currency picker needs the visitor's own cookie, which a page served
+   *  from the cache cannot read, so those pages leave it out. */
+  showCurrency?: boolean;
+  /** For pages served from the cache: ask after load whether the visitor is
+   *  signed in, to show "Dashboard" instead of "Log in". */
+  detectSession?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const [detected, setDetected] = useState(false);
+  const signedIn = signedInProp || detected;
+
+  useEffect(() => {
+    if (!detectSession) return;
+    let live = true;
+    fetch("/api/auth/session", { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { user?: { id?: string } } | null) => {
+        if (live && data?.user?.id) setDetected(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [detectSession]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
@@ -38,7 +68,7 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
         </nav>
 
         <div className="hidden items-center gap-2 md:flex">
-          <CurrencySelector />
+          {showCurrency ? <CurrencySelector /> : null}
           <Button href={signedIn ? "/dashboard" : "/login"} variant="ghost" size="sm">
             {signedIn ? "Dashboard" : "Log in"}
           </Button>
@@ -52,7 +82,7 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         <div className="-mr-1 flex items-center gap-1 md:hidden">
-        <CurrencySelector />
+        {showCurrency ? <CurrencySelector /> : null}
         <button
           type="button"
           aria-label={open ? "Close menu" : "Open menu"}
@@ -68,7 +98,7 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
       <div
         className={cn(
           "overflow-hidden border-border transition-[max-height] duration-200 ease-out md:hidden",
-          open ? "max-h-80 border-t" : "max-h-0",
+          open ? "max-h-[28rem] border-t" : "max-h-0",
         )}
       >
         <div className="flex flex-col gap-1 px-5 py-4">

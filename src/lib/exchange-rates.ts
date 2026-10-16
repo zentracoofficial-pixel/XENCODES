@@ -164,7 +164,7 @@ export function assembleRates(input: {
  * The rates for this request. Schedules a background refresh when the
  * stored table is old (without making this request wait for it).
  */
-export async function getDisplayRates(): Promise<DisplayRates> {
+export async function getDisplayRates(options: { scheduleRefresh?: boolean } = {}): Promise<DisplayRates> {
   // One read of the settings table for everything below.
   const settings = await readSettings();
   const [currencies, funding] = await Promise.all([
@@ -175,7 +175,7 @@ export async function getDisplayRates(): Promise<DisplayRates> {
   const stored = parseStored(settings[SETTING_KEYS.displayRates]);
 
   const now = Date.now();
-  if (isDue(stored, now)) {
+  if (options.scheduleRefresh !== false && isDue(stored, now)) {
     try {
       const { after } = await import("next/server");
       after(() => refreshDisplayRates({ onlyIfDue: true }));

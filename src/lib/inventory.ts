@@ -1146,7 +1146,7 @@ export interface CountryServiceOffer {
 
 /** Synced rows a customer may browse: enabled providers only, no service an
  *  admin switched off, nothing restricted, nothing unpriceable. */
-async function browsableRows(where: { countrySlug?: string | { in: string[] } } = {}) {
+async function browsableRows(where: { countrySlug?: string | { in: string[] }; serviceSlug?: string } = {}) {
   const [providerIds, disabledRows] = await Promise.all([
     enabledProviderIds(),
     prisma.serviceSetting.findMany({ where: { enabled: false }, select: { slug: true } }),
@@ -1157,6 +1157,7 @@ async function browsableRows(where: { countrySlug?: string | { in: string[] } } 
     select: {
       providerId: true, serviceSlug: true, serviceName: true, serviceColor: true, category: true,
       countrySlug: true, countryName: true, countryFlag: true, dialCode: true, costUsdCents: true,
+      nationalDigits: true, stockCount: true,
     },
   });
   return rows.filter(
@@ -1268,4 +1269,76 @@ export async function getCountryServices(
     },
     services,
   };
+}
+
+
+export interface ServiceCountryOffer {
+  slug: string;
+  name: string;
+  flag: string;
+  dialCode: string;
+  /** Digits after the country code in a typical national number. */
+  nationalDigits: number;
+  /** The lowest price any enabled server sells this service for here, in
+   *  the currency asked for, from the last sync. */
+  fromPriceKobo: number;
+  /** Numbers the servers report in stock, when they say; null when none do. */
+  stockCount: number | null;
+}
+
+/**
+ * One service across every country that sells it, each at its lowest current
+ * price, read from the synced catalog (no supplier request), for the public
+ * pages search engines index. Repeat listings of a country ("USA (2)") are
+ * left out: they are the same place, and the plain listing is the one page.
+ * Null when the service is not on sale anywhere (or is switched off or
+ * restricted), so no page is made for it.
+ */
+export async function getServiceCountryOffers(
+  serviceSlug: string,
+  currency: CurrencyConfigEntry,
+): Promise<{ service: InventoryService; countries: ServiceCountryOffer[] } | null> {
+  if (isRestrictedService(serviceSlug)) return null;
+  const [rules, rows] = await Promise.all([loadMarginRules(), browsableRows({ serviceSlug })]);
+  if (rows.length === 0) return null;
+
+  const best = new Map<string, ServiceCountryOffer>();
+  for (const row of rows) {
+    if (parseCountryVariant(row.countryName).variant > 1) continue;
+    let price = quoteForProvider(rules, row.providerId, row.costUsdCents, row.serviceSlug, row.countrySlug, currency).customerPriceKobo;
+    if (providerCostMultiplier(row.providerId) === undefined) {
+      const fixed = pairPriceOverrideKobo(row.serviceSlug, row.countrySlug, currency);
+      if (fixed !== undefined) price = fixed;
+    }
+    if (!(price > 0)) continue;
+    const known = best.get(row.countrySlug);
+    const stock = row.stockCount ?? null;
+    if (known) {
+      // Counts add up across the servers that sell the country.
+      known.stockCount = known.stockCount === null && stock === null ? null : (known.stockCount ?? 0) + (stock ?? 0);
+      if (known.fromPriceKobo <= price) continue;
+      known.fromPriceKobo = price;
+      continue;
+    }
+    best.set(row.countrySlug, {
+      slug: row.countrySlug,
+      name: row.countryName,
+      flag: row.countryFlag,
+      dialCode: row.dialCode,
+      nationalDigits: row.nationalDigits,
+      fromPriceKobo: price,
+      stockCount: stock,
+    });
+  }
+  if (best.size === 0) return null;
+
+  const first = rows[0];
+  const service = toInventoryService({
+    slug: first.serviceSlug,
+    name: first.serviceName,
+    color: first.serviceColor,
+    category: first.category,
+  });
+  const countries = [...best.values()].sort((a, b) => compareCountryNames(a.name, b.name));
+  return { service, countries };
 }
