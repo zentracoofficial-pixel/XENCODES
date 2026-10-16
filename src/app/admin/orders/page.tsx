@@ -1,3 +1,4 @@
+import { Pagination } from "@/components/ui/pagination";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Search } from "lucide-react";
@@ -20,7 +21,7 @@ export const metadata: Metadata = { title: "Admin: Orders" };
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 30;
 
 /** Not a stored status: WAITING orders whose session has already expired but
  *  have not yet settled — the sweep should catch these within a day, but an
@@ -481,37 +482,25 @@ export default async function AdminOrdersPage({
         )}
       </Card>
 
-      {totalPages > 1 ? (
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href={keep({ page: page > 1 ? String(page - 1) : undefined })}
-            aria-disabled={page <= 1}
-            className={cn(
-              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
-              page <= 1
-                ? "pointer-events-none opacity-40"
-                : "hover:border-mint hover:bg-mint-soft",
-            )}
-          >
-            Previous
-          </Link>
-          <p className="text-xs text-muted-foreground">
-            Page {page} of {totalPages}
-          </p>
-          <Link
-            href={keep({ page: String(page + 1) })}
-            aria-disabled={page >= totalPages}
-            className={cn(
-              "inline-flex min-h-9 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition-colors",
-              page >= totalPages
-                ? "pointer-events-none opacity-40"
-                : "hover:border-mint hover:bg-mint-soft",
-            )}
-          >
-            Next
-          </Link>
-        </div>
-      ) : null}
+      <Pagination
+        basePath="/admin/orders"
+        params={{
+          status: activeFilter === "ALL" ? undefined : activeFilter,
+          q: query,
+          sort: activeSort === "newest" ? undefined : activeSort,
+          service,
+          country,
+          provider,
+          from,
+          to,
+          includeDeleted: showDeleted ? "1" : undefined,
+        }}
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        from={total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+        to={Math.min(total, page * PAGE_SIZE)}
+      />
     </div>
   );
 }

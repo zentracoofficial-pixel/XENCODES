@@ -1,3 +1,5 @@
+import { Pagination } from "@/components/ui/pagination";
+import { pageMath, parsePage } from "@/lib/pagination";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -27,6 +29,8 @@ const CAMPAIGN_STATUS_VARIANT = {
   FAILED: "danger",
 } as const;
 
+const CAMPAIGNS_PER_PAGE = 20;
+
 /**
  * Compose and history live on one page as two tabs, not two nav items: a
  * campaign's history is only ever interesting in the context of sending
@@ -35,17 +39,20 @@ const CAMPAIGN_STATUS_VARIANT = {
 export default async function AdminEmailPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
   await requireAdmin();
-  const { tab } = await searchParams;
+  const { tab, page: pageRaw } = await searchParams;
   const activeTab = tab === "history" ? "history" : "compose";
 
+  const campaignCount = activeTab === "history" ? await prisma.emailCampaign.count() : 0;
+  const paging = pageMath(campaignCount, parsePage(pageRaw), CAMPAIGNS_PER_PAGE);
   const campaigns =
     activeTab === "history"
       ? await prisma.emailCampaign.findMany({
           orderBy: { createdAt: "desc" },
-          take: 50,
+          skip: paging.skip,
+          take: CAMPAIGNS_PER_PAGE,
         })
       : [];
 
@@ -143,6 +150,9 @@ export default async function AdminEmailPage({
           )}
         </Card>
       )}
+      {activeTab === "history" ? (
+        <Pagination basePath="/admin/email" params={{ tab: "history" }} total={campaignCount} {...paging} />
+      ) : null}
     </div>
   );
 }

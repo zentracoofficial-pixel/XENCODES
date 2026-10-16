@@ -22,6 +22,8 @@ import {
 } from "@/lib/funding-currencies";
 import { reconcileStalePendingTopUpsAction } from "./actions";
 import { CURRENCY_MOVE_PROVIDER } from "@/lib/wallet-currency";
+import { Pagination } from "@/components/ui/pagination";
+import { pageMath, parsePage } from "@/lib/pagination";
 
 export const metadata: Metadata = { title: "Wallet" };
 
@@ -39,7 +41,10 @@ const dateFormat: Intl.DateTimeFormatOptions = {
   minute: "2-digit",
 };
 
-export default async function WalletPage() {
+/** Transactions per page. */
+const PAGE_SIZE = 15;
+
+export default async function WalletPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const session = await auth();
   const userId = session!.user.id;
 
@@ -54,7 +59,15 @@ export default async function WalletPage() {
   // chosen currency.
   const displayContext = await getDisplayContext();
 
-  const [user, transactions] = await Promise.all([
+  const historyWhere = {
+    userId,
+    status: { in: ["SUCCESSFUL", "FAILED"] as Array<"SUCCESSFUL" | "FAILED"> },
+    // Spelled out: provider is usually null, and NOT (provider = x AND ...)
+    // would drop those rows too.
+    OR: [{ provider: null }, { provider: { not: CURRENCY_MOVE_PROVIDER } }, { amountKobo: { gte: 0 } }],
+  };
+
+  const [user, total] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     // A top-up the customer never actually completed (abandoned, or the
     // checkout link expired without a payment attempt) is recorded as
@@ -63,18 +76,16 @@ export default async function WalletPage() {
     // history. Only a completed payment or a real declined attempt shows.
     // The outgoing half of a balance moving to another currency is left out:
     // the customer sees their balance arriving in its new currency.
-    prisma.walletTransaction.findMany({
-      where: {
-        userId,
-        status: { in: ["SUCCESSFUL", "FAILED"] },
-        // Spelled out: provider is usually null, and NOT (provider = x AND ...)
-        // would drop those rows too.
-        OR: [{ provider: null }, { provider: { not: CURRENCY_MOVE_PROVIDER } }, { amountKobo: { gte: 0 } }],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
+    prisma.walletTransaction.count({ where: historyWhere }),
   ]);
+  // One page at a time, newest first, so the list never grows without end.
+  const paging = pageMath(total, parsePage((await searchParams).page), PAGE_SIZE);
+  const transactions = await prisma.walletTransaction.findMany({
+    where: historyWhere,
+    orderBy: { createdAt: "desc" },
+    skip: paging.skip,
+    take: PAGE_SIZE,
+  });
 
   // The price each purchase was shown at, so purchases and their refunds in
   // this list show what the customer actually saw. Top-ups show what they
@@ -226,6 +237,7 @@ export default async function WalletPage() {
             })}
           </ul>
         )}
+        <Pagination basePath="/dashboard/wallet" total={total} className="mt-4" {...paging} />
       </section>
     </div>
   );
