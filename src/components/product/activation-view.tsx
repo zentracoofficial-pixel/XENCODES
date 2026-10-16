@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   ActivationPanel,
@@ -10,9 +11,13 @@ import {
 import { formatMoney } from "@/lib/currency";
 import { useDisplayMoney } from "@/components/currency/currency-provider";
 import {
+  buyOnServerTwoAction,
   cancelActivationAction,
   getActivationStateAction,
+  getServerTwoOfferAction,
   type ActivationState,
+  type PurchaseError,
+  type ServerTwoOffer,
 } from "@/app/dashboard/buy/actions";
 
 /**
@@ -26,6 +31,16 @@ import {
  */
 
 const POLL_MS = 5000;
+
+/** What a failed Server II purchase says. Never names a supplier. */
+const serverTwoError: Partial<Record<PurchaseError, string>> = {
+  insufficient_balance: "Your wallet does not have enough for this number. Add funds and try again.",
+  unavailable: "Server II has no numbers for this right now. Try another country.",
+  no_provider: "Server II has no numbers for this right now. Try another country.",
+  price_changed: "The Server II price changed. Check the new price and confirm again.",
+  unverified_limit_reached:
+    "You've reached the purchase limit for unverified accounts. Verify your email to keep buying numbers.",
+};
 
 export interface ResumedActivation extends ActivationState {
   serviceColor: string;
@@ -71,6 +86,10 @@ export function ActivationView({
     : formatMoney(activation.priceKobo, activation.currency);
 
   const waiting = activation.status === "WAITING";
+  // An order that ended without a code: offer the same number from Server II.
+  const noCode =
+    !activation.code &&
+    (activation.status === "EXPIRED" || activation.status === "REFUNDED" || activation.status === "CANCELLED");
   const remaining = useCountdown(activation.expiresAt, waiting);
   const inFlight = useRef(false);
 
@@ -103,6 +122,54 @@ export function ActivationView({
 
     return () => clearInterval(interval);
   }, [activation.id, activation.serviceColor, waiting]);
+
+  const router = useRouter();
+  const [serverTwo, setServerTwo] = useState<ServerTwoOffer | null>(null);
+  const [serverTwoMessage, setServerTwoMessage] = useState<string | null>(null);
+  const [buyingServerTwo, startServerTwo] = useTransition();
+  const serverTwoKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!noCode) return;
+    let live = true;
+    getServerTwoOfferAction(activation.id)
+      .then((offer) => {
+        if (live) setServerTwo(offer);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [activation.id, noCode]);
+
+  function buyOnServerTwo() {
+    if (!serverTwo?.available || serverTwo.priceKobo === undefined) return;
+    const expected = serverTwo.priceKobo;
+    serverTwoKey.current ??= crypto.randomUUID();
+    const key = serverTwoKey.current;
+    setServerTwoMessage(null);
+    startServerTwo(async () => {
+      const result = await buyOnServerTwoAction(activation.id, expected, key);
+      if (result.activationId) {
+        router.push(`${backHref}?activation=${result.activationId}`);
+        router.refresh();
+        return;
+      }
+      if (result.error === "price_changed" && result.priceKobo !== undefined) {
+        setServerTwo({ ...serverTwo, priceKobo: result.priceKobo });
+      }
+      setServerTwoMessage(
+        (result.error && serverTwoError[result.error]) ??
+          "Unable to complete your request. Nothing was charged, so please try again.",
+      );
+    });
+  }
+  const serverTwoPrice =
+    serverTwo?.available && serverTwo.priceKobo !== undefined && serverTwo.currency
+      ? money
+        ? money.format(serverTwo.priceKobo, serverTwo.currency)
+        : formatMoney(serverTwo.priceKobo, serverTwo.currency)
+      : null;
 
   function cancel() {
     startTransition(async () => {
@@ -200,6 +267,25 @@ export function ActivationView({
               ? "Refunding"
               : `Refund my ${priceLabel}`}
           </Button>
+        </div>
+      ) : null}
+
+      {noCode && serverTwoPrice ? (
+        <div className="mt-4 rounded-2xl border border-mint/40 bg-mint-soft p-4">
+          <p className="text-sm font-semibold text-forest">Didn&apos;t get a code? Try Server II</p>
+          <p className="mt-1 text-sm text-forest/80">
+            Get a new {activation.serviceName} number for {activation.countryName} from Server II.
+          </p>
+          <Button
+            type="button"
+            size="lg"
+            className="mt-3 w-full"
+            onClick={buyOnServerTwo}
+            disabled={buyingServerTwo}
+          >
+            {buyingServerTwo ? "Getting your number" : `Buy on Server II · ${serverTwoPrice}`}
+          </Button>
+          {serverTwoMessage ? <p className="mt-2 text-xs text-danger">{serverTwoMessage}</p> : null}
         </div>
       ) : null}
 

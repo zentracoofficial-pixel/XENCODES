@@ -45,9 +45,11 @@ export function SmartPickupCard({ settings, providers, performance, ambiguous }:
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Smart Pickup</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            When more than one server can sell a service in a country, the order goes to the one most likely to
-            deliver a code, judged from Xencodes&apos; own finished orders for that exact service and country.
-            The customer&apos;s price never changes with the choice.
+            Each server is priced its own way: Server I by the platform price rules, Server II at 3.5&times; its
+            own cost. The cheapest server is asked first and the next only when it cannot sell; a dearer server
+            is never used without the customer confirming its price. Between servers at the same price, the order
+            goes to the one most likely to deliver a code, judged from Xencodes&apos; own finished orders for that
+            exact service and country. A customer whose Server I order ends without a code is offered Server II.
           </p>
         </div>
         <Badge variant={settings.enabled ? "success" : "neutral"} className="ml-auto shrink-0">

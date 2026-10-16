@@ -20,9 +20,18 @@ error or routing detail reaches a customer page, API response or browser bundle 
 
 ## How an order is filled
 
-- The customer's price is the cheapest server's price (the figure the country list shows). Whoever fills
-  the order, the price does not change; a server is used only at that price and only at a profit.
-- Smart Pickup orders the servers for that exact service and country from Xencodes' own finished orders
+- Each server is priced its own way. Server I follows the platform price rules (multipliers, minimums,
+  repeat-listing and fixed pair prices). Server II sells at **3.5× its own cost** in every currency
+  (`PROVIDER_COST_MULTIPLIERS` in `src/lib/pricing.ts`): the cost is converted at the market Naira rate,
+  the same rate a Naira price is shown at in dollars, so a dollar wallet sees 3.5× too. Rounded up only
+  to ₦1 or 1 cent. The owner's minimums (₦500, TikTok ₦750, UK ₦1,000) still apply on top.
+- The country list and the quote show the cheapest server for each country. That server is asked first;
+  another server is used only at a price the customer agreed to. A dearer one is never bought silently:
+  the customer is shown its price to confirm.
+- When a Server I order ends without a code (expired, refunded or cancelled), the order screen offers
+  "Didn't get a code? Try Server II" with Server II's price for the same service and country, bought in
+  one tap (`getServerTwoOfferAction` / `buyOnServerTwoAction`). Shown only when Server II can sell it.
+- Between servers at the same price, Smart Pickup orders the servers for that exact service and country from Xencodes' own finished orders
   (delivery rate shrunk toward the server's record for the same service and the same country, marked down
   for small samples), plus purchase reliability, speed to code and margin, with admin-set weights
   (Admin → Providers → Smart Pickup). A server failing too many recent requests is set aside.

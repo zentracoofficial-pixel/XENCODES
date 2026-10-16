@@ -62,9 +62,11 @@ export interface CurrencyConfigEntry {
   /** Which provider handles funding for this currency, or null when none
    *  does yet. Reporting only, for the admin panel and funding UI copy. */
   fundingProvider: "korapay" | "cryptomus" | null;
-  /** Naira per 1 USD for turning a Naira minimum price into this currency:
-   *  the market rate while the daily rate feed is fresh, the platform's own
-   *  Naira rate otherwise. Set on USD only (see minimumPriceInCurrency()). */
+  /** Naira per 1 USD at the market rate while the daily rate feed is fresh,
+   *  the platform's own Naira rate otherwise: the same rate a Naira price is
+   *  shown at in another currency. Used to turn a Naira minimum price into
+   *  dollars (see minimumPriceInCurrency()) and to keep Server II's price a
+   *  true multiple of its cost in every currency (see quoteForProvider()). */
   ngnPerUsd?: number;
 }
 
@@ -135,9 +137,12 @@ export async function readCurrencyConfig(
     };
   }
 
+  const ngnUsdRate = ngnOverride.usdRate ?? DEFAULT_USD_TO_NGN_RATE;
+  const marketNgnPerUsd = (freshMarketRates(settings) as Partial<Record<string, number>>).NGN ?? ngnUsdRate;
   const ngn: CurrencyConfigEntry = {
     code: "NGN",
-    usdRate: ngnOverride.usdRate ?? DEFAULT_USD_TO_NGN_RATE,
+    usdRate: ngnUsdRate,
+    ngnPerUsd: marketNgnPerUsd,
     minTopUpMinor: ngnOverride.minTopUpMinor ?? NGN_DEFAULTS.minTopUpMinor,
     maxTopUpMinor: ngnOverride.maxTopUpMinor ?? NGN_DEFAULTS.maxTopUpMinor,
     fundingAvailable: isKorapayConfigured(),
@@ -156,7 +161,7 @@ export async function readCurrencyConfig(
     fundingProvider: "cryptomus",
     // Follows the exchange-rate feed, which refreshes at least once a day,
     // so the dollar minimums move with the Naira on their own.
-    ngnPerUsd: (freshMarketRates(settings) as Partial<Record<string, number>>).NGN ?? ngn.usdRate,
+    ngnPerUsd: marketNgnPerUsd,
   };
 
   return [ngn, usd];

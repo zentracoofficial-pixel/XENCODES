@@ -8,6 +8,7 @@ import type { NumberProvider, PurchasedNumber } from "@/lib/provider/types";
 import { autoAcceptCeilingKobo } from "@/lib/pool-ladder";
 import { runPurchaseCascade } from "@/lib/purchase-cascade";
 import { recordProviderAttempt, type AttemptOutcome } from "@/lib/smart-pickup";
+import { providerForServer, type CustomerServer } from "@/lib/provider/customer-servers";
 import { creditWallet } from "@/lib/wallet";
 import { chargeOf, walletCurrencyOf } from "@/lib/wallet-currency";
 import { getActiveUser } from "@/lib/session";
@@ -59,6 +60,10 @@ export interface PurchaseResult {
   priceKobo?: number;
 }
 
+/** Closed orders that ended without a code, after which Server II is
+ *  suggested. */
+const NO_CODE_STATUSES = new Set(["EXPIRED", "REFUNDED", "CANCELLED"]);
+
 /** Stop starting new supplier calls after this long, so the whole purchase
  *  finishes inside a serverless request's time limit. */
 const PURCHASE_TIME_BUDGET_MS = 8_000;
@@ -78,6 +83,10 @@ export async function purchaseNumberAction(
    * refused.
    */
   idempotencyKey?: string,
+  /** Buy from this server only, by its customer-facing name ("II"). Mapped
+   *  to a provider here, on the server; nothing else about the supplier is
+   *  ever sent to or taken from the page. */
+  server?: CustomerServer,
 ): Promise<PurchaseResult> {
   // getActiveUser(), not a bare session check: this is a server action,
   // invoked directly from the buy panel's client component rather than
@@ -113,7 +122,9 @@ export async function purchaseNumberAction(
   const displayContext = await getDisplayContext().catch(() => null);
 
   // Step one to three: cost, rule, price. All server side, all live.
-  let quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency);
+  const onlyProvider = providerForServer(server);
+  if (server && !onlyProvider) return { error: "unavailable" };
+  let quoted = await quotePair(serviceSlug, countrySlug, buyerCurrency, { onlyProvider });
   if (!quoted.ok) {
     if (quoted.reason === "no_provider") return { error: "no_provider" };
     if (quoted.reason === "provider_error") return { error: "provider_unavailable" };
@@ -223,7 +234,7 @@ export async function purchaseNumberAction(
       balanceKobo: balanceInPriceCurrency,
       outOfTime: () => Date.now() - startedAt > PURCHASE_TIME_BUDGET_MS,
       requote: async () => {
-        const fresh = await quotePair(serviceSlug, countrySlug, buyerCurrency);
+        const fresh = await quotePair(serviceSlug, countrySlug, buyerCurrency, { onlyProvider });
         return fresh.ok ? fresh : null;
       },
       attempt: async (q, rung, rank) => {
@@ -536,4 +547,60 @@ export async function cancelActivationAction(
   });
 
   return toActivationState(cancelled);
+}
+
+export interface ServerTwoOffer {
+  available: boolean;
+  /** The Server II price for the same service and country, in `currency`'s
+   *  minor unit. */
+  priceKobo?: number;
+  currency?: string;
+}
+
+/** The customer's own order, if it ended without a code on another server:
+ *  the one case Server II is suggested for. */
+async function noCodeOrderFor(userId: string, activationId: string) {
+  const activation = await prisma.activation.findFirst({
+    where: { id: activationId, userId },
+    select: { serviceSlug: true, countrySlug: true, provider: true, status: true, code: true },
+  });
+  if (!activation || activation.code || !NO_CODE_STATUSES.has(activation.status)) return null;
+  if (activation.provider === providerForServer("II")) return null;
+  return activation;
+}
+
+/**
+ * After an order ends without a code, whether Server II can sell the same
+ * service and country right now, and at what price. Only the price goes
+ * back to the page.
+ */
+export async function getServerTwoOfferAction(activationId: string): Promise<ServerTwoOffer> {
+  const user = await getActiveUser();
+  if (!user || user.role === "ADMIN") return { available: false };
+  const order = await noCodeOrderFor(user.id, activationId);
+  if (!order) return { available: false };
+
+  const buyerCurrency = (await getCurrencyConfig(user.currency)) ?? (await getDefaultCurrency());
+  const quoted = await quotePair(order.serviceSlug, order.countrySlug, buyerCurrency, {
+    onlyProvider: providerForServer("II"),
+  }).catch((error) => {
+    console.error(`[buy] Server II offer failed for ${order.serviceSlug}/${order.countrySlug}:`, error);
+    return null;
+  });
+  if (!quoted?.ok) return { available: false };
+  return { available: true, priceKobo: quoted.quote.customerPriceKobo, currency: buyerCurrency.code };
+}
+
+/** Buys the same service and country as an order that got no code, on
+ *  Server II, at the price the customer was shown. */
+export async function buyOnServerTwoAction(
+  activationId: string,
+  expectedPriceKobo: number,
+  idempotencyKey: string,
+): Promise<PurchaseResult> {
+  const user = await getActiveUser();
+  if (!user) return { error: "login_required" };
+  const order = await noCodeOrderFor(user.id, activationId);
+  if (!order) return { error: "unavailable" };
+  return purchaseNumberAction(order.serviceSlug, order.countrySlug, expectedPriceKobo, idempotencyKey, "II");
 }

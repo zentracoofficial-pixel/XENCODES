@@ -52,6 +52,7 @@ export default async function DashboardBuyPage({
     if (row) {
       return (
         <ActivationView
+          key={row.id}
           backHref="/dashboard/buy"
           activation={{
             id: row.id,
