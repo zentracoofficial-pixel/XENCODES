@@ -14,6 +14,7 @@ import { formatNgnForDisplay } from "@/lib/display-currency";
 import { getDisplayContext } from "@/lib/display-preference";
 import { SITE_URL } from "@/lib/site";
 import { SERVICE_PAGES, getServicePageContent } from "@/data/service-pages";
+import { Flag } from "@/components/ui/flag";
 
 export const dynamic = "force-dynamic";
 
@@ -178,7 +179,7 @@ export default async function ServiceDetailPage({
                     className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 shadow-[var(--shadow-subtle)]"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span aria-hidden className="text-lg leading-none">{country.flag}</span>
+                      <Flag flag={country.flag} />
                       <span className="truncate text-sm font-medium">{country.name}</span>
                       {country.recommended ? (
                         <span className="shrink-0 rounded-full bg-mint-soft px-2 py-0.5 text-[11px] font-medium text-forest">

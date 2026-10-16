@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronRight, RotateCw, Search } from "lucide-react";
 import { Combobox, type ComboboxOption } from "@/components/product/combobox";
 import { ServiceLogo } from "@/components/marketing/service-logo";
 import { expandCountryQuery, expandServiceQuery } from "@/lib/search-aliases";
+import { Flag } from "@/components/ui/flag";
 
 /**
  * Buying by country first: pick a country, see every service on sale there
@@ -109,9 +110,7 @@ export function CountryBrowser({
       label: row.name,
       hint: `${row.dialCode} · ${row.serviceCount} service${row.serviceCount === 1 ? "" : "s"}`,
       leading: (
-        <span aria-hidden className="text-lg leading-none">
-          {row.flag}
-        </span>
+        <Flag flag={row.flag} />
       ),
     }));
 
@@ -143,9 +142,7 @@ export function CountryBrowser({
                   label: country.name,
                   hint: country.dialCode,
                   leading: (
-                    <span aria-hidden className="text-lg leading-none">
-                      {country.flag}
-                    </span>
+                    <Flag flag={country.flag} />
                   ),
                 }
               : null
