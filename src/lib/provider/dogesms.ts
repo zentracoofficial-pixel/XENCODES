@@ -10,6 +10,7 @@ import {
 } from "./house-directory";
 import {
   ProviderError,
+  type CatalogSnapshot,
   type NumberProvider,
   type ProviderAvailability,
   type ProviderCatalogEntry,
@@ -50,6 +51,17 @@ import {
  * The API key never leaves this file: never logged, never returned.
  */
 
+/** DogeSMS refused a request with HTTP 429 (too many requests). */
+export class DogeSmsRateLimitedError extends ProviderError {
+  constructor(
+    message: string,
+    /** How long DogeSMS asked to wait (its Retry-After header), when given. */
+    readonly retryAfterMs: number | null,
+  ) {
+    super(message, "rejected");
+  }
+}
+
 const DEFAULT_API_ORIGIN = "https://api.dogesms.com";
 const REQUEST_TIMEOUT_MS = 12_000;
 const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -61,7 +73,18 @@ const ALLOCATION_POLL_MS = 1_000;
  *  The longest is used so Xencodes never gives up on an order DogeSMS is
  *  still serving; an earlier end arrives as order.expired. */
 const DEFAULT_SESSION_SECONDS = 20 * 60;
-const CATALOG_CONCURRENCY = 10;
+/** How many countries' prices a sync asks for at once. DogeSMS needs one
+ *  request per country and rate-limits them (HTTP 429): ten at a time was
+ *  refused within a second in production. After the first 429 the sync
+ *  drops to one at a time and waits as DogeSMS asks. */
+const SNAPSHOT_CONCURRENCY = 3;
+/** How often one country is retried after a 429 before it counts as failed
+ *  for this run (its previous rows are kept). */
+const MAX_RATE_LIMIT_RETRIES = 3;
+/** A run that is refused this many times in a row stops early: going on
+ *  would only lengthen DogeSMS's limit. The rest wait for the next run. */
+const MAX_CONSECUTIVE_RATE_LIMITS = 5;
+const MAX_COOLDOWN_MS = 20_000;
 
 export const DOGESMS_PROVIDER_ID = "dogesms";
 
@@ -127,6 +150,9 @@ export class DogeSmsProvider implements NumberProvider {
   private static blocked: Array<{ name: string; slug: string; category: string; term: string }> = [];
   /** Flipped off the first time the status endpoint says it is disabled. */
   private static statusQueriesWork = true;
+  /** No catalog request is sent before this (epoch ms): set when DogeSMS
+   *  answers 429, so this instance stops adding to the limit. */
+  private static cooldownUntil = 0;
 
   constructor(options: DogeSmsOptions) {
     this.apiKey = options.apiKey;
@@ -145,6 +171,7 @@ export class DogeSmsProvider implements NumberProvider {
     DogeSmsProvider.prices = new Map();
     DogeSmsProvider.blocked = [];
     DogeSmsProvider.statusQueriesWork = true;
+    DogeSmsProvider.cooldownUntil = 0;
   }
 
   // ---------------------------------------------------------------- HTTP
@@ -153,7 +180,7 @@ export class DogeSmsProvider implements NumberProvider {
     method: "GET" | "POST",
     path: string,
     options: { query?: Record<string, string>; body?: Json; idempotencyKey?: string } = {},
-  ): Promise<{ status: number; body: unknown }> {
+  ): Promise<{ status: number; body: unknown; retryAfterMs: number | null }> {
     const url = new URL(path, this.origin);
     for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
     const headers: Record<string, string> = {
@@ -188,7 +215,7 @@ export class DogeSmsProvider implements NumberProvider {
         body = text;
       }
     }
-    return { status: response.status, body };
+    return { status: response.status, body, retryAfterMs: parseRetryAfter(response.headers.get("retry-after")) };
   }
 
   /** A failed answer as a ProviderError, classified by what it means for a
@@ -205,7 +232,14 @@ export class DogeSmsProvider implements NumberProvider {
   }
 
   private async getJson(path: string, query?: Record<string, string>): Promise<unknown> {
-    const { status, body } = await this.request("GET", path, { query });
+    const { status, body, retryAfterMs } = await this.request("GET", path, { query });
+    if (status === 429) {
+      DogeSmsProvider.cooldownUntil = Math.max(
+        DogeSmsProvider.cooldownUntil,
+        Date.now() + Math.min(retryAfterMs ?? 2_000, MAX_COOLDOWN_MS),
+      );
+      throw new DogeSmsRateLimitedError(this.errorFor(status, body, `GET ${path}`).message, retryAfterMs);
+    }
     if (status < 200 || status >= 300) throw this.errorFor(status, body, `GET ${path}`);
     return unwrap(body);
   }
@@ -280,24 +314,112 @@ export class DogeSmsProvider implements NumberProvider {
     return table;
   }
 
-  /** Every country's prices, a few countries at a time. A country whose
-   *  prices cannot be read is left out, not guessed. */
-  private async allPrices(catalog: CatalogCache, fresh = false): Promise<Map<string, PriceTable>> {
-    const out = new Map<string, PriceTable>();
-    const slugs = [...catalog.countries.keys()];
-    for (let i = 0; i < slugs.length; i += CATALOG_CONCURRENCY) {
-      await Promise.all(
-        slugs.slice(i, i + CATALOG_CONCURRENCY).map(async (slug) => {
+  /**
+   * As many countries' prices as can be read before `deadline`, in
+   * `countryOrder` first (countries not in it, never synced, go first of
+   * all). A few at a time; after a 429 one at a time, waiting as DogeSMS
+   * asks, retrying that country a few times. Countries not reached are
+   * simply not reported: the sync keeps their previous rows.
+   */
+  async getCatalogSnapshot(options: { deadline: number; countryOrder?: string[] }): Promise<CatalogSnapshot> {
+    const { deadline } = options;
+    const catalog = await this.loadCatalog(true);
+    const all = [...catalog.countries.keys()];
+    const rank = new Map((options.countryOrder ?? []).map((slug, index) => [slug, index]));
+    const queue = [...all].sort((a, b) => (rank.get(a) ?? -1) - (rank.get(b) ?? -1));
+
+    const entries: ProviderCatalogEntry[] = [];
+    const read: string[] = [];
+    const failed: string[] = [];
+    const retries = new Map<string, number>();
+    let concurrency = SNAPSHOT_CONCURRENCY;
+    let consecutiveLimits = 0;
+    let rateLimited = false;
+
+    while (queue.length > 0 && Date.now() < deadline) {
+      const wait = DogeSmsProvider.cooldownUntil - Date.now();
+      if (wait > 0) {
+        if (Date.now() + wait >= deadline) break;
+        await this.sleep(wait);
+      }
+      const batch = queue.splice(0, concurrency);
+      const results = await Promise.all(
+        batch.map(async (slug) => {
           try {
-            const table = await this.pricesFor(catalog, slug, fresh);
-            if (table) out.set(slug, table);
+            return { slug, table: await this.pricesFor(catalog, slug, true) };
           } catch (error) {
-            console.error(`[dogesms] prices for ${slug} failed:`, error instanceof Error ? error.message : error);
+            return { slug, error };
           }
         }),
       );
+
+      const limited: string[] = [];
+      for (const result of results) {
+        if (!("error" in result)) {
+          read.push(result.slug);
+          if (result.table) entries.push(...this.entriesFor(catalog, result.slug, result.table));
+        } else if (result.error instanceof DogeSmsRateLimitedError) {
+          const tries = (retries.get(result.slug) ?? 0) + 1;
+          retries.set(result.slug, tries);
+          if (tries > MAX_RATE_LIMIT_RETRIES) failed.push(result.slug);
+          else limited.push(result.slug);
+        } else {
+          failed.push(result.slug);
+          console.error(
+            `[dogesms] prices for ${result.slug} failed:`,
+            result.error instanceof Error ? result.error.message : result.error,
+          );
+        }
+      }
+
+      if (limited.length > 0) {
+        rateLimited = true;
+        concurrency = 1;
+        consecutiveLimits += 1;
+        queue.unshift(...limited);
+        const backoff = Math.min(2_000 * 2 ** (consecutiveLimits - 1), MAX_COOLDOWN_MS);
+        DogeSmsProvider.cooldownUntil = Math.max(DogeSmsProvider.cooldownUntil, Date.now() + backoff);
+        if (consecutiveLimits >= MAX_CONSECUTIVE_RATE_LIMITS) break;
+      } else {
+        consecutiveLimits = 0;
+      }
     }
-    return out;
+
+    if (rateLimited) {
+      console.log(`[dogesms] catalog read was rate limited: ${read.length}/${all.length} countries read this run`);
+    }
+    return { entries, countriesRead: read, countriesFailed: failed, countriesTotal: all.length, rateLimited };
+  }
+
+  private entriesFor(catalog: CatalogCache, countrySlug: string, prices: PriceTable): ProviderCatalogEntry[] {
+    const country = catalog.countries.get(countrySlug);
+    if (!country) return [];
+    return [...prices].flatMap(([serviceSlug, price]) => {
+      const service = catalog.services.get(serviceSlug);
+      if (!service) return [];
+      return [
+        {
+          service: service.service,
+          country: country.country,
+          costUsdCents: price.costUsdCents,
+          stock: price.stockCount !== undefined && price.stockCount < 10 ? ("low" as const) : ("in_stock" as const),
+          ...(price.stockCount !== undefined ? { stockCount: price.stockCount } : {}),
+        },
+      ];
+    });
+  }
+
+  /** What the last syncs stored for Server II (see provider-sync.ts). Reads
+   *  that cover every country come from here, never from DogeSMS live: one
+   *  page view must not send a request per country. */
+  private async syncedRows(where: { serviceSlug?: string } = {}) {
+    return prisma.syncedOffer.findMany({
+      where: { providerId: DOGESMS_PROVIDER_ID, ...where },
+      select: {
+        serviceSlug: true, countrySlug: true, countryName: true, countryFlag: true, dialCode: true,
+        nationalDigits: true, costUsdCents: true, stock: true, stockCount: true,
+      },
+    });
   }
 
   private parsePrices(raw: unknown, codeToSlug: Map<string, string>): PriceTable {
@@ -343,14 +465,22 @@ export class DogeSmsProvider implements NumberProvider {
     return DogeSmsProvider.catalog ? new Date(DogeSmsProvider.catalog.at) : null;
   }
 
+  /** Every country this service is sold in, from the last syncs. */
   async getCountries(serviceSlug: string): Promise<ProviderAvailability[]> {
-    const catalog = await this.loadCatalog();
-    if (!catalog.services.has(serviceSlug)) return [];
-    const prices = await this.allPrices(catalog);
-    return [...prices].flatMap(([countrySlug, table]) => {
-      const offer = this.availabilityFor(catalog, serviceSlug, countrySlug, table);
-      return offer ? [offer] : [];
-    });
+    const rows = await this.syncedRows({ serviceSlug });
+    return rows.map((row) => ({
+      serviceSlug,
+      country: {
+        slug: row.countrySlug,
+        name: row.countryName,
+        flag: row.countryFlag,
+        dialCode: row.dialCode,
+        nationalDigits: row.nationalDigits,
+      },
+      costUsdCents: row.costUsdCents,
+      stock: row.stock === "low" ? "low" : "in_stock",
+      ...(row.stockCount !== null && row.stockCount !== undefined ? { stockCount: row.stockCount } : {}),
+    }));
   }
 
   /** Fresh: one price call for this country, no cache. */
@@ -361,41 +491,20 @@ export class DogeSmsProvider implements NumberProvider {
   }
 
   async getFullCatalog(): Promise<ProviderCatalogEntry[]> {
-    const catalog = await this.loadCatalog(true);
-    const entries: ProviderCatalogEntry[] = [];
-    for (const [countrySlug, prices] of await this.allPrices(catalog, true)) {
-      const country = catalog.countries.get(countrySlug);
-      if (!country) continue;
-      for (const [serviceSlug, price] of prices) {
-        const service = catalog.services.get(serviceSlug);
-        if (!service) continue;
-        entries.push({
-          service: service.service,
-          country: country.country,
-          costUsdCents: price.costUsdCents,
-          stock: price.stockCount !== undefined && price.stockCount < 10 ? "low" : "in_stock",
-          ...(price.stockCount !== undefined ? { stockCount: price.stockCount } : {}),
-        });
-      }
-    }
-    return entries;
+    return (await this.getCatalogSnapshot({ deadline: Date.now() + 45_000 })).entries;
   }
 
   async getCheapestCostByService(): Promise<Map<string, number>> {
-    const catalog = await this.loadCatalog();
     const cheapest = new Map<string, number>();
-    for (const prices of (await this.allPrices(catalog)).values()) {
-      for (const [slug, { costUsdCents }] of prices) {
-        const known = cheapest.get(slug);
-        if (known === undefined || costUsdCents < known) cheapest.set(slug, costUsdCents);
-      }
+    for (const row of await this.syncedRows()) {
+      const known = cheapest.get(row.serviceSlug);
+      if (known === undefined || row.costUsdCents < known) cheapest.set(row.serviceSlug, row.costUsdCents);
     }
     return cheapest;
   }
 
   async getCountryCount(): Promise<number> {
-    const catalog = await this.loadCatalog();
-    return [...(await this.allPrices(catalog)).values()].filter((prices) => prices.size > 0).length;
+    return new Set((await this.syncedRows()).map((row) => row.countrySlug)).size;
   }
 
   // -------------------------------------------------------------- orders
@@ -598,4 +707,13 @@ export function toOrderStatus(state: StoredOrderState | null): ProviderOrderStat
   if (status === "expired" || status === "failed") return { state: "refunded" };
   if (status === "cancelled" || status === "canceled") return { state: "cancelled" };
   return { state: "waiting" };
+}
+
+/** Retry-After as milliseconds: seconds, or an HTTP date. */
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
 }

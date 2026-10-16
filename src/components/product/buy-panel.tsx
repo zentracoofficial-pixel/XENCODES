@@ -17,6 +17,7 @@ import {
 } from "@/app/dashboard/buy/actions";
 import { toggleFavoriteServiceAction } from "@/app/dashboard/favorites-actions";
 import { expandCountryQuery } from "@/lib/search-aliases";
+import { CountryBrowser, type CountryServiceRow } from "@/components/product/country-browser";
 
 /**
  * The buy interface: search the live catalog, pick a country that service
@@ -356,15 +357,34 @@ export function BuyPanel({
   // in an effect, since it only ever reacts to countryData/service that are
   // already being rendered from — there is nothing external to subscribe to.
   const [countryAutoSelectDoneFor, setCountryAutoSelectDoneFor] = useState<string | null>(null);
+  // The country to pre-select: from a "buy again" link, or the country a
+  // customer browsing by country picked a service in.
+  const [preselectCountrySlug, setPreselectCountrySlug] = useState<string | undefined>(initialCountrySlug);
+  const [preselectMissed, setPreselectMissed] = useState<string | null>(null);
   if (
-    initialCountrySlug &&
+    preselectCountrySlug &&
     service &&
     countryData?.serviceSlug === service.slug &&
     countryAutoSelectDoneFor !== service.slug
   ) {
     setCountryAutoSelectDoneFor(service.slug);
-    const match = countryData.list.find((item) => item.slug === initialCountrySlug);
+    const match = countryData.list.find((item) => item.slug === preselectCountrySlug);
     if (match) setCountry(match);
+    else setPreselectMissed(service.slug);
+  }
+
+  // "By service" is the original flow and the default; "By country" lists a
+  // country's services with prices and hands the pick back to it.
+  const [mode, setMode] = useState<"service" | "country">("service");
+  function pickFromCountry(row: CountryServiceRow, picked: { slug: string }) {
+    setService({ slug: row.slug, name: row.name, color: row.color, category: row.category, popular: row.popular });
+    setCountry(null);
+    setCountryQuery("");
+    setError(null);
+    setPreselectCountrySlug(picked.slug);
+    setCountryAutoSelectDoneFor(null);
+    setPreselectMissed(null);
+    setMode("service");
   }
 
   // The price is fetched live for the exact pair, not read off the country
@@ -459,6 +479,7 @@ export function BuyPanel({
     }
     const next = services.find((s) => s.slug === slug);
     if (next) {
+      setPreselectMissed(null);
       setService(next);
       setCountry(null);
       setCountryQuery("");
@@ -574,8 +595,8 @@ export function BuyPanel({
             Buy a number
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Search any service, pick a country, and see the exact price before you
-            buy.
+            Search a service or browse a country, and see the exact price before
+            you buy.
           </p>
         </>
       ) : null}
@@ -628,7 +649,45 @@ export function BuyPanel({
         </div>
       )}
 
-      <div className="mt-6 space-y-4">
+      <div
+        role="tablist"
+        aria-label="How to choose"
+        className="mt-6 grid grid-cols-2 gap-1 rounded-xl border border-border bg-background p-1"
+      >
+        {(
+          [
+            ["service", "By service"],
+            ["country", "By country"],
+          ] as const
+        ).map(([value, text]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => setMode(value)}
+            className={cn(
+              "min-h-10 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint/40",
+              mode === value ? "bg-surface text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+
+      {mode === "country" ? (
+        <div className="mt-4">
+          <CountryBrowser
+            currency={currency}
+            disabled={unavailable}
+            priceText={priceText}
+            onPick={pickFromCountry}
+          />
+        </div>
+      ) : null}
+
+      <div className={cn("mt-4 space-y-4", mode === "country" && "hidden")}>
         <Combobox
           label="Service"
           placeholder="Search services, for example Instagram"
@@ -718,8 +777,14 @@ export function BuyPanel({
         />
       </div>
 
+      {mode === "service" && service && preselectMissed === service.slug && !country && !countriesError ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          {service.name} has no numbers in that country right now. Pick another country above.
+        </p>
+      ) : null}
+
       {/* Availability and price, only once there is a real pair to price. */}
-      {service && country ? (
+      {mode === "service" && service && country ? (
         <div className="mt-5 border-t border-border pt-4">
           {quoteLoading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -791,7 +856,7 @@ export function BuyPanel({
         </div>
       ) : null}
 
-      {signedIn && priceInWallet !== undefined && !affordable ? (
+      {mode === "service" && signedIn && priceInWallet !== undefined && !affordable ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
             Add{" "}
@@ -821,7 +886,7 @@ export function BuyPanel({
         onClick={buy}
         disabled={!canBuy || pending}
         size="lg"
-        className="mt-5 w-full"
+        className={cn("mt-5 w-full", mode === "country" && "hidden")}
       >
         {pending ? (
           <>

@@ -5,6 +5,7 @@ import {
   type NumberProvider,
   type ProviderService,
   type ProviderAvailability,
+  readProviderConfig,
 } from "@/lib/provider";
 import { resolveBrandIcon } from "@/lib/brand-match";
 import {
@@ -263,9 +264,16 @@ export const CUSTOMER_UNAVAILABLE_MESSAGE = "This service is temporarily unavail
  * fallback merges every enabled provider's own list, keeping the first
  * (highest-priority) provider's display details on a slug both report.
  */
+/** The providers switched on in the admin. Cached rows from a provider that
+ *  has been switched off are never shown: they could not be bought. */
+async function enabledProviderIds(): Promise<string[]> {
+  return (await readProviderConfig()).filter((entry) => entry.enabled).map((entry) => entry.id);
+}
+
 async function loadServiceCatalog(): Promise<ProviderService[] | null> {
   if (await anyProviderCacheFresh()) {
     const cached = await prisma.syncedOffer.findMany({
+      where: { providerId: { in: await enabledProviderIds() } },
       distinct: ["serviceSlug"],
       select: { serviceSlug: true, serviceName: true, serviceColor: true, category: true },
     });
@@ -418,7 +426,7 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
   if (cacheFresh) {
     const rows = (
       await prisma.syncedOffer.findMany({
-        where: { serviceSlug: { notIn: [...disabled] } },
+        where: { serviceSlug: { notIn: [...disabled] }, providerId: { in: await enabledProviderIds() } },
         select: { providerId: true, serviceSlug: true, serviceName: true, costUsdCents: true, countrySlug: true },
       })
     ).filter((row) => !isRestrictedService(row.serviceSlug, row.serviceName));
@@ -558,7 +566,9 @@ export async function getServiceCountries(
   // pricing, availability, or which provider a purchase resolves to.
   let serviceName = humanizeSlug(serviceSlug);
   if (cacheFresh) {
-    const cached = await prisma.syncedOffer.findMany({ where: { serviceSlug } });
+    const cached = await prisma.syncedOffer.findMany({
+      where: { serviceSlug, providerId: { in: await enabledProviderIds() } },
+    });
     if (cached.length > 0) {
       serviceName = cached[0].serviceName;
       // More than one provider can have a row for the same country; the
@@ -846,26 +856,34 @@ export async function quotePair(
   let anyProviderErrored = false;
   let sawUnpriceableOffer = false;
 
-  // providers is already sorted by ascending priority (see
-  // getEnabledProviders), and candidates are pushed in that same order, so
-  // a cost tie below resolves to the higher-priority provider without a
-  // separate tie-break rule.
-  for (const { id, provider } of providers) {
-    let offer;
-    let services;
-    try {
-      [offer, services] = await Promise.all([
-        provider.getAvailability(serviceSlug, countrySlug),
-        provider.getServices(),
-      ]);
-    } catch (error) {
+  // Every provider is asked at the same time, so one slow server does not
+  // hold up the quote by its whole wait; the answers are then read in
+  // admin priority order (see getEnabledProviders), so a price tie below
+  // resolves to the higher-priority provider without a separate rule.
+  const lookups = await Promise.all(
+    providers.map(async ({ id, provider }) => {
+      try {
+        const [offer, services] = await Promise.all([
+          provider.getAvailability(serviceSlug, countrySlug),
+          provider.getServices(),
+        ]);
+        return { id, provider, offer, services };
+      } catch (error) {
+        console.error(
+          `[inventory] live lookup failed for "${serviceSlug}" in "${countrySlug}" via "${id}":`,
+          error,
+        );
+        return { id, provider, error: true as const };
+      }
+    }),
+  );
+
+  for (const lookup of lookups) {
+    if ("error" in lookup) {
       anyProviderErrored = true;
-      console.error(
-        `[inventory] live lookup failed for "${serviceSlug}" in "${countrySlug}" via "${id}":`,
-        error,
-      );
       continue;
     }
+    const { id, provider, offer, services } = lookup;
 
     const service = services.find((row) => row.slug === serviceSlug);
     if (!offer || !service || offer.stock === "out_of_stock") continue;
@@ -1090,4 +1108,151 @@ export async function quotePair(
     }));
   }
   return result;
+}
+
+export interface CountryCatalogEntry {
+  slug: string;
+  name: string;
+  flag: string;
+  dialCode: string;
+  /** How many services can be bought in this country. */
+  serviceCount: number;
+}
+
+export interface CountryServiceOffer {
+  slug: string;
+  name: string;
+  color: string;
+  category: string;
+  popular: boolean;
+  /** The lowest price this service sells for in this country right now, in
+   *  the currency asked for, from the last sync. The exact price is quoted
+   *  live once the service is picked, before anything is charged. */
+  fromPriceKobo: number;
+}
+
+/** Synced rows a customer may browse: enabled providers only, no service an
+ *  admin switched off, nothing restricted, nothing unpriceable. */
+async function browsableRows(where: { countrySlug?: string | { in: string[] } } = {}) {
+  const [providerIds, disabledRows] = await Promise.all([
+    enabledProviderIds(),
+    prisma.serviceSetting.findMany({ where: { enabled: false }, select: { slug: true } }),
+  ]);
+  const disabled = new Set(disabledRows.map((row) => row.slug));
+  const rows = await prisma.syncedOffer.findMany({
+    where: { providerId: { in: providerIds }, stock: { not: "out_of_stock" }, ...where },
+    select: {
+      providerId: true, serviceSlug: true, serviceName: true, serviceColor: true, category: true,
+      countrySlug: true, countryName: true, countryFlag: true, dialCode: true, costUsdCents: true,
+    },
+  });
+  return rows.filter(
+    (row) =>
+      !disabled.has(row.serviceSlug) &&
+      !isRestrictedService(row.serviceSlug, row.serviceName) &&
+      isUsableUsdCost(row.costUsdCents),
+  );
+}
+
+/**
+ * Every country with at least one service on sale, for browsing by country
+ * first. Read from the synced catalog, so it costs no supplier request.
+ */
+export async function getCountryCatalog(): Promise<CountryCatalogEntry[]> {
+  const rows = await browsableRows();
+  const byCountry = new Map<string, CountryCatalogEntry & { services: Set<string> }>();
+  for (const row of rows) {
+    let entry = byCountry.get(row.countrySlug);
+    if (!entry) {
+      entry = {
+        slug: row.countrySlug,
+        name: row.countryName,
+        flag: row.countryFlag,
+        dialCode: row.dialCode,
+        serviceCount: 0,
+        services: new Set(),
+      };
+      byCountry.set(row.countrySlug, entry);
+    }
+    entry.services.add(row.serviceSlug);
+  }
+  return [...byCountry.values()]
+    .map(({ services, ...entry }) => ({ ...entry, serviceCount: services.size }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The services on sale in one country, each at the lowest price any enabled
+ * server sells it for there, priced by the same engine as every other price
+ * (quoteForProvider(): Server I by the platform rules, including repeat
+ * listing and fixed pair prices; Server II at its own multiple of cost).
+ * A "from" price for browsing: the exact price is quoted live by quotePair()
+ * when the service is picked, and that is the one charged.
+ */
+export async function getCountryServices(
+  countrySlug: string,
+  currency: CurrencyConfigEntry,
+): Promise<{ country: CountryCatalogEntry; services: CountryServiceOffer[] } | null> {
+  // "usa-2" is the repeat listing of "usa".
+  const baseSlug = countrySlug.replace(/-\d+$/, "");
+  const [rules, rows] = await Promise.all([
+    loadMarginRules(),
+    browsableRows({ countrySlug: { in: [...new Set([countrySlug, baseSlug])] } }),
+  ]);
+  const own = rows.filter((row) => row.countrySlug === countrySlug);
+  if (own.length === 0) return null;
+
+  const priceOf = (row: (typeof rows)[number]) =>
+    quoteForProvider(rules, row.providerId, row.costUsdCents, row.serviceSlug, row.countrySlug, currency).customerPriceKobo;
+  // A repeat listing ("USA (2)") is priced from the plain listing's price,
+  // as everywhere else (see variantPriceKobo()).
+  const isVariant = parseCountryVariant(own[0].countryName).variant > 1;
+  const basePrice = new Map<string, number>();
+  if (isVariant) {
+    for (const row of rows) {
+      if (row.countrySlug !== baseSlug) continue;
+      const price = priceOf(row);
+      const known = basePrice.get(row.serviceSlug);
+      if (known === undefined || price < known) basePrice.set(row.serviceSlug, price);
+    }
+  }
+
+  const best = new Map<string, CountryServiceOffer>();
+  for (const row of own) {
+    let quote = quoteForProvider(rules, row.providerId, row.costUsdCents, row.serviceSlug, row.countrySlug, currency);
+    if (providerCostMultiplier(row.providerId) === undefined) {
+      const base = basePrice.get(row.serviceSlug);
+      if (base !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(base, currency), currency);
+      const fixed = pairPriceOverrideKobo(row.serviceSlug, row.countrySlug, currency);
+      if (fixed !== undefined) quote = setQuoteToPrice(quote, fixed, currency);
+    }
+    const price = quote.customerPriceKobo;
+    // Never a zero or missing price: such a row is not offered at all.
+    if (!(price > 0)) continue;
+    const known = best.get(row.serviceSlug);
+    if (known && known.fromPriceKobo <= price) continue;
+    const service = toInventoryService({
+      slug: row.serviceSlug,
+      name: row.serviceName,
+      color: row.serviceColor,
+      category: row.category,
+    });
+    best.set(row.serviceSlug, { ...service, popular: Boolean(service.popular), fromPriceKobo: price });
+  }
+
+  const services = [...best.values()].sort(
+    (a, b) =>
+      (POPULAR_RANK.get(a.slug) ?? Number.MAX_SAFE_INTEGER) - (POPULAR_RANK.get(b.slug) ?? Number.MAX_SAFE_INTEGER) ||
+      a.name.localeCompare(b.name),
+  );
+  return {
+    country: {
+      slug: countrySlug,
+      name: own[0].countryName,
+      flag: own[0].countryFlag,
+      dialCode: own[0].dialCode,
+      serviceCount: services.length,
+    },
+    services,
+  };
 }

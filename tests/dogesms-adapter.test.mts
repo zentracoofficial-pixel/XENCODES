@@ -81,8 +81,11 @@ test("countries and services sell under the house listing; restricted ones never
   assert.equal(usa?.costUsdCents, 45);
   assert.equal(usa?.country.dialCode, "+1");
   assert.equal(await provider().getAvailability("whatsapp", "united-states"), null);
-  const kenya = (await provider().getCountries("whatsapp")).map((o) => o.country.slug).sort();
-  assert.deepEqual(kenya, ["nigeria", "usa"]);
+  const snapshot = await provider().getCatalogSnapshot({ deadline: Date.now() + 5_000 });
+  const whatsapp = snapshot.entries.filter((e) => e.service.slug === "whatsapp").map((e) => e.country.slug).sort();
+  assert.deepEqual(whatsapp, ["nigeria", "usa"]);
+  assert.equal(snapshot.countriesTotal, 3);
+  assert.deepEqual([...snapshot.countriesRead].sort(), ["kenya", "nigeria", "usa"]);
   assert.ok(provider().getBlockedServices().some((b) => b.name === "Tinder"));
 });
 
@@ -203,4 +206,52 @@ test("service names map to house listings only when clearly the same", () => {
   assert.equal(houseServiceSlug("instagram", directory), "instagram-threads");
   assert.equal(houseServiceSlug("whatsapp", directory), "whatsapp");
   assert.equal(houseServiceSlug("uber", directory), "uber");
+});
+
+test("sync read: a 429 slows the read down and retries, instead of losing the country", async () => {
+  const waits: number[] = [];
+  let refusedOnce = false;
+  handler = (req) => {
+    if (req.path === "/v1/catalog/prices" && req.query.get("country_code") === "NG" && !refusedOnce) {
+      refusedOnce = true;
+      return { status: 429, body: { error: { code: "RATE_LIMITED" } } };
+    }
+    return catalog(req);
+  };
+  const snapshot = await provider({ sleep: async (ms) => void waits.push(ms) }).getCatalogSnapshot({ deadline: Date.now() + 60_000 });
+  assert.deepEqual([...snapshot.countriesRead].sort(), ["kenya", "nigeria", "usa"]);
+  assert.deepEqual(snapshot.countriesFailed, []);
+  assert.equal(snapshot.rateLimited, true);
+  assert.ok(waits.some((ms) => ms > 0), "waited before asking again");
+  assert.ok(snapshot.entries.some((e) => e.country.slug === "nigeria"));
+});
+
+test("sync read: a country refused every time counts as failed; the others are still read", async () => {
+  handler = (req) =>
+    req.path === "/v1/catalog/prices" && req.query.get("country_code") === "KE"
+      ? { status: 429, body: { error: { code: "RATE_LIMITED" } } }
+      : catalog(req);
+  const snapshot = await provider().getCatalogSnapshot({ deadline: Date.now() + 60_000 });
+  assert.deepEqual(snapshot.countriesFailed, ["kenya"]);
+  assert.deepEqual([...snapshot.countriesRead].sort(), ["nigeria", "usa"]);
+});
+
+test("sync read: stops at the deadline and reports only what it read", async () => {
+  const snapshot = await provider().getCatalogSnapshot({ deadline: Date.now() - 1 });
+  assert.deepEqual(snapshot.countriesRead, []);
+  assert.equal(snapshot.entries.length, 0);
+  assert.equal(snapshot.countriesTotal, 3);
+});
+
+test("sync read: countries never synced come first, then the ones synced longest ago", async () => {
+  const order: string[] = [];
+  handler = (req) => {
+    if (req.path === "/v1/catalog/prices") order.push(req.query.get("country_code")!);
+    return catalog(req);
+  };
+  // One at a time is forced by a refusal-free run with a deadline that
+  // allows everything; the order of requests is what is checked.
+  await provider().getCatalogSnapshot({ deadline: Date.now() + 60_000, countryOrder: ["usa", "nigeria"] });
+  assert.equal(order[0], "KE");
+  assert.deepEqual(order.slice(1), ["US", "NG"]);
 });

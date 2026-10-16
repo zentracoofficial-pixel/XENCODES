@@ -61,7 +61,7 @@ export default async function DashboardLayout({
       <DashboardSidebar notifications={notificationItems} unreadCount={unreadCount} />
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardTopBar notifications={notificationItems} unreadCount={unreadCount} />
-        <main className="flex-1 px-4 pb-28 pt-6 sm:px-8 sm:pt-9 lg:pb-9">
+        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pt-9 lg:pb-9">
           <div className="mx-auto w-full max-w-4xl">
             {announcement?.enabled ? (
               <AnnouncementPopup

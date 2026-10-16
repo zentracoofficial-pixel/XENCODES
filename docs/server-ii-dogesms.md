@@ -18,6 +18,26 @@ error or routing detail reaches a customer page, API response or browser bundle 
      number before cancelling that order and trying Server I.
 3. Redeploy, then in Admin → Providers: **Test connection** on Server II, **Sync now**, then enable it.
 
+## Syncing (Sync now, Sync all, daily schedule)
+
+- Sync all runs every enabled server side by side, each with its own lock (a second sync of the same
+  server is refused while one runs), and reports each server separately: success, partial, failed or
+  already running. Every run is kept in Admin → Providers → Sync history (start, duration, result).
+- DogeSMS has no bulk price endpoint: prices are read one country at a time
+  (`GET /v1/catalog/prices?country_code=`), and it rate-limits those reads (HTTP 429). A sync reads
+  three countries at a time, drops to one at a time after a 429, waits as DogeSMS asks (Retry-After,
+  else exponential back-off) and stops after about 38 seconds so the request ends inside Vercel's
+  60-second limit. Countries refreshed longest ago go first, so repeated syncs cover them all; a run
+  that could not read every country is reported as partial, and the countries it did not read keep
+  their last synced prices.
+- A failed read changes nothing. A whole-catalog answer less than half the size of the last good one
+  writes what came back but removes nothing. Only rows for countries a run actually read can be
+  removed, and only for this server.
+- Customer pages, the homepage and the admin services page read Server II's catalog from the synced
+  table, never live per country; only a live quote (one request for one country) asks DogeSMS.
+- Sync never writes a selling price: customer prices are worked out from the synced cost at the
+  moment they are shown, by the pricing engine, and re-quoted live before every purchase.
+
 ## How an order is filled
 
 - Each server is priced its own way. Server I follows the platform price rules (multipliers, minimums,

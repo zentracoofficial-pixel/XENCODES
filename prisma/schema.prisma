@@ -738,9 +738,45 @@ model ProviderSyncStatus {
   /// How many service/country pairs were priced and written to
   /// SyncedOffer on the last successful run.
   offersSynced     Int?
+  /// Set while a sync of this provider is running, cleared when it ends.
+  /// A second sync is refused while it is set (unless it is older than the
+  /// longest a sync can run, which means that run died).
+  runningSince     DateTime?
+  /// The latest run, whatever its result.
+  lastStartedAt    DateTime?
+  lastFinishedAt   DateTime?
+  lastDurationMs   Int?
+  /// "success" | "partial" | "failed"
+  lastResult       String?
+  /// What the admin is shown about the latest run. Never a raw API answer.
+  lastMessage      String?
   updatedAt        DateTime  @updatedAt
 
   @@map("provider_sync_status")
+}
+
+/// One sync of one provider, kept as history for the admin.
+model ProviderSyncRun {
+  id              String    @id @default(cuid())
+  providerId      String
+  /// "manual" (one server), "manual_all" (Sync all) or "cron".
+  trigger         String
+  startedAt       DateTime
+  finishedAt      DateTime
+  durationMs      Int
+  /// "success" | "partial" | "failed" | "skipped"
+  result          String
+  servicesSynced  Int?
+  countriesSynced Int?
+  offersSynced    Int?
+  /// For a provider read country by country: how many it lists, and how
+  /// many this run read.
+  countriesTotal  Int?
+  countriesRead   Int?
+  message         String?
+
+  @@index([providerId, startedAt])
+  @@map("provider_sync_runs")
 }
 
 /// The supplier's own account credit — never a customer wallet balance,
