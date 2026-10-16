@@ -33,9 +33,12 @@ let dogeCents = 100;
 
 before(async () => {
   DogeSmsProvider.resetForTests();
-  for (const key of [SETTING_KEYS.providerConfig, SETTING_KEYS.smartPickup]) {
+  // The adapter keeps a saved copy of DogeSMS's lists (see catalogStore); a
+  // copy left by anything else would stand in for this test's stub.
+  for (const key of [SETTING_KEYS.providerConfig, SETTING_KEYS.smartPickup, "dogesms_catalog_v1"]) {
     saved.set(key, (await prisma.setting.findUnique({ where: { key } }))?.value ?? null);
   }
+  await prisma.setting.deleteMany({ where: { key: "dogesms_catalog_v1" } });
   const put = (key: string, value: unknown) =>
     prisma.setting.upsert({ where: { key }, create: { key, value: JSON.stringify(value) }, update: { value: JSON.stringify(value) } });
   await put(SETTING_KEYS.providerConfig, [
@@ -81,7 +84,7 @@ after(async () => {
   globalThis.fetch = realFetch;
   for (const [key, value] of saved) {
     if (value === null) await prisma.setting.deleteMany({ where: { key } });
-    else await prisma.setting.update({ where: { key }, data: { value } });
+    else await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
   }
   await prisma.syncedOffer.deleteMany({ where: { serviceSlug: SLUG } });
   await prisma.activation.deleteMany({ where: { userId: { in: userIds } } });
@@ -175,4 +178,29 @@ test("Server II cheaper: it is the customer's price and goes first", async () =>
     assert.equal(q.provider, "dogesms");
     assert.equal(q.quote.customerPriceKobo, expectedServerTwo(1, currency));
   }
+});
+
+test("the quote lists every server that can sell the pair with its own price, cheapest first", async () => {
+  dogeCents = 100; // Server II dearer
+  DogeSmsProvider.resetForTests();
+  const currency = await getDefaultCurrency();
+  const q = await quotePair(SLUG, "usa", currency);
+  assert.equal(q.ok, true);
+  if (!q.ok) return;
+  assert.deepEqual(q.options.map((o) => o.provider), ["grizzlysms", "dogesms"]);
+  assert.equal(q.options[0].priceKobo, q.quote.customerPriceKobo === q.options[0].priceKobo ? q.options[0].priceKobo : -1);
+  assert.ok(q.options[0].priceKobo < q.options[1].priceKobo);
+  assert.equal(q.options[1].priceKobo, expectedServerTwo(100, currency));
+
+  // Asking for one server returns just that server, at its own price.
+  const two = await quotePair(SLUG, "usa", currency, { onlyProvider: "dogesms" });
+  assert.equal(two.ok, true);
+  if (!two.ok) return;
+  assert.deepEqual(two.options.map((o) => o.provider), ["dogesms"]);
+  assert.equal(two.quote.customerPriceKobo, q.options[1].priceKobo);
+  const one = await quotePair(SLUG, "usa", currency, { onlyProvider: "grizzlysms" });
+  assert.equal(one.ok, true);
+  if (!one.ok) return;
+  assert.equal(one.provider, "grizzlysms");
+  assert.equal(one.quote.customerPriceKobo, q.options[0].priceKobo);
 });

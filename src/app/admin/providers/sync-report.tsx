@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import type { ProviderSyncOutcome, ProviderSyncResult, SyncResultKind } from "@/lib/provider-sync";
+import type { ProviderSyncOutcome, ProviderSyncResult, SyncResultKind } from "@/lib/sync-result";
 
 const RESULT_TEXT: Record<SyncResultKind, string> = {
   success: "Sync successful",

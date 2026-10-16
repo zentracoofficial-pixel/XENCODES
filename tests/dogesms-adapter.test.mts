@@ -104,7 +104,7 @@ test("an order: Bearer key, idempotency key, price cap, and the number when it c
       ? { status: 201, body: { data: { id: "ord_1", status: "active", phone_number: "+1 555-0100", price_cents: 45 } } }
       : catalog(req);
   const bought = await provider().purchaseNumber("whatsapp", "usa", 45);
-  assert.deepEqual(bought, { providerOrderId: "ord_1", phoneNumber: "15550100", sessionSeconds: 1200, costUsdCents: 45 });
+  assert.deepEqual(bought, { providerOrderId: "ord_1", phoneNumber: "+15550100", sessionSeconds: 1200, costUsdCents: 45 });
   const post = calls.find((c) => c.method === "POST")!;
   assert.equal(post.headers.Authorization, `Bearer ${KEY}`);
   assert.equal(post.headers["X-Idempotency-Key"], "idem-1");
@@ -123,7 +123,7 @@ test("a number allocated after the order is picked up from the webhook store", a
   };
   stored.ord_2 = { status: "active", phoneNumber: "2348012345678" };
   const bought = await provider({ allocationWaitMs: 5_000 }).purchaseNumber("whatsapp", "nigeria");
-  assert.equal(bought.phoneNumber, "2348012345678");
+  assert.equal(bought.phoneNumber, "+2348012345678");
   assert.equal(polls, 1, "the disabled status call is asked once, then only the store");
 });
 

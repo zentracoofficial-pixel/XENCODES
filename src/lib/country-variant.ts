@@ -38,3 +38,16 @@ export function parseCountryVariant(name: string): CountryVariant {
     variant: Number.isFinite(variant) && variant > 0 ? variant : 1,
   };
 }
+
+/**
+ * Alphabetical order for country names, the way a customer reads a list:
+ * by name without any "(N)" suffix, ignoring case and accents, and a
+ * country's numbered repeat listings straight after the plain one
+ * ("USA", "USA (2)", then "Uruguay").
+ */
+export function compareCountryNames(a: string, b: string): number {
+  const base = (name: string) => name.replace(/\s*\(\d+\)\s*$/, "").trim();
+  const byName = base(a).localeCompare(base(b), "en", { sensitivity: "base" });
+  if (byName !== 0) return byName;
+  return parseCountryVariant(a).variant - parseCountryVariant(b).variant;
+}

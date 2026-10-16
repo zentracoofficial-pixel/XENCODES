@@ -13,6 +13,7 @@ import { useDisplayMoney } from "@/components/currency/currency-provider";
 import { DisplayAmount } from "@/components/currency/display-amount";
 import {
   purchaseNumberAction,
+  type CustomerServer,
   type PurchaseError,
 } from "@/app/dashboard/buy/actions";
 import { toggleFavoriteServiceAction } from "@/app/dashboard/favorites-actions";
@@ -96,11 +97,18 @@ interface CountryOption {
  * a price fetched for the previous country is displayed against the new
  * one.
  */
+interface ServerOption {
+  server: CustomerServer;
+  priceKobo: number;
+}
+
 interface QuoteResult {
   serviceSlug: string;
   countrySlug: string;
   available: boolean;
   priceKobo?: number;
+  /** What each server would charge for this pair, "I" before "II". */
+  options?: ServerOption[];
   message?: string;
 }
 
@@ -258,7 +266,20 @@ export function BuyPanel({
       ? quoteResult
       : null;
   const quoteLoading = Boolean(service && country && !quoteFresh);
-  const priceKobo = quoteFresh?.available ? quoteFresh.priceKobo : undefined;
+  // The servers that can sell this pair and the one chosen. Nothing chosen
+  // yet means the cheapest, so the price shown is always one a server is
+  // actually offering.
+  const serverOptions = quoteFresh?.available ? (quoteFresh.options ?? []) : [];
+  const [chosenServer, setChosenServer] = useState<{ pair: string; server: CustomerServer } | null>(null);
+  const pairKey = service && country ? `${service.slug}:${country.slug}` : "";
+  const cheapestOption = serverOptions.reduce<ServerOption | undefined>(
+    (best, option) => (!best || option.priceKobo < best.priceKobo ? option : best),
+    undefined,
+  );
+  const selectedOption =
+    serverOptions.find((option) => chosenServer?.pair === pairKey && option.server === chosenServer.server) ??
+    cheapestOption;
+  const priceKobo = quoteFresh?.available ? (selectedOption?.priceKobo ?? quoteFresh.priceKobo) : undefined;
 
   // Each async step tags its own request so a slow earlier response cannot
   // land after a newer one and overwrite it with stale options.
@@ -402,11 +423,11 @@ export function BuyPanel({
       `/api/inventory/quote?service=${encodeURIComponent(pair.serviceSlug)}&country=${encodeURIComponent(pair.countrySlug)}&currency=${encodeURIComponent(currency)}`,
     )
       .then((res) => res.json())
-      .then((data: { available?: boolean; priceKobo?: number; message?: string }) => {
+      .then((data: { available?: boolean; priceKobo?: number; options?: ServerOption[]; message?: string }) => {
         if (token !== quoteRequest.current) return;
         setQuoteResult(
           data.available && typeof data.priceKobo === "number"
-            ? { ...pair, available: true, priceKobo: data.priceKobo }
+            ? { ...pair, available: true, priceKobo: data.priceKobo, options: data.options ?? [] }
             : {
                 ...pair,
                 available: false,
@@ -434,26 +455,38 @@ export function BuyPanel({
 
     setError(null);
     setErrorCode(null);
-    const idempotencyKey = idempotencyKeyFor(`${service.slug}:${country.slug}`);
+    // The server the customer chose (when the quote offered servers), so the
+    // price they confirmed is the one that server charges.
+    const server = selectedOption?.server;
+    const idempotencyKey = idempotencyKeyFor(`${service.slug}:${country.slug}:${server ?? "any"}`);
     startTransition(async () => {
       const result = await purchaseNumberAction(
         service.slug,
         country.slug,
         priceKobo,
         idempotencyKey,
+        server,
       );
 
       if (result.error) {
-        setError(errorCopy[result.error]);
+        setError(
+          result.error === "unavailable" && server && serverOptions.length > 1
+            ? `Server ${server} has no numbers for this right now. Try the other server or another country.`
+            : errorCopy[result.error],
+        );
         setErrorCode(result.error);
         // A price that moved is not a dead end: show the new one so the
         // customer can decide against the current figure.
         if (result.error === "price_changed" && result.priceKobo !== undefined) {
+          const newPrice = result.priceKobo;
           setQuoteResult({
             serviceSlug: service.slug,
             countrySlug: country.slug,
             available: true,
-            priceKobo: result.priceKobo,
+            priceKobo: newPrice,
+            options: serverOptions.map((option) =>
+              option.server === server ? { ...option, priceKobo: newPrice } : option,
+            ),
           });
         }
         return;
@@ -800,6 +833,45 @@ export function BuyPanel({
               </span>
             </div>
           ) : priceKobo !== undefined ? (
+            <>
+            {serverOptions.length > 0 ? (
+              <fieldset className="mb-4">
+                <legend className="text-xs font-medium text-muted-foreground">
+                  {serverOptions.length > 1 ? "Choose a server" : "Server"}
+                </legend>
+                <div className={cn("mt-2 grid gap-2", serverOptions.length > 1 && "sm:grid-cols-2")}>
+                  {serverOptions.map((option) => {
+                    const selected = selectedOption?.server === option.server;
+                    const lowest = serverOptions.length > 1 && option.priceKobo === cheapestOption?.priceKobo;
+                    return (
+                      <label
+                        key={option.server}
+                        className={cn(
+                          "flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:ring-2 focus-within:ring-mint/40",
+                          selected ? "border-forest bg-mint-soft" : "border-border bg-surface hover:border-mint",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="server"
+                          value={option.server}
+                          checked={selected}
+                          onChange={() => setChosenServer({ pair: pairKey, server: option.server })}
+                          className="h-4 w-4 shrink-0 accent-[var(--forest)]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold">Server {option.server}</span>
+                          {lowest ? (
+                            <span className="block text-[11px] font-medium text-forest">Lowest price</span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums">{priceText(option.priceKobo)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ) : null}
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-xs text-muted-foreground">You pay</p>
@@ -816,6 +888,7 @@ export function BuyPanel({
                 ) : null}
               </div>
             </div>
+            </>
           ) : null}
 
           {country.recommended && country.recommendationReason ? (

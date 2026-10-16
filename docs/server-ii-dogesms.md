@@ -36,6 +36,11 @@ error or routing detail reaches a customer page, API response or browser bundle 
 - DogeSMS's service and country lists are saved in the settings table (`dogesms_catalog_v1`) and
   reused for six hours, so a sync does not depend on those slow calls every time; if DogeSMS cannot
   answer them, a copy up to a week old keeps the sync going (prices are always read fresh).
+- The sync remembers when each country was last read (`provider_country_reads_dogesms` in the settings
+  table), including countries with nothing on sale, which have no stored rows to infer a date from.
+  A sync counts as **successful** once every country has been read within the last 24 hours, in this
+  run or earlier ones; the admin buttons carry on by themselves, pass after pass (up to 10), until
+  that is true or a pass reads nothing.
 - A failed read changes nothing. A whole-catalog answer less than half the size of the last good one
   writes what came back but removes nothing. Only rows for countries a run actually read can be
   removed, and only for this server.
@@ -51,6 +56,13 @@ error or routing detail reaches a customer page, API response or browser bundle 
   (`PROVIDER_COST_MULTIPLIERS` in `src/lib/pricing.ts`): the cost is converted at the market Naira rate,
   the same rate a Naira price is shown at in dollars, so a dollar wallet sees 3.5× too. Rounded up only
   to ₦1 or 1 cent. The owner's minimums (₦500, TikTok ₦750, UK ₦1,000) still apply on top.
+- After a customer picks a service and a country, the buy panel shows **Server I** and **Server II**
+  with each one's price (the cheaper is marked "Lowest price"; cheapest is selected by default). The
+  customer's choice is sent as "I" or "II", mapped to a provider on the server
+  (`src/lib/provider/customer-servers.ts`), re-quoted live at that server's own price, and bought only
+  there: if that server cannot sell, the customer is told so and can pick the other. Only servers that
+  can sell the pair at that moment are offered. The country list is strictly alphabetical, a country's
+  "(2)" listings right after the plain one.
 - The country list and the quote show the cheapest server for each country. That server is asked first;
   another server is used only at a price the customer agreed to. A dearer one is never bought silently:
   the customer is shown its price to confirm.

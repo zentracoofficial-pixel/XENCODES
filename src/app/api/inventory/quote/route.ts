@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { quotePair } from "@/lib/inventory";
 import { getCurrencyConfig, getDefaultCurrency } from "@/lib/currency-config";
+import { serverForProvider } from "@/lib/provider/customer-servers";
 
 /**
  * The live price for one pair, fetched with no cache in the way, so the
@@ -51,8 +52,19 @@ export async function GET(request: Request) {
     });
   }
 
+  // What each server would charge, under the names a customer knows them by
+  // ("I", "II"), "I" first. A provider with no customer-facing name is not
+  // offered as a choice.
+  const options = result.options
+    .flatMap((option) => {
+      const server = serverForProvider(option.provider);
+      return server ? [{ server, priceKobo: option.priceKobo }] : [];
+    })
+    .sort((a, b) => a.server.length - b.server.length || a.server.localeCompare(b.server));
+
   return NextResponse.json({
     available: true,
     priceKobo: result.quote.customerPriceKobo,
+    options,
   });
 }

@@ -18,7 +18,7 @@ import {
   pairPriceOverrideKobo,
   type PriceQuote,
 } from "@/lib/pricing";
-import { parseCountryVariant } from "@/lib/country-variant";
+import { compareCountryNames, parseCountryVariant } from "@/lib/country-variant";
 import { isRestrictedService, splitRestricted } from "@/lib/restricted-services";
 import { anyProviderCacheFresh } from "@/lib/provider-sync";
 import { getDefaultCurrency, type CurrencyConfigEntry } from "@/lib/currency-config";
@@ -209,6 +209,10 @@ export type QuoteResult =
       fallbacks?: QuoteOk[];
       /** How Smart Pickup ordered the providers, for the attempt log. */
       pickup?: { mode: string; order: string[] };
+      /** Every server that can sell this pair right now and what it would
+       *  charge, cheapest first: what the customer chooses between. Backend
+       *  only: the quote route turns the provider ids into "I" / "II". */
+      options: Array<{ provider: string; priceKobo: number }>;
     }
   | { ok: false; reason: QuoteFailure };
 
@@ -776,19 +780,10 @@ export async function getServiceCountries(
     };
   });
 
-  // A country with a real record of a customer buying a number and never
-  // receiving a code still sinks below every option that either performs
-  // better or simply has no track record yet — never hidden outright, since
-  // a poor rate is still real inventory someone may still want, just not
-  // the first thing shown. Both groups otherwise keep the order
-  // getCountryRecommendation() already worked out (variants of one country
-  // together, the better-verified one leading, groups cheapest-first).
-  const orderIndex = new Map(order.map((slug, index) => [slug, index]));
-  const bySortOrder = (a: InventoryCountry, b: InventoryCountry) =>
-    (orderIndex.get(a.slug) ?? 0) - (orderIndex.get(b.slug) ?? 0);
-  const reliable = annotated.filter((row) => row.qualityTier !== "low").sort(bySortOrder);
-  const poor = annotated.filter((row) => row.qualityTier === "low").sort(bySortOrder);
-  return [...reliable, ...poor];
+  // Strictly alphabetical, as a customer reads a list; a country's repeat
+  // listings ("USA (2)") follow the plain one. The recommendation still shows
+  // as a badge on the option it points to; it no longer decides the order.
+  return [...annotated].sort((a, b) => compareCountryNames(a.name, b.name));
 }
 
 /** "whatsapp-quality-test" -> "Whatsapp Quality Test". Cosmetic only — see
@@ -1076,6 +1071,9 @@ export async function quotePair(
     providerOfferId: primaryFill.providerOfferId,
     ladder: primaryFill.ladder,
     ...(pickup ? { pickup } : {}),
+    options: fillsUnordered
+      .map((fill) => ({ provider: fill.provider, priceKobo: priceOf(fill) }))
+      .sort((a, b) => a.priceKobo - b.priceKobo),
     service: toInventoryService(winner.service),
     country: {
       slug: winner.offer.country.slug,
@@ -1178,7 +1176,7 @@ export async function getCountryCatalog(): Promise<CountryCatalogEntry[]> {
   }
   return [...byCountry.values()]
     .map(({ services, ...entry }) => ({ ...entry, serviceCount: services.size }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareCountryNames(a.name, b.name));
 }
 
 /**

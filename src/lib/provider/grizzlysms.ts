@@ -131,8 +131,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   BAD_STATUS: "GrizzlySMS rejected that status change.",
 };
 
+export const GRIZZLYSMS_PROVIDER_ID = "grizzlysms";
+
 export class GrizzlySmsProvider implements NumberProvider {
-  readonly id = "grizzlysms";
+  readonly id = GRIZZLYSMS_PROVIDER_ID;
   readonly label = "GrizzlySMS";
 
   private readonly apiKey: string;
