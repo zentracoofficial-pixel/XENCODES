@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { splitRestricted } from "@/lib/restricted-services";
+import type { LearnedRestrictedStore } from "@/lib/restricted-learned";
 import { resolveCountryMeta, resolveIso2, slugify } from "./country-meta";
 import {
   loadHouseDirectory,
@@ -138,6 +139,8 @@ export interface DogeSmsOptions {
   newIdempotencyKey?: () => string;
   /** Where the service and country lists are saved between requests. */
   catalogStore?: CatalogStore | null;
+  /** What the other server has blocked, so this one follows it. */
+  restrictedStore?: LearnedRestrictedStore | null;
 }
 
 /** The raw service and country answers, saved so a slow DogeSMS does not
@@ -208,6 +211,7 @@ export class DogeSmsProvider implements NumberProvider {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly newIdempotencyKey: () => string;
   private readonly catalogStore: CatalogStore | null;
+  private readonly restrictedStore: LearnedRestrictedStore | null;
 
   private static catalog: CatalogCache | null = null;
   /** our country slug -> that country's prices, by our service slug */
@@ -229,6 +233,7 @@ export class DogeSmsProvider implements NumberProvider {
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.newIdempotencyKey = options.newIdempotencyKey ?? randomUUID;
     this.catalogStore = options.catalogStore ?? null;
+    this.restrictedStore = options.restrictedStore ?? null;
   }
 
   /** For tests: forget the cached catalog and learned behaviour. */
@@ -332,8 +337,18 @@ export class DogeSmsProvider implements NumberProvider {
     });
     if (serviceRows.length === 0) throw new ProviderError("DogeSMS returned no services.", "unknown");
 
-    const { allowed, blocked } = splitRestricted(serviceRows);
+    // The same rules as Server I, plus whatever Server I has blocked under
+    // any spelling, plus the category DogeSMS itself gives a service.
+    const alsoBlocked = await this.restrictedStore?.readOthers(DOGESMS_PROVIDER_ID).catch(() => undefined);
+    const categoryByCode = new Map<string, string>();
+    for (const row of listOf(servicesRaw, ["services", "items"])) {
+      const code = str(row.code) ?? str(row.service_code) ?? str(row.id);
+      const label = str(row.category) ?? str(row.type) ?? str(row.group);
+      if (code && label) categoryByCode.set(code, label);
+    }
+    const { allowed, blocked } = splitRestricted(serviceRows, alsoBlocked, (row) => categoryByCode.get(row.code));
     DogeSmsProvider.blocked = blocked.map(({ name, slug, category, term }) => ({ name, slug, category, term }));
+    await this.restrictedStore?.write(DOGESMS_PROVIDER_ID, DogeSmsProvider.blocked).catch(() => undefined);
     const services = new Map<string, { code: string; service: ProviderService }>();
     for (const row of allowed) {
       if (services.has(row.slug)) continue;
@@ -597,6 +612,14 @@ export class DogeSmsProvider implements NumberProvider {
   }
 
   getBlockedServices() {
+    return DogeSmsProvider.blocked;
+  }
+
+  /** The blocked list, reading the saved service list first if this server
+   *  process has not yet, so the admin page is never empty just because
+   *  nothing has asked for the catalog yet. */
+  async listBlockedServices() {
+    await this.loadCatalog().catch(() => undefined);
     return DogeSmsProvider.blocked;
   }
 

@@ -12,7 +12,8 @@ import { brandIcons } from "@/data/brand-icons";
 import { loadMarginRules, quoteForProvider, isUsableUsdCost } from "@/lib/pricing";
 import { getDefaultCurrency } from "@/lib/currency-config";
 import { checkProviderBalance } from "@/lib/provider-balance-monitor";
-import { isRestrictedService } from "@/lib/restricted-services";
+import { compactName, isRestrictedService } from "@/lib/restricted-services";
+import { settingsLearnedRestricted } from "@/lib/restricted-learned";
 
 /**
  * The background job behind "browsing is fast, buying is live."
@@ -234,7 +235,16 @@ export async function removeRestrictedOffers(): Promise<number> {
     distinct: ["serviceSlug"],
     select: { serviceSlug: true, serviceName: true },
   });
-  const slugs = names.filter((row) => isRestrictedService(row.serviceSlug, row.serviceName)).map((row) => row.serviceSlug);
+  // Also what either server has blocked under another spelling of the name.
+  const learned = await settingsLearnedRestricted.readOthers("").catch(() => new Map());
+  const slugs = names
+    .filter(
+      (row) =>
+        isRestrictedService(row.serviceSlug, row.serviceName) ||
+        learned.has(compactName(row.serviceName)) ||
+        learned.has(compactName(row.serviceSlug)),
+    )
+    .map((row) => row.serviceSlug);
   if (slugs.length === 0) return 0;
   const result = await prisma.syncedOffer.deleteMany({ where: { serviceSlug: { in: slugs } } });
   return result.count;

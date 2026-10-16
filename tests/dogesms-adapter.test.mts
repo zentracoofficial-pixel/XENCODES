@@ -392,3 +392,48 @@ test("sync read: a slow country holds up only its own slot, not the countries be
   // In groups of eight, nothing past the eighth would start until C00 ended.
   assert.ok(startedBefore > 8, `only ${startedBefore} countries started while the slow one was pending`);
 });
+
+test("restricted services: Server II never lists what the rules, DogeSMS's own category or the other server block", async () => {
+  const written: Array<{ id: string; blocked: Array<{ name: string }> }> = [];
+  const restrictedStore = {
+    // Server I has blocked "Bet 365" (a spelling the rules know) and "Zorbo Club" (one they do not).
+    readOthers: async () =>
+      new Map([["zorboclub", { category: "gambling" as const, term: "also blocked on another server (test)" }]]),
+    write: async (id: string, blocked: Array<{ name: string }>) => void written.push({ id, blocked }),
+  };
+  handler = (req) =>
+    req.path === "/v1/catalog/services"
+      ? {
+          status: 200,
+          body: {
+            data: [
+              { code: "wa", name: "WhatsApp" },
+              { code: "b1", name: "Bet365" },
+              { code: "b2", name: "1xBet" },
+              { code: "z1", name: "Zorbo-Club" },
+              { code: "z2", name: "Lucky Spinner", category: "Gambling" },
+              { code: "z3", name: "Kissly", category: "Dating" },
+              { code: "z4", name: "Binance" },
+              { code: "z5", name: "Vape Shop" },
+              { code: "z6", name: "Tinder" },
+              { code: "ok", name: "Telegram", category: "Messengers" },
+            ],
+          },
+        }
+      : catalog(req);
+  DogeSmsProvider.resetForTests();
+  const p = provider({ restrictedStore });
+  const slugs = (await p.getServices()).map((s) => s.slug);
+  assert.ok(slugs.includes("whatsapp") && slugs.includes("telegram"));
+  for (const blockedSlug of ["bet365", "1xbet", "zorbo-club", "lucky-spinner", "kissly", "binance", "vape-shop", "tinder"]) {
+    assert.ok(!slugs.includes(blockedSlug), `${blockedSlug} must not be sold`);
+  }
+  const blocked = await p.listBlockedServices();
+  assert.deepEqual(
+    blocked.map((b) => b.name).sort(),
+    ["1xBet", "Bet365", "Binance", "Kissly", "Lucky Spinner", "Tinder", "Vape Shop", "Zorbo-Club"],
+  );
+  // What this server blocked is recorded for the other server to follow.
+  assert.equal(written.at(-1)?.id, "dogesms");
+  assert.equal(written.at(-1)?.blocked.length, 8);
+});

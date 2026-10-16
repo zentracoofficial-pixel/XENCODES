@@ -1,5 +1,6 @@
 import { GrizzlySmsProvider } from "./grizzlysms";
 import { DogeSmsProvider, settingsCatalogStore } from "./dogesms";
+import { settingsLearnedRestricted } from "@/lib/restricted-learned";
 import type { NumberProvider } from "./types";
 
 /**
@@ -91,7 +92,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
           "GRIZZLYSMS_API_KEY is not set as an environment variable on this deployment.",
         );
       }
-      return new GrizzlySmsProvider({ apiKey });
+      return new GrizzlySmsProvider({ apiKey, restrictedStore: settingsLearnedRestricted });
     },
   },
 
@@ -115,6 +116,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
       return new DogeSmsProvider({
         apiKey,
         catalogStore: settingsCatalogStore,
+        restrictedStore: settingsLearnedRestricted,
         apiOrigin: process.env.DOGESMS_API_ORIGIN || undefined,
         // How long a purchase waits for a number to be allocated before the
         // order is cancelled and the next server is tried (default 15s).

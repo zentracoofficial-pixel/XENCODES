@@ -13,6 +13,7 @@ import { resolveCountryMeta, slugify, assignVariantLabels } from "./country-meta
 import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 import { rankPools } from "@/lib/pool-ladder";
 import { splitRestricted } from "@/lib/restricted-services";
+import type { LearnedRestrictedStore } from "@/lib/restricted-learned";
 
 /**
  * GrizzlySMS, the live number supplier.
@@ -157,8 +158,11 @@ export class GrizzlySmsProvider implements NumberProvider {
     CachedAt<Map<string, Map<string, { cost: number; count: number }>>>
   >();
 
-  constructor(config: { apiKey: string }) {
+  private readonly restrictedStore: LearnedRestrictedStore | null;
+
+  constructor(config: { apiKey: string; restrictedStore?: LearnedRestrictedStore | null }) {
     this.apiKey = config.apiKey;
+    this.restrictedStore = config.restrictedStore ?? null;
   }
 
   /** Every call to the handler endpoint. Never logs the key, and the key
@@ -276,13 +280,19 @@ export class GrizzlySmsProvider implements NumberProvider {
     // the one place this adapter reads the supplier's service list, so every
     // path below (browse, quote, purchase, the catalog sync) simply never
     // sees them: an unknown service code is skipped everywhere else.
-    const { allowed, blocked } = splitRestricted(entries.map((entry) => ({ ...entry, slug: slugify(entry.name) })));
+    // What the other server has blocked is blocked here too, under any spelling.
+    const alsoBlocked = await this.restrictedStore?.readOthers("grizzlysms").catch(() => undefined);
+    const { allowed, blocked } = splitRestricted(
+      entries.map((entry) => ({ ...entry, slug: slugify(entry.name) })),
+      alsoBlocked,
+    );
     GrizzlySmsProvider.blockedServices = blocked.map((entry) => ({
       name: entry.name,
       slug: entry.slug,
       category: entry.category,
       term: entry.term,
     }));
+    await this.restrictedStore?.write("grizzlysms", GrizzlySmsProvider.blockedServices).catch(() => undefined);
     entries = allowed.map(({ code, name }) => ({ code, name }));
     if (entries.length === 0) {
       throw new ProviderError("GrizzlySMS returned no sellable services.", "unknown");
@@ -295,6 +305,13 @@ export class GrizzlySmsProvider implements NumberProvider {
   /** Services dropped from the last catalog read because they are restricted,
    *  for the admin to check; empty until the catalog has been read. */
   getBlockedServices(): BlockedService[] {
+    return GrizzlySmsProvider.blockedServices;
+  }
+
+  /** The blocked list, reading the service list first if this server process
+   *  has not yet. */
+  async listBlockedServices(): Promise<BlockedService[]> {
+    await this.loadServices().catch(() => undefined);
     return GrizzlySmsProvider.blockedServices;
   }
 
