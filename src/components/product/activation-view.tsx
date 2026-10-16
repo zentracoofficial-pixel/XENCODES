@@ -35,9 +35,9 @@ const POLL_MS = 5000;
 /** What a failed Server II purchase says. Never names a supplier. */
 const serverTwoError: Partial<Record<PurchaseError, string>> = {
   insufficient_balance: "Your wallet does not have enough for this number. Add funds and try again.",
-  unavailable: "Server II has no numbers for this right now. Try another country.",
-  no_provider: "Server II has no numbers for this right now. Try another country.",
-  price_changed: "The Server II price changed. Check the new price and confirm again.",
+  unavailable: "Premium has no numbers for this right now. Try another country.",
+  no_provider: "Premium has no numbers for this right now. Try another country.",
+  price_changed: "The Premium price changed. Check the new price and confirm again.",
   unverified_limit_reached:
     "You've reached the purchase limit for unverified accounts. Verify your email to keep buying numbers.",
 };
@@ -86,7 +86,7 @@ export function ActivationView({
     : formatMoney(activation.priceKobo, activation.currency);
 
   const waiting = activation.status === "WAITING";
-  // An order that ended without a code: offer the same number from Server II.
+  // An order that ended without a code: offer the same number from Premium.
   const noCode =
     !activation.code &&
     (activation.status === "EXPIRED" || activation.status === "REFUNDED" || activation.status === "CANCELLED");
@@ -272,9 +272,9 @@ export function ActivationView({
 
       {noCode && serverTwoPrice ? (
         <div className="mt-4 rounded-2xl border border-mint/40 bg-mint-soft p-4">
-          <p className="text-sm font-semibold text-forest">Didn&apos;t get a code? Try Server II</p>
+          <p className="text-sm font-semibold text-forest">Didn&apos;t get a code? Try Premium</p>
           <p className="mt-1 text-sm text-forest/80">
-            Get a new {activation.serviceName} number for {activation.countryName} from Server II.
+            Get a new {activation.serviceName} number for {activation.countryName} from Premium.
           </p>
           <Button
             type="button"
@@ -283,7 +283,7 @@ export function ActivationView({
             onClick={buyOnServerTwo}
             disabled={buyingServerTwo}
           >
-            {buyingServerTwo ? "Getting your number" : `Buy on Server II · ${serverTwoPrice}`}
+            {buyingServerTwo ? "Getting your number" : `Buy on Premium · ${serverTwoPrice}`}
           </Button>
           {serverTwoMessage ? <p className="mt-2 text-xs text-danger">{serverTwoMessage}</p> : null}
         </div>

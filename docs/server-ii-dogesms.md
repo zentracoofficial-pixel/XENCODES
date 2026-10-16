@@ -1,4 +1,4 @@
-# Server II (DogeSMS) and Smart Pickup
+# Server II (DogeSMS, sold as "Premium") and Smart Pickup
 
 GrizzlySMS is **Server I**, DogeSMS is **Server II**. Customers only ever see Xencodes: no supplier name, id,
 error or routing detail reaches a customer page, API response or browser bundle (enforced by
@@ -52,8 +52,10 @@ error or routing detail reaches a customer page, API response or browser bundle 
 ## How an order is filled
 
 - Each server is priced its own way. Server I follows the platform price rules (multipliers, minimums,
-  repeat-listing and fixed pair prices). Server II sells at **4× its own cost** in every currency
-  (`PROVIDER_COST_MULTIPLIERS` in `src/lib/pricing.ts`): the cost is converted at the market Naira rate,
+  repeat-listing and fixed pair prices). Server II sells at **4× its own cost up to 40 cents of cost, and less on the part above that** (2.5× from 40¢ to $1.50,
+  1.8× to $4, 1.4× beyond; `PROVIDER_PRICE_TIERS` in `src/lib/pricing.ts`) in every currency, so cheap numbers are unchanged
+  and dear ones stop being four times dear ($1.00 cost → $3.10, $2.00 → $5.25, $5.00 → $10.25). Customers see it as
+  **Premium** (`src/lib/server-names.ts`): the cost is converted at the market Naira rate,
   the same rate a Naira price is shown at in dollars, so a dollar wallet sees 4× too. Rounded up only
   to ₦1 or 1 cent. The owner's minimums (₦500, TikTok ₦750, UK ₦1,000) still apply on top.
 - After a customer picks a service and a country, the buy panel shows **Server I** and **Server II**
