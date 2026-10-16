@@ -11,7 +11,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { FaqSection, LinkGrid, StatRow, Steps } from "@/components/seo/blocks";
 import { getSeoIndex, getSeoMoney } from "@/lib/seo-catalog";
 import { isIndexedPair, loadSeoCountry } from "@/lib/seo-pages";
-import { countryFaqs, plural, REFUND_SENTENCE } from "@/lib/seo-copy";
+import { countryFaqs, plural, REFUND_SENTENCE, withArticle } from "@/lib/seo-copy";
 import { SITE_URL, ORGANIZATION_REF } from "@/lib/site";
 
 // Built once and served from the cache: nothing here depends on who is looking.
@@ -32,7 +32,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const count = offers.services.length;
   return {
     title: `${name} Virtual Phone Number${dial ? ` (${dial})` : ""}`,
-    description: `Get a ${name} (${dial}) virtual number to receive SMS verification codes for ${plural(count, "service")}. Live prices, pay per number, automatic refund if no code arrives.`,
+    description: `Get ${withArticle(name)} (${dial}) virtual number to receive SMS verification codes for ${plural(count, "service")}. Live prices, pay per number, automatic refund if no code arrives.`,
     alternates: { canonical: `/countries/${slug}` },
     robots: entry ? { index: true, follow: true } : { index: false, follow: true },
   };
@@ -87,7 +87,7 @@ export default async function CountryPage({ params }: { params: Promise<{ slug: 
             <span>{country.name} virtual phone number</span>
           </span>
         }
-        description={`Receive SMS verification codes on a ${country.name} number${country.dialCode ? ` (${country.dialCode})` : ""} for ${plural(services.length, "service")}. ${REFUND_SENTENCE}`}
+        description={`Receive SMS verification codes on ${withArticle(country.name)} number${country.dialCode ? ` (${country.dialCode})` : ""} for ${plural(services.length, "service")}. ${REFUND_SENTENCE}`}
       >
         <Button href={`/buy?country=${slug}`} variant="accent" size="lg">
           Buy a {country.name} number
@@ -130,7 +130,7 @@ export default async function CountryPage({ params }: { params: Promise<{ slug: 
 
           <div className="mt-10">
             <Steps
-              title={`How to get a ${country.name} number`}
+              title={`How to get ${withArticle(country.name)} number`}
               steps={[
                 { title: "Pick the service", body: `Choose the service you want to verify and select ${country.name}. The exact price is shown before you buy.` },
                 { title: "Pay from your wallet", body: "Add funds once; each number is paid for from the wallet and nothing is charged until you buy." },
@@ -153,7 +153,7 @@ export default async function CountryPage({ params }: { params: Promise<{ slug: 
             moreLabel="All countries"
           />
 
-          <CtaBand title={`Get a ${country.name} number`} body="Choose a service and see the live price." href={`/buy?country=${slug}`} label="Buy a number" />
+          <CtaBand title={`Get ${withArticle(country.name)} number`} body="Choose a service and see the live price." href={`/buy?country=${slug}`} label="Buy a number" />
         </div>
       </Container>
     </>

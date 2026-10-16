@@ -42,3 +42,12 @@ test("curated service pages say nothing that sounds like a guarantee", () => {
     assert.ok(page.limitations.length >= 2, page.slug);
   }
 });
+
+import { withArticle } from "../src/lib/seo-copy";
+
+test("withArticle picks a or an by sound of the first letter", () => {
+  assert.equal(withArticle("Amazon"), "an Amazon");
+  assert.equal(withArticle("Indonesia"), "an Indonesia");
+  assert.equal(withArticle("Russia"), "a Russia");
+  assert.equal(withArticle("Uganda"), "a Uganda");
+});
