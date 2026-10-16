@@ -5,10 +5,13 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUserOfSupportReply } from "@/lib/notifications";
+import { readAttachmentFromForm } from "@/lib/support-attachments";
 
 export interface ReplyState {
   error?: string;
   success?: boolean;
+  /** Bumped on every successful send, so the form can clear itself. */
+  sent?: number;
 }
 
 /**
@@ -24,16 +27,25 @@ export async function replyToTicketAction(
 ): Promise<ReplyState> {
   const admin = await requireAdmin();
 
-  const body = (formData.get("body") as string)?.trim();
-  if (!body) return { error: "Write a reply before sending." };
+  const body = ((formData.get("body") as string) ?? "").trim();
   if (body.length > 5000) return { error: "Keep it under 5000 characters." };
+  const parsed = await readAttachmentFromForm(formData);
+  if (!parsed.ok) return { error: parsed.error };
+  const attachment = parsed.attachment;
+  if (!body && !attachment) return { error: "Write a reply or attach a file before sending." };
 
   const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
   if (!ticket) return { error: "That ticket no longer exists." };
 
   await prisma.$transaction([
     prisma.supportMessage.create({
-      data: { ticketId, author: "ADMIN", adminEmail: admin.email, body },
+      data: {
+        ticketId,
+        author: "ADMIN",
+        adminEmail: admin.email,
+        body,
+        ...(attachment ? { attachments: { create: attachment } } : {}),
+      },
     }),
     prisma.supportTicket.update({
       where: { id: ticketId },
@@ -42,11 +54,14 @@ export async function replyToTicketAction(
     }),
   ]);
 
-  await notifyUserOfSupportReply(ticket, body);
+  await notifyUserOfSupportReply(
+    ticket,
+    [body, attachment ? `[Attached file: ${attachment.fileName}]` : ""].filter(Boolean).join("\n\n"),
+  );
 
   revalidatePath(`/admin/support/${ticketId}`);
   revalidatePath("/admin/support");
-  return { success: true };
+  return { success: true, sent: Date.now() };
 }
 
 export async function setTicketStatusAction(

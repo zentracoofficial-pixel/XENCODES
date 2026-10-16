@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Support replies can carry one file of up to 4 MB (see
+  // src/lib/support-attachments.ts); the default 1 MB Server Action limit
+  // would refuse it. Kept under Vercel's own 4.5 MB request limit.
+  experimental: {
+    serverActions: { bodySizeLimit: "4.4mb" },
+  },
   // Google indexed pages under the auto-generated xencodes.vercel.app
   // domain before the real domain went live, and a <link rel="canonical">
   // alone (see src/lib/site.ts) only nudges search engines to consolidate

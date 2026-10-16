@@ -10,6 +10,7 @@ import { activationIssueEmail, supportReplyEmail, supportRequestEmail } from "@/
 import { formatMoney } from "@/lib/currency";
 import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
 import { SUPPORT_EMAIL as SUPPORT_INBOX } from "@/lib/site";
+import { readAttachmentFromForm } from "@/lib/support-attachments";
 
 export interface ReportState {
   error?: string;
@@ -124,6 +125,8 @@ export async function createGeneralTicketAction(
 
 export interface ReplyState {
   error?: string;
+  /** Bumped on every successful send, so the form can clear itself. */
+  sent?: number;
 }
 
 /**
@@ -145,9 +148,12 @@ export async function replyToTicketAsUserAction(
   const user = await getActiveUser();
   if (!user) return { error: "Log in to reply." };
 
-  const body = (formData.get("body") as string)?.trim();
-  if (!body) return { error: "Write a message before sending." };
+  const body = ((formData.get("body") as string) ?? "").trim();
   if (body.length > 2000) return { error: "Keep it under 2000 characters." };
+  const parsed = await readAttachmentFromForm(formData);
+  if (!parsed.ok) return { error: parsed.error };
+  const attachment = parsed.attachment;
+  if (!body && !attachment) return { error: "Write a message or attach a file before sending." };
 
   const ticket = await prisma.supportTicket.findFirst({
     where: { id: ticketId, userId: user.id },
@@ -156,7 +162,12 @@ export async function replyToTicketAsUserAction(
 
   await prisma.$transaction([
     prisma.supportMessage.create({
-      data: { ticketId, author: "USER", body },
+      data: {
+        ticketId,
+        author: "USER",
+        body,
+        ...(attachment ? { attachments: { create: attachment } } : {}),
+      },
     }),
     prisma.supportTicket.update({
       where: { id: ticketId },
@@ -164,7 +175,9 @@ export async function replyToTicketAsUserAction(
     }),
   ]);
 
-  await notifyAdminsOfSupportMessage(ticket, user, body);
+  // What the notification and email say: the text, and the file's name when there is one.
+  const summary = [body, attachment ? `[Attached file: ${attachment.fileName}]` : ""].filter(Boolean).join("\n\n");
+  await notifyAdminsOfSupportMessage(ticket, user, summary);
 
   await sendEmailSafe({
     to: SUPPORT_INBOX,
@@ -173,12 +186,12 @@ export async function replyToTicketAsUserAction(
         customerEmail: user.email,
         ticketId: ticket.id,
         subject: ticket.subject,
-        body,
+        body: summary,
       }),
     ),
   });
 
   revalidatePath(`/dashboard/support/${ticketId}`);
   revalidatePath("/dashboard/support");
-  return {};
+  return { sent: Date.now() };
 }

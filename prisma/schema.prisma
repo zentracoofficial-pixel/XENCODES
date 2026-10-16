@@ -669,18 +669,37 @@ model SupportTicket {
 }
 
 model SupportMessage {
-  id         String               @id @default(cuid())
-  ticketId   String
-  ticket     SupportTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author     SupportMessageAuthor
+  id          String               @id @default(cuid())
+  ticketId    String
+  ticket      SupportTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      SupportMessageAuthor
   /// The admin who wrote this message, when the author is ADMIN. Plain
   /// value rather than a relation, for the same reason as AuditLog.actorId.
-  adminEmail String?
-  body       String
-  createdAt  DateTime             @default(now())
+  adminEmail  String?
+  body        String
+  attachments SupportAttachment[]
+  createdAt   DateTime             @default(now())
 
   @@index([ticketId])
   @@map("support_messages")
+}
+
+/// A file sent in a support conversation: PNG, JPEG or PDF, up to 4 MB,
+/// checked by its first bytes and not only its name. Kept in the database
+/// itself (no third-party storage) and only ever served to the ticket's own
+/// customer or an admin, through /api/support/attachments/[id].
+model SupportAttachment {
+  id        String         @id @default(cuid())
+  messageId String
+  message   SupportMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime       @default(now())
+
+  @@index([messageId])
+  @@map("support_attachments")
 }
 
 /// An in-dashboard notification, currently only ever raised by the support
@@ -757,7 +776,7 @@ model ProviderSyncStatus {
 
 /// One sync of one provider, kept as history for the admin.
 model ProviderSyncRun {
-  id              String    @id @default(cuid())
+  id              String   @id @default(cuid())
   providerId      String
   /// "manual" (one server), "manual_all" (Sync all) or "cron".
   trigger         String
