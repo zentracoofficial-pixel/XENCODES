@@ -6,8 +6,9 @@ export function JsonLd({ data }: { data: Record<string, unknown> }) {
   return (
     <script
       type="application/ld+json"
-      // The payload is built from our own static data, not user input.
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+      // Some values (a service or country name) come from a supplier, so "<"
+      // is written as \u003c: nothing in the data can close the script tag.
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }}
     />
   );
 }

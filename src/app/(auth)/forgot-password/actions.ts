@@ -8,6 +8,10 @@ import { passwordResetEmail } from "@/lib/email-messages";
 import { SITE_URL } from "@/lib/site";
 import { forgotPasswordSchema } from "@/lib/validation/auth";
 
+/** How many reset emails one account may be sent within the window. */
+const MAX_RESET_EMAILS_PER_WINDOW = 3;
+const RESET_WINDOW_MS = 60 * 60 * 1000;
+
 export interface ForgotPasswordState {
   error?: string;
   success?: boolean;
@@ -30,7 +34,16 @@ export async function forgotPasswordAction(
 
   // Always report success, regardless of whether the account exists, so
   // this endpoint can't be used to enumerate registered email addresses.
-  if (user) {
+  // At most a few reset emails per account an hour: without it, anyone could
+  // use this form to flood a person's inbox. Answered exactly like a sent
+  // email, so the limit reveals nothing.
+  const recentRequests = user
+    ? await prisma.passwordResetToken.count({
+        where: { userId: user.id, createdAt: { gte: new Date(Date.now() - RESET_WINDOW_MS) } },
+      })
+    : 0;
+
+  if (user && recentRequests < MAX_RESET_EMAILS_PER_WINDOW) {
     const token = crypto.randomBytes(32).toString("hex");
     await prisma.passwordResetToken.create({
       data: {

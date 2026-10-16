@@ -1,9 +1,10 @@
 import { normalizeCountryCode } from "@/lib/currency-meta";
+import { COUNTRY_NAMES } from "@/lib/country-names";
 
 /**
  * Every country a customer can say they are in. The list is only ISO 3166
- * codes; names come from the runtime's own region data so there is no
- * hand-typed list of names to drift. A country sets the default display
+ * codes; names are in country-names.ts, the same on the server and in every
+ * browser. A country sets the default display
  * currency and the suggested payment currency; it never limits which
  * currency a customer may pay in, and it is never inferred from a
  * display-currency choice.
@@ -22,13 +23,7 @@ let cached: Country[] | null = null;
 
 export function allCountries(): Country[] {
   if (cached) return cached;
-  let names: Intl.DisplayNames | null = null;
-  try {
-    names = new Intl.DisplayNames(["en"], { type: "region" });
-  } catch {
-    names = null;
-  }
-  cached = ISO2.map((iso2) => ({ iso2, name: names?.of(iso2) ?? iso2 })).sort((a, b) =>
+  cached = ISO2.map((iso2) => ({ iso2, name: COUNTRY_NAMES[iso2] ?? iso2 })).sort((a, b) =>
     a.name.localeCompare(b.name, "en"),
   );
   return cached;

@@ -104,6 +104,9 @@ const MAX_RATE_LIMIT_RETRIES = 3;
  *  would only lengthen DogeSMS's limit. The rest wait for the next run. */
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
 const MAX_COOLDOWN_MS = 20_000;
+/** How long status queries are left alone after DogeSMS answers that they
+ *  are not available, before asking once more. */
+const STATUS_QUERIES_RETRY_MS = 10 * 60 * 1000;
 const BALANCE_ATTEMPTS = 6;
 const BALANCE_TIMEOUT_MS = 6_000;
 const BALANCE_MAX_WAIT_MS = 6_000;
@@ -218,7 +221,9 @@ export class DogeSmsProvider implements NumberProvider {
   private static prices = new Map<string, { table: PriceTable; at: number }>();
   private static blocked: Array<{ name: string; slug: string; category: string; term: string }> = [];
   /** Flipped off the first time the status endpoint says it is disabled. */
-  private static statusQueriesWork = true;
+  /** When status queries were last found switched off; they are tried again
+   *  after a while, since one odd answer must not turn them off for good. */
+  private static statusQueriesOffUntil = 0;
   /** No catalog request is sent before this (epoch ms): set when DogeSMS
    *  answers 429, so this instance stops adding to the limit. */
   private static cooldownUntil = 0;
@@ -241,7 +246,7 @@ export class DogeSmsProvider implements NumberProvider {
     DogeSmsProvider.catalog = null;
     DogeSmsProvider.prices = new Map();
     DogeSmsProvider.blocked = [];
-    DogeSmsProvider.statusQueriesWork = true;
+    DogeSmsProvider.statusQueriesOffUntil = 0;
     DogeSmsProvider.cooldownUntil = 0;
   }
 
@@ -752,7 +757,7 @@ export class DogeSmsProvider implements NumberProvider {
   /** What is known about an order: the status call while it works, else
    *  what the webhook stored. */
   private async currentState(orderId: string): Promise<StoredOrderState | null> {
-    if (DogeSmsProvider.statusQueriesWork) {
+    if (Date.now() >= DogeSmsProvider.statusQueriesOffUntil) {
       try {
         const { status, body } = await this.request("GET", `/v1/orders/${encodeURIComponent(orderId)}`);
         if (status >= 200 && status < 300) {
@@ -767,7 +772,7 @@ export class DogeSmsProvider implements NumberProvider {
             };
           }
         } else if (status === 403 || status === 404 || status === 405 || status === 501) {
-          DogeSmsProvider.statusQueriesWork = false;
+          DogeSmsProvider.statusQueriesOffUntil = Date.now() + STATUS_QUERIES_RETRY_MS;
         }
       } catch {
         // Fall through to the stored state.
