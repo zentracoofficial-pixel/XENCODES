@@ -19,6 +19,10 @@ import {
  * the supplier hands over its CHEAPEST number under the ceiling, which is the
  * very choice this exists to avoid.
  *
+ * With more than one provider able to sell the pair, Smart Pickup's order
+ * decides who is asked first (see src/lib/smart-pickup.ts); the next one is
+ * asked only when the first definitely sold nothing.
+ *
  * I/O-free apart from the two callbacks, so the whole sequence is testable
  * against a fake supplier.
  */
@@ -37,12 +41,15 @@ export interface CascadeRung {
 export interface CascadeQuote {
   provider: string;
   ladder: CascadeRung[];
+  /** The other providers Smart Pickup would use for this pair, in order,
+   *  each with its own ladder at the same customer price. */
+  fallbacks?: CascadeQuote[];
 }
 
 export interface CascadeSuccess<Q extends CascadeQuote> {
   assigned: PurchasedNumber;
-  /** The quote the winning rung belongs to (may be a fresher one than the
-   *  quote the purchase started from). */
+  /** The quote the winning rung belongs to: the provider that actually
+   *  served the order (may be a fallback, or a fresher quote). */
   quoted: Q;
   /** What the customer is billed: the rung that actually served the order. */
   quote: PriceQuote;
@@ -60,33 +67,45 @@ export interface CascadeResult<Q extends CascadeQuote> {
   attempts: number;
 }
 
+/**
+ * What one purchase request came to:
+ *  - a number: bought;
+ *  - null: that rung had no numbers, nothing was bought: try the next rung;
+ *  - "skip_provider": this provider definitely sold nothing and will not
+ *    for this order (refused, out of balance, not connected): go to the next
+ *    provider.
+ * A request whose outcome is unknown (a timeout after it was sent) must
+ * THROW: the cascade then stops, because buying elsewhere could leave the
+ * customer with two numbers for one order.
+ */
+export type AttemptResult = PurchasedNumber | null | "skip_provider";
+
 export async function runPurchaseCascade<Q extends CascadeQuote>(opts: {
   initial: Q;
   ceilingKobo: number;
   balanceKobo: number;
   /** A fresh quote, or null when the pair can no longer be quoted. */
   requote: () => Promise<Q | null>;
-  /** One supplier purchase call. Resolves null when that rung is out of
-   *  stock; any other failure must throw. */
-  attempt: (
-    quoted: Q,
-    rung: { providerOfferId?: string; costUsdCents: number },
-  ) => Promise<PurchasedNumber | null>;
+  /** One supplier purchase call; `rank` is the provider's place in Smart
+   *  Pickup's order (0 = first choice). */
+  attempt: (quoted: Q, rung: { providerOfferId?: string; costUsdCents: number }, rank: number) => Promise<AttemptResult>;
   /** Stop starting new supplier calls once this returns true. */
   outOfTime?: () => boolean;
 }): Promise<CascadeResult<Q>> {
   const { ceilingKobo, balanceKobo, requote, attempt } = opts;
   const outOfTime = opts.outOfTime ?? (() => false);
   let quoted = opts.initial;
-  let tried = new Set<string | undefined>();
+  const tried = new Map<string, Set<string | undefined>>();
+  const triedFor = (provider: string) => {
+    let set = tried.get(provider);
+    if (!set) tried.set(provider, (set = new Set()));
+    return set;
+  };
+  const done = new Set<string>();
   let attempts = 0;
   const canGo = () => attempts < MAX_PURCHASE_ATTEMPTS && !outOfTime();
   const priced = (q: Q) => q.ladder.map((rung) => ({ ...rung, customerPriceKobo: rung.quote.customerPriceKobo }));
-
-  const call = async (q: Q, rung: { providerOfferId?: string; costUsdCents: number }) => {
-    attempts += 1;
-    return attempt(q, rung);
-  };
+  const chainOf = (q: Q) => [q, ...((q.fallbacks ?? []) as Q[])];
 
   for (let round = 0; round < 2; round++) {
     if (round === 1) {
@@ -96,49 +115,61 @@ export async function runPurchaseCascade<Q extends CascadeQuote>(opts: {
       if (!canGo()) break;
       const fresh = await requote();
       if (!fresh) break;
-      if (fresh.provider !== quoted.provider) tried = new Set();
       quoted = fresh;
     }
 
-    for (const rung of selectAttempts(priced(quoted), tried, ceilingKobo, balanceKobo)) {
-      if (!canGo()) break;
-      tried.add(rung.providerOfferId);
-      const assigned = await call(quoted, rung);
-      if (assigned) {
-        // A request that names one seller must come back at that seller's
-        // price. When the supplier states what the number cost and it is
-        // well below what was asked for, it handed over something from a
-        // cheaper seller instead: say so loudly, and do not record the seller
-        // that was asked for as the one that served the order, or the
-        // delivery record that ranks sellers would be built on a falsehood.
-        const ignored =
-          rung.providerOfferId !== undefined &&
-          assigned.costUsdCents !== undefined &&
-          rung.costUsdCents - assigned.costUsdCents > TARGETING_TOLERANCE_CENTS;
-        if (ignored) {
-          console.error(
-            `[purchase] supplier IGNORED the requested seller ${rung.providerOfferId}: asked for a $${(rung.costUsdCents / 100).toFixed(2)} number, ` +
-              `was sold one costing $${((assigned.costUsdCents ?? 0) / 100).toFixed(2)}. Seller ranking cannot be trusted until this is understood.`,
-          );
+    const chain = chainOf(quoted);
+    for (let rank = 0; rank < chain.length; rank++) {
+      const q = chain[rank];
+      if (done.has(q.provider)) continue;
+      for (const rung of selectAttempts(priced(q), triedFor(q.provider), ceilingKobo, balanceKobo)) {
+        if (!canGo()) break;
+        triedFor(q.provider).add(rung.providerOfferId);
+        attempts += 1;
+        const result = await attempt(q, rung, rank);
+        if (result === "skip_provider") {
+          done.add(q.provider);
+          break;
         }
-        return {
-          success: {
-            assigned,
+        if (result) {
+          // A request that names one seller must come back at that seller's
+          // price. When the supplier states what the number cost and it is
+          // well below what was asked for, it handed over something from a
+          // cheaper seller instead: say so loudly, and do not record the
+          // seller that was asked for as the one that served the order, or
+          // the delivery record that ranks sellers would be built on a
+          // falsehood.
+          const ignored =
+            rung.providerOfferId !== undefined &&
+            result.costUsdCents !== undefined &&
+            rung.costUsdCents - result.costUsdCents > TARGETING_TOLERANCE_CENTS;
+          if (ignored) {
+            console.error(
+              `[purchase] supplier IGNORED the requested seller ${rung.providerOfferId}: asked for a $${(rung.costUsdCents / 100).toFixed(2)} number, ` +
+                `was sold one costing $${((result.costUsdCents ?? 0) / 100).toFixed(2)}. Seller ranking cannot be trusted until this is understood.`,
+            );
+          }
+          return {
+            success: {
+              assigned: result,
+              quoted: q,
+              quote: rung.quote,
+              providerOfferId: ignored ? undefined : rung.providerOfferId,
+            },
+            dearerPriceKobo: null,
             quoted,
-            quote: rung.quote,
-            providerOfferId: ignored ? undefined : rung.providerOfferId,
-          },
-          dearerPriceKobo: null,
-          quoted,
-          attempts,
-        };
+            attempts,
+          };
+        }
       }
     }
   }
 
-  return {
-    dearerPriceKobo: cheapestAboveCeiling(priced(quoted), tried, ceilingKobo),
-    quoted,
-    attempts,
-  };
+  let dearer: number | null = null;
+  for (const q of chainOf(quoted)) {
+    if (done.has(q.provider)) continue;
+    const price = cheapestAboveCeiling(priced(q), triedFor(q.provider), ceilingKobo);
+    if (price !== null && (dearer === null || price < dearer)) dearer = price;
+  }
+  return { dearerPriceKobo: dearer, quoted, attempts };
 }

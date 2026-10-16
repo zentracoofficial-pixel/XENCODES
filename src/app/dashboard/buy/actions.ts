@@ -7,6 +7,7 @@ import { resolveProvider, ProviderError } from "@/lib/provider";
 import type { NumberProvider, PurchasedNumber } from "@/lib/provider/types";
 import { autoAcceptCeilingKobo } from "@/lib/pool-ladder";
 import { runPurchaseCascade } from "@/lib/purchase-cascade";
+import { recordProviderAttempt, type AttemptOutcome } from "@/lib/smart-pickup";
 import { creditWallet } from "@/lib/wallet";
 import { chargeOf, walletCurrencyOf } from "@/lib/wallet-currency";
 import { getActiveUser } from "@/lib/session";
@@ -225,22 +226,51 @@ export async function purchaseNumberAction(
         const fresh = await quotePair(serviceSlug, countrySlug, buyerCurrency);
         return fresh.ok ? fresh : null;
       },
-      attempt: async (q, rung) => {
+      attempt: async (q, rung, rank) => {
+        const attemptStartedAt = Date.now();
+        const log = (outcome: AttemptOutcome, detail?: string, ref?: string) =>
+          recordProviderAttempt({
+            providerId: q.provider,
+            serviceSlug,
+            countrySlug,
+            outcome,
+            latencyMs: Date.now() - attemptStartedAt,
+            rank,
+            providerOrderRef: ref ?? null,
+            detail: detail ?? null,
+            userId: user.id,
+          });
         try {
-          return await (await adapterFor(q.provider)).purchaseNumber(
+          const bought = await (await adapterFor(q.provider)).purchaseNumber(
             serviceSlug,
             countrySlug,
             rung.costUsdCents,
             rung.providerOfferId,
           );
+          await log("ok", q.pickup ? `pickup ${q.pickup.mode}` : undefined, bought.providerOrderId);
+          return bought;
         } catch (error) {
           const reason =
             error instanceof ProviderError ? error.code : error instanceof Error ? error.message : "unknown";
+          const detail = error instanceof Error ? error.message : String(error);
           // Observability only (see src/lib/provider-failure-stats.ts's own
           // comment) — never consulted here or anywhere else in this flow to
           // decide what to show or sell.
           await recordPurchaseFailure(q.provider, serviceSlug, countrySlug, reason);
-          if (error instanceof ProviderError && error.code === "out_of_stock") return null;
+          if (error instanceof ProviderError && error.code === "out_of_stock") {
+            await log("out_of_stock", detail);
+            return null;
+          }
+          if (error instanceof ProviderError && (error.code === "rejected" || error.code === "not_configured")) {
+            // Refused outright: nothing was bought, so the next provider may
+            // be asked. This provider is not asked again for this order.
+            await log("rejected", detail);
+            return "skip_provider";
+          }
+          // Timed out or failed after the request may have been taken: it
+          // might have bought a number. Never buy a second one elsewhere;
+          // stop, charge nothing, and leave it for an admin to review.
+          await log("ambiguous", detail);
           throw error;
         }
       },
@@ -451,6 +481,11 @@ export async function cancelActivationAction(
     where: { id: activationId, userId: user.id },
   });
   if (!activation || activation.status !== "WAITING") return null;
+
+  // Ask where the order really stands first: a code that has already
+  // arrived is delivered, not cancelled and refunded.
+  const latest = await reconcileActivation(activation.id, "CUSTOMER_POLL").catch(() => null);
+  if (latest && latest.status !== "WAITING") return latest;
 
   if (activation.providerOrderId) {
     try {

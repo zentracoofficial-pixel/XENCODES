@@ -1,4 +1,5 @@
 import { GrizzlySmsProvider } from "./grizzlysms";
+import { DogeSmsProvider } from "./dogesms";
 import type { NumberProvider } from "./types";
 
 /**
@@ -94,7 +95,34 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
     },
   },
 
-  // To add a second provider:
+  {
+    // Server II. Its orders report their number and code by signed webhook
+    // (status queries are off by default on DogeSMS), so it is only usable
+    // with both the API key and the webhook secret set, and the webhook URL
+    // /api/webhooks/dogesms registered in the DogeSMS dashboard.
+    id: "dogesms",
+    label: "DogeSMS",
+    envVarNames: ["DOGESMS_API_KEY", "DOGESMS_WEBHOOK_SECRET"],
+    hasCredentials: () => Boolean(process.env.DOGESMS_API_KEY && process.env.DOGESMS_WEBHOOK_SECRET),
+    create: () => {
+      const apiKey = process.env.DOGESMS_API_KEY;
+      if (!apiKey || !process.env.DOGESMS_WEBHOOK_SECRET) {
+        throw new ProviderConfigError(
+          "DOGESMS_API_KEY and DOGESMS_WEBHOOK_SECRET must both be set as environment variables on this deployment.",
+        );
+      }
+      const waitSeconds = Number(process.env.DOGESMS_ALLOCATION_WAIT_SECONDS);
+      return new DogeSmsProvider({
+        apiKey,
+        apiOrigin: process.env.DOGESMS_API_ORIGIN || undefined,
+        // How long a purchase waits for a number to be allocated before the
+        // order is cancelled and the next server is tried (default 15s).
+        allocationWaitMs: Number.isFinite(waitSeconds) && waitSeconds >= 3 && waitSeconds <= 45 ? waitSeconds * 1000 : undefined,
+      });
+    },
+  },
+
+  // To add another provider:
   //   1. Write providers/<id>.ts implementing NumberProvider, converting
   //      every response into Service/Country/ProviderAvailability/etc, the
   //      same way grizzlysms.ts does.

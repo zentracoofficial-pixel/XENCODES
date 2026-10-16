@@ -23,6 +23,12 @@ export const metadata: Metadata = { title: "Buy a Number" };
 
 export const dynamic = "force-dynamic";
 
+// A purchase runs as a server action under this route. Asking a second
+// server, or waiting for one to allocate a number, can take longer than the
+// default limit, and a purchase cut off mid-way could leave a number bought
+// and no order recorded. 60s is the Hobby plan ceiling.
+export const maxDuration = 60;
+
 const FALLBACK_COLOR = "#063B2D";
 
 export default async function DashboardBuyPage({

@@ -7,7 +7,7 @@ import { debugProviderPriceTiersAction } from "./actions";
 
 /**
  * A one-off probe, not a feature customers or ordinary admin work ever
- * touches: asks GrizzlySMS directly, for one exact service+country, what its
+ * touches: asks Server I directly, for one exact service+country, what its
  * getPricesV2/getPricesV3 actions actually return, since this adapter has
  * never called them and their real shape against this account is not
  * confirmed anywhere — see debugPriceTiers()'s own comment in
@@ -51,7 +51,7 @@ export function PriceTierDiagnosticCard({ providerId }: { providerId: string }) 
           className="h-9 w-48 rounded-lg border border-border bg-surface px-2.5 text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/25"
         />
         <Button onClick={run} disabled={pending} size="sm" variant="outline">
-          {pending ? "Asking GrizzlySMS…" : "Run diagnostic"}
+          {pending ? "Asking Server I…" : "Run diagnostic"}
         </Button>
       </div>
       {result ? (

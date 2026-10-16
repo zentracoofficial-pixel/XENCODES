@@ -41,7 +41,7 @@ const errorCopy: Record<PurchaseError, string> = {
   insufficient_balance:
     "Your wallet does not have enough for this number. Add funds and try again.",
   provider_unavailable:
-    "The number provider is not responding right now. Try again in a moment.",
+    "Unable to complete your request. Nothing was charged, so please try again.",
   price_changed:
     "The price changed while you were deciding. Check the new price and confirm again.",
   unverified_limit_reached:
@@ -494,7 +494,7 @@ export function BuyPanel({
   const countryOptions: ComboboxOption[] = visibleCountries.map((item) => ({
     value: item.slug,
     label: item.name,
-    // No delivery-rate text here: GrizzlySMS has no deliverability field to
+    // No delivery-rate text here: the supplier has no deliverability field to
     // source a real one from, and most pairs never reach the minimum
     // sample size for Xencodes' own historical rate, so showing anything
     // here was almost always an uninformative "not enough data yet"
@@ -759,7 +759,7 @@ export function BuyPanel({
 
           {/* A delivery rate only when Xencodes has measured one itself, from
               enough of its own completed orders (see MIN_SAMPLE_SIZE in
-              src/lib/deliverability.ts), and always said so: GrizzlySMS
+              src/lib/deliverability.ts), and always said so: the supplier
               reports no delivery figure of its own, so there is nothing
               else to show and nothing is estimated. */}
           {country.successRate !== undefined && country.qualityTier && country.sampleSize ? (
