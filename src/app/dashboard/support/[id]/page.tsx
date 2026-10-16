@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MessageAttachment } from "@/components/support/message-attachment";
 import { DisplayAmount } from "@/components/currency/display-amount";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -46,7 +47,7 @@ export default async function TicketDetailPage({
   // one customer cannot read another's thread by guessing an id.
   const ticket = await prisma.supportTicket.findFirst({
     where: { id, userId },
-    include: { messages: { orderBy: { createdAt: "asc" } } },
+    include: { messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true }, orderBy: { createdAt: "asc" } } } } },
   });
   if (!ticket) notFound();
 
@@ -135,14 +136,19 @@ export default async function TicketDetailPage({
                   })}
                 </span>
               </p>
-              <p
-                className={cn(
-                  "mt-1.5 whitespace-pre-wrap text-sm",
-                  message.author === "ADMIN" && "text-forest",
-                )}
-              >
-                {message.body}
-              </p>
+              {message.body ? (
+                <p
+                  className={cn(
+                    "mt-1.5 whitespace-pre-wrap text-sm",
+                    message.author === "ADMIN" && "text-forest",
+                  )}
+                >
+                  {message.body}
+                </p>
+              ) : null}
+              {message.attachments.map((attachment) => (
+                <MessageAttachment key={attachment.id} attachment={attachment} />
+              ))}
             </li>
           ))}
         </ul>

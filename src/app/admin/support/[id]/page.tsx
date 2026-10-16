@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MessageAttachment } from "@/components/support/message-attachment";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card } from "@/components/ui/card";
@@ -38,7 +39,7 @@ export default async function AdminTicketDetailPage({
     where: { id },
     include: {
       user: true,
-      messages: { orderBy: { createdAt: "asc" } },
+      messages: { orderBy: { createdAt: "asc" }, include: { attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true }, orderBy: { createdAt: "asc" } } } },
     },
   });
   if (!ticket) notFound();
@@ -93,14 +94,19 @@ export default async function AdminTicketDetailPage({
                       })}
                     </span>
                   </p>
-                  <p
-                    className={cn(
-                      "mt-1.5 whitespace-pre-wrap text-sm",
-                      message.author === "ADMIN" && "text-forest",
-                    )}
-                  >
-                    {message.body}
-                  </p>
+                  {message.body ? (
+                    <p
+                      className={cn(
+                        "mt-1.5 whitespace-pre-wrap text-sm",
+                        message.author === "ADMIN" && "text-forest",
+                      )}
+                    >
+                      {message.body}
+                    </p>
+                  ) : null}
+                  {message.attachments.map((attachment) => (
+                    <MessageAttachment key={attachment.id} attachment={attachment} />
+                  ))}
                 </li>
               ))}
             </ul>
