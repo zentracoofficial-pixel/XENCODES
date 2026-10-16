@@ -52,7 +52,18 @@ const CACHE_MS = 10 * 60 * 1000;
  *  of page builds (or the sitemap) does not repeat it. */
 export async function getSeoIndex(): Promise<SeoIndex> {
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
+  try {
+    return await readSeoIndex();
+  } catch (error) {
+    // A build with no database attached (a Preview deployment) still has to
+    // finish; the page is then built empty and refreshes on its own hourly.
+    // At runtime the error is raised, so a failure is never cached as "empty".
+    if (process.env.NEXT_PHASE === "phase-production-build") return { services: [], countries: [], pairs: [] };
+    throw error;
+  }
+}
 
+async function readSeoIndex(): Promise<SeoIndex> {
   const providerIds = (await readProviderConfig()).filter((entry) => entry.enabled).map((entry) => entry.id);
   const [disabledRows, groups] = await Promise.all([
     prisma.serviceSetting.findMany({ where: { enabled: false }, select: { slug: true } }),
