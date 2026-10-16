@@ -377,16 +377,27 @@ export function quoteForPair(
  * conversion, so a Naira and a dollar wallet get the same price in dollars.
  *
  *   cost $0.40 -> $1.60 (4.0x)   cost $1.00 -> $3.10 (3.1x)
- *   cost $2.00 -> $5.25 (2.6x)   cost $5.00 -> $10.25 (2.0x)
+ *   cost $2.00 -> $5.15 (2.6x)   cost $5.00 -> $9.05 (1.8x)
+ *   cost $10.00 -> $14.80 (1.5x)
  */
 export const PROVIDER_PRICE_TIERS: Readonly<Record<string, ReadonlyArray<{ upToUsdCents: number; multiplier: number }>>> = {
   dogesms: [
     { upToUsdCents: 40, multiplier: 4 },
     { upToUsdCents: 150, multiplier: 2.5 },
-    { upToUsdCents: 400, multiplier: 1.8 },
-    { upToUsdCents: Infinity, multiplier: 1.4 },
+    { upToUsdCents: 300, multiplier: 1.6 },
+    { upToUsdCents: Infinity, multiplier: 1.15 },
   ],
 };
+
+/**
+ * A Premium price more than this many times the cheapest server's price for
+ * the same service and country is not offered next to it: nobody is helped by
+ * a 20x option beside a normal one, and it only makes the page look
+ * overpriced. It is the cheapest price that counts, so this never hides
+ * the only server that can sell a pair, and never sells below cost (it only
+ * removes an option, it does not change a price).
+ */
+export const PREMIUM_MAX_PRICE_OVER_CHEAPEST = 3;
 
 /** The flat multiple a provider is priced at for its first tier, if it has tiers. */
 export function providerCostMultiplier(providerId: string): number | undefined {

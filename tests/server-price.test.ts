@@ -61,11 +61,12 @@ test("Server I keeps the platform rules exactly", () => {
 test("Server II price tapers on dearer numbers, never falls as cost rises, and leaves cheap ones alone", () => {
   // Anything up to 40 cents is exactly 4x, as before.
   for (const cents of [1, 5, 10, 25, 33, 40]) assert.equal(effectiveProviderMultiplier("dogesms", cents), 4, `${cents}c`);
-  // $1.00 -> $3.10, $2.00 -> $5.25, $5.00 -> $10.25.
+  // $1.00 -> $3.10, $2.00 -> $5.15, $5.00 -> $9.05, $10.00 -> $14.80.
   const priced = (cents: number) => Math.round((effectiveProviderMultiplier("dogesms", cents) ?? 0) * cents);
   assert.equal(priced(100), 310);
-  assert.equal(priced(200), 525);
-  assert.equal(priced(500), 1025);
+  assert.equal(priced(200), 515);
+  assert.equal(priced(500), 905);
+  assert.equal(priced(1000), 1480);
   // Dearer cost, dearer price; and the multiple only ever falls.
   let previousPrice = 0;
   let previousMultiple = Infinity;
@@ -73,7 +74,7 @@ test("Server II price tapers on dearer numbers, never falls as cost rises, and l
     const multiple = effectiveProviderMultiplier("dogesms", cents)!;
     assert.ok(multiple * cents >= previousPrice - 1e-9, `price dropped at ${cents}c`);
     assert.ok(multiple <= previousMultiple + 1e-9, `multiple rose at ${cents}c`);
-    assert.ok(multiple >= 1.4 - 1e-9, `below the last tier's multiple at ${cents}c`);
+    assert.ok(multiple >= 1.15 - 1e-9, `below the last tier's multiple at ${cents}c`);
     previousPrice = multiple * cents;
     previousMultiple = multiple;
   }

@@ -29,7 +29,7 @@ const realFetch = globalThis.fetch;
 const saved = new Map<string, string | null>();
 const userIds: string[] = [];
 /** What Server II bills for the pair, in US cents. Changed per test. */
-let dogeCents = 100;
+let dogeCents = 60;
 /** When set, Server II never answers (a stalled server). */
 let dogeStalled = false;
 
@@ -101,13 +101,13 @@ const expectedServerTwo = (cents: number, currency: Awaited<ReturnType<typeof ge
   const rate = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
   const cost = Math.round((cents / 100) * rate * 100);
   const step = currency.code === "NGN" ? 100 : 1;
-  const pricedCents = cents <= 40 ? cents * 4 : 160 + (cents - 40) * 2.5;
+  const pricedCents = cents <= 40 ? cents * 4 : cents <= 150 ? 160 + (cents - 40) * 2.5 : cents <= 300 ? 435 + (cents - 150) * 1.6 : 675 + (cents - 300) * 1.15;
   const price = Math.ceil((cost * pricedCents) / cents / step - 1e-9) * step;
   return currency.code === "NGN" ? Math.max(price, 50_000) : price;
 };
 
 test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own tiered price", async () => {
-  dogeCents = 100;
+  dogeCents = 60;
   DogeSmsProvider.resetForTests();
   const currency = await getDefaultCurrency();
   const q = await quotePair(SLUG, "usa", currency);
@@ -120,7 +120,7 @@ test("Server II dearer: Server I is the price and goes first; Server II is the f
   assert.equal(q.fallbacks?.length, 1);
   const fallback = q.fallbacks![0];
   assert.equal(fallback.provider, "dogesms");
-  assert.equal(fallback.quote.customerPriceKobo, expectedServerTwo(100, currency));
+  assert.equal(fallback.quote.customerPriceKobo, expectedServerTwo(60, currency));
   assert.equal(fallback.quote.rule, "provider");
   assert.ok(fallback.quote.customerPriceKobo > q.quote.customerPriceKobo);
 });
@@ -146,7 +146,7 @@ test("Server II on its own, in Naira and in US dollars, is exactly 4x its cost",
 });
 
 test("with real history for this pair, a better-delivering but dearer server still does not jump ahead", async () => {
-  dogeCents = 100;
+  dogeCents = 60;
   DogeSmsProvider.resetForTests();
   const user = await prisma.user.create({
     data: { email: `pickup-${Date.now()}@test.invalid`, passwordHash: "x", currency: "NGN" },
@@ -185,7 +185,7 @@ test("Server II cheaper: it is the customer's price and goes first", async () =>
 });
 
 test("the quote lists every server that can sell the pair with its own price, cheapest first", async () => {
-  dogeCents = 100; // Server II dearer
+  dogeCents = 60; // Server II dearer
   DogeSmsProvider.resetForTests();
   const currency = await getDefaultCurrency();
   const q = await quotePair(SLUG, "usa", currency);
@@ -194,7 +194,7 @@ test("the quote lists every server that can sell the pair with its own price, ch
   assert.deepEqual(q.options.map((o) => o.provider), ["grizzlysms", "dogesms"]);
   assert.equal(q.options[0].priceKobo, q.quote.customerPriceKobo === q.options[0].priceKobo ? q.options[0].priceKobo : -1);
   assert.ok(q.options[0].priceKobo < q.options[1].priceKobo);
-  assert.equal(q.options[1].priceKobo, expectedServerTwo(100, currency));
+  assert.equal(q.options[1].priceKobo, expectedServerTwo(60, currency));
 
   // Asking for one server returns just that server, at its own price.
   const two = await quotePair(SLUG, "usa", currency, { onlyProvider: "dogesms" });
@@ -210,7 +210,7 @@ test("the quote lists every server that can sell the pair with its own price, ch
 });
 
 test("a stalled Server II does not hold up or change Server I's quote", async () => {
-  dogeCents = 100;
+  dogeCents = 60;
   dogeStalled = true;
   DogeSmsProvider.resetForTests();
   try {
@@ -227,4 +227,22 @@ test("a stalled Server II does not hold up or change Server I's quote", async ()
     dogeStalled = false;
     DogeSmsProvider.resetForTests();
   }
+});
+
+test("a Premium price far above the cheapest server's is not offered beside it; Premium alone keeps its price", async () => {
+  dogeCents = 1500; // $15 of cost: dear next to Server I's 30 cents
+  DogeSmsProvider.resetForTests();
+  const currency = await getDefaultCurrency();
+  const q = await quotePair(SLUG, "usa", currency);
+  assert.equal(q.ok, true);
+  if (!q.ok) return;
+  assert.deepEqual(q.options.map((o) => o.provider), ["grizzlysms"], "the 20x option is not shown next to Server I");
+  assert.equal(q.provider, "grizzlysms");
+
+  // Premium chosen outright still gets its own (thin-margin) price: the only way to buy is never hidden.
+  const only = await quotePair(SLUG, "usa", currency, { onlyProvider: "dogesms" });
+  assert.equal(only.ok, true);
+  if (!only.ok) return;
+  assert.deepEqual(only.options.map((o) => o.provider), ["dogesms"]);
+  assert.equal(only.quote.customerPriceKobo, expectedServerTwo(1500, currency));
 });
