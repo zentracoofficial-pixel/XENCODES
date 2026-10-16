@@ -22,11 +22,11 @@ error or routing detail reaches a customer page, API response or browser bundle 
 
 - Sync all runs every enabled server side by side, each with its own lock (a second sync of the same
   server is refused while one runs), and reports each server separately: success, partial, failed or
-  already running. Every run is kept in Admin → Providers → Sync history (start, duration, result).
+  already running. Each server card shows its latest run (result, time taken, what it did).
 - DogeSMS has no bulk price endpoint: prices are read one country at a time
   (`GET /v1/catalog/prices?country_code=`), and its answers are slow (1 to 11 seconds each in
-  production; the 130 KB service list can take several seconds). A sync reads five countries at a
-  time, drops to one at a time after a 429, waits as DogeSMS asks (Retry-After, else exponential
+  production; the 130 KB service list can take several seconds). A sync keeps eight country requests in flight at a
+  time (a rolling set, so one slow answer holds up only its own slot), drops to one at a time after a 429, waits as DogeSMS asks (Retry-After, else exponential
   back-off), gives each request up to 20 seconds (cut short at the sync's deadline), and stops
   reading after about 44 seconds so the request ends inside Vercel's 60-second limit. Never-synced
   countries go first (the best-known ones before the rest), then those synced longest ago, so

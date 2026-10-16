@@ -6,13 +6,12 @@ import {
   resolveProvider,
   getProviderCapabilities,
 } from "@/lib/provider";
-import { getAllProviderSyncStatuses, getRecentSyncRuns } from "@/lib/provider-sync";
+import { getAllProviderSyncStatuses } from "@/lib/provider-sync";
 import { listFlaggedFailures } from "@/lib/provider-failure-stats";
 import { getQualityReport } from "@/lib/deliverability";
 import { getPoolQualityReport, getSellerDeliveryReport } from "@/lib/provider-pool-quality";
 import { ProviderCard } from "./provider-card";
 import { SyncAllButton } from "./sync-all-button";
-import { SyncHistoryCard } from "./sync-history-card";
 import { FlaggedFailuresCard } from "./flagged-failures-card";
 import { QualityReportCard } from "./quality-report-card";
 import { PoolQualityReportCard } from "./pool-quality-report-card";
@@ -53,7 +52,7 @@ export default async function AdminProvidersPage() {
 
   const smartPickup = await readSmartPickupSettings();
   const providerIds = PROVIDER_DEFINITIONS.map((definition) => definition.id);
-  const [config, statuses, flagged, quality, poolQuality, sellerDelivery, performance, ambiguous, recentRuns] = await Promise.all([
+  const [config, statuses, flagged, quality, poolQuality, sellerDelivery, performance, ambiguous] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
@@ -62,7 +61,6 @@ export default async function AdminProvidersPage() {
     getSellerDeliveryReport(),
     getProviderPerformance(providerIds, smartPickup.windowDays),
     listAmbiguousAttempts(),
-    getRecentSyncRuns(10),
   ]);
   const displayLabel = (id: string) => {
     const label = PROVIDER_DEFINITIONS.find((definition) => definition.id === id)?.label ?? id;
@@ -149,21 +147,6 @@ export default async function AdminProvidersPage() {
           <ProviderCard key={row.id} {...row} />
         ))}
       </div>
-
-      <SyncHistoryCard
-        runs={recentRuns.map((run) => ({
-          id: run.id,
-          label: labels[run.providerId] ?? run.providerId,
-          trigger: run.trigger,
-          startedAt: run.startedAt.toISOString(),
-          durationMs: run.durationMs,
-          result: run.result,
-          offersSynced: run.offersSynced,
-          countriesRead: run.countriesRead,
-          countriesTotal: run.countriesTotal,
-          message: run.message,
-        }))}
-      />
 
       <SmartPickupCard
         settings={smartPickup}

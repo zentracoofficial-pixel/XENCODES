@@ -95,7 +95,7 @@ const DEFAULT_SESSION_SECONDS = 20 * 60;
  *  request per country and rate-limits them (HTTP 429): ten at a time was
  *  refused within a second in production. After the first 429 the sync
  *  drops to one at a time and waits as DogeSMS asks. */
-const SNAPSHOT_CONCURRENCY = 5;
+const SNAPSHOT_CONCURRENCY = 8;
 /** How often one country is retried after a 429 before it counts as failed
  *  for this run (its previous rows are kept). */
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -449,63 +449,63 @@ export class DogeSmsProvider implements NumberProvider {
     const read: string[] = [];
     const failed: string[] = [];
     const retries = new Map<string, number>();
-    let concurrency = SNAPSHOT_CONCURRENCY;
+    // How many of the workers below may still take a country. After a 429
+    // only the first goes on, one at a time.
+    let allowed = SNAPSHOT_CONCURRENCY;
     let consecutiveLimits = 0;
     let rateLimited = false;
+    let stop = false;
 
-    while (queue.length > 0 && Date.now() < deadline) {
-      const wait = DogeSmsProvider.cooldownUntil - Date.now();
-      if (wait > 0) {
-        if (Date.now() + wait >= deadline) break;
-        await this.sleep(wait);
-      }
-      const batch = queue.splice(0, concurrency);
-      const results = await Promise.all(
-        batch.map(async (slug) => {
-          try {
-            // Cut short at the deadline rather than allowed to run past it.
-            const timeoutMs = Math.max(
-              MIN_CATALOG_TIMEOUT_MS,
-              Math.min(CATALOG_TIMEOUT_MS, deadline - Date.now()),
-            );
-            return { slug, table: await this.pricesFor(catalog, slug, true, timeoutMs) };
-          } catch (error) {
-            return { slug, error };
+    // A rolling set of requests, not groups: DogeSMS's answers take anywhere
+    // from 0.3 to 9 seconds, and a group waits for its slowest, so one slow
+    // country used to hold up the other four.
+    let inFlight = 0;
+    const worker = async (index: number) => {
+      while (!stop && index < allowed && Date.now() < deadline) {
+        if (queue.length === 0) {
+          // Nothing left to take, but a request still running may be refused
+          // and put its country back: stay until none is.
+          if (inFlight === 0) return;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          continue;
+        }
+        const wait = DogeSmsProvider.cooldownUntil - Date.now();
+        if (wait > 0) {
+          if (Date.now() + wait >= deadline) return;
+          await this.sleep(wait);
+        }
+        const slug = queue.shift();
+        if (!slug) continue;
+        inFlight += 1;
+        try {
+          // Cut short at the deadline rather than allowed to run past it.
+          const timeoutMs = Math.max(MIN_CATALOG_TIMEOUT_MS, Math.min(CATALOG_TIMEOUT_MS, deadline - Date.now()));
+          const table = await this.pricesFor(catalog, slug, true, timeoutMs);
+          read.push(slug);
+          if (table) entries.push(...this.entriesFor(catalog, slug, table));
+          consecutiveLimits = 0;
+        } catch (error) {
+          if (error instanceof DogeSmsRateLimitedError) {
+            rateLimited = true;
+            allowed = 1;
+            consecutiveLimits += 1;
+            const tries = (retries.get(slug) ?? 0) + 1;
+            retries.set(slug, tries);
+            if (tries > MAX_RATE_LIMIT_RETRIES) failed.push(slug);
+            else queue.unshift(slug);
+            const backoff = Math.min(2_000 * 2 ** (consecutiveLimits - 1), MAX_COOLDOWN_MS);
+            DogeSmsProvider.cooldownUntil = Math.max(DogeSmsProvider.cooldownUntil, Date.now() + backoff);
+            if (consecutiveLimits >= MAX_CONSECUTIVE_RATE_LIMITS) stop = true;
+          } else {
+            failed.push(slug);
+            console.error(`[dogesms] prices for ${slug} failed:`, error instanceof Error ? error.message : error);
           }
-        }),
-      );
-
-      const limited: string[] = [];
-      for (const result of results) {
-        if (!("error" in result)) {
-          read.push(result.slug);
-          if (result.table) entries.push(...this.entriesFor(catalog, result.slug, result.table));
-        } else if (result.error instanceof DogeSmsRateLimitedError) {
-          const tries = (retries.get(result.slug) ?? 0) + 1;
-          retries.set(result.slug, tries);
-          if (tries > MAX_RATE_LIMIT_RETRIES) failed.push(result.slug);
-          else limited.push(result.slug);
-        } else {
-          failed.push(result.slug);
-          console.error(
-            `[dogesms] prices for ${result.slug} failed:`,
-            result.error instanceof Error ? result.error.message : result.error,
-          );
+        } finally {
+          inFlight -= 1;
         }
       }
-
-      if (limited.length > 0) {
-        rateLimited = true;
-        concurrency = 1;
-        consecutiveLimits += 1;
-        queue.unshift(...limited);
-        const backoff = Math.min(2_000 * 2 ** (consecutiveLimits - 1), MAX_COOLDOWN_MS);
-        DogeSmsProvider.cooldownUntil = Math.max(DogeSmsProvider.cooldownUntil, Date.now() + backoff);
-        if (consecutiveLimits >= MAX_CONSECUTIVE_RATE_LIMITS) break;
-      } else {
-        consecutiveLimits = 0;
-      }
-    }
+    };
+    await Promise.all(Array.from({ length: SNAPSHOT_CONCURRENCY }, (_, index) => worker(index)));
 
     if (rateLimited) {
       console.log(`[dogesms] catalog read was rate limited: ${read.length}/${all.length} countries read this run`);

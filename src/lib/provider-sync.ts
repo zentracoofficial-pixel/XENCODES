@@ -646,8 +646,11 @@ export async function runProviderSync(
       return { ok: false, result: "failed", error, providers: [outcome] };
     }
 
-    await checkProviderBalanceSafely(providerId, definition.label, resolution.provider);
+    // The balance check runs alongside the sync, not before it: it can take
+    // several seconds, which a sync reading country by country cannot spare.
+    const balance = checkProviderBalanceSafely(providerId, definition.label, resolution.provider);
     const outcome = await syncOneProvider(providerId, definition.label, resolution.provider, options.trigger ?? "manual", deadline);
+    await balance;
     return summarize([outcome]);
   }
 
@@ -658,8 +661,10 @@ export async function runProviderSync(
 
   const outcomes = await Promise.all(
     enabled.map(async ({ id, label, provider }) => {
-      await checkProviderBalanceSafely(id, label, provider);
-      return syncOneProvider(id, label, provider, options.trigger ?? "manual_all", deadline);
+      const balance = checkProviderBalanceSafely(id, label, provider);
+      const outcome = await syncOneProvider(id, label, provider, options.trigger ?? "manual_all", deadline);
+      await balance;
+      return outcome;
     }),
   );
   return summarize(outcomes);
@@ -689,11 +694,6 @@ export function summarize(outcomes: ProviderSyncOutcome[]): ProviderSyncResult {
             .join("; "),
     providers: outcomes,
   };
-}
-
-/** The most recent sync runs, newest first, for the admin. */
-export async function getRecentSyncRuns(limit = 8) {
-  return prisma.providerSyncRun.findMany({ orderBy: { startedAt: "desc" }, take: limit });
 }
 
 /**

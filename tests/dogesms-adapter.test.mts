@@ -323,3 +323,26 @@ test("sync read: with nothing synced yet, the best-known countries are read firs
   await provider().getCatalogSnapshot({ deadline: Date.now() + 60_000 });
   assert.deepEqual(order, ["US", "NG", "KE"]);
 });
+
+test("sync read: a slow country holds up only its own slot, not the countries behind it", async () => {
+  const codes = Array.from({ length: 24 }, (_, i) => `C${String(i).padStart(2, "0")}`);
+  const countryRows = codes.map((code, i) => ({ code, name: `Testland ${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`, phone_prefix: "9" }));
+  const events: string[] = [];
+  const fetchSlowFirst = (async (input: unknown) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v1/catalog/services") return new Response(JSON.stringify({ data: [{ code: "wa", name: "WhatsApp" }] }), { status: 200 });
+    if (url.pathname === "/v1/catalog/countries") return new Response(JSON.stringify({ data: countryRows }), { status: 200 });
+    const code = url.searchParams.get("country_code")!;
+    events.push(`start ${code}`);
+    // The first country's answer takes a long time; the rest are instant.
+    if (code === "C00") await new Promise((resolve) => setTimeout(resolve, 250));
+    events.push(`end ${code}`);
+    return new Response(JSON.stringify({ data: [{ service_code: "wa", price_cents: 40 }] }), { status: 200 });
+  }) as typeof fetch;
+  const snapshot = await provider({ fetchImpl: fetchSlowFirst, catalogStore: null }).getCatalogSnapshot({ deadline: Date.now() + 60_000 });
+  assert.equal(snapshot.countriesRead.length, 24);
+  const slowEnded = events.indexOf("end C00");
+  const startedBefore = events.slice(0, slowEnded).filter((e) => e.startsWith("start ")).length;
+  // In groups of eight, nothing past the eighth would start until C00 ended.
+  assert.ok(startedBefore > 8, `only ${startedBefore} countries started while the slow one was pending`);
+});
