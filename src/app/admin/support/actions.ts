@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUserOfSupportReply } from "@/lib/notifications";
 import { readAttachmentFromForm } from "@/lib/support-attachments";
+import { closeTicketAndPurgeFiles } from "@/lib/support-tickets";
 
 export interface ReplyState {
   error?: string;
@@ -69,7 +70,12 @@ export async function setTicketStatusAction(
   status: "OPEN" | "PENDING" | "RESOLVED",
 ) {
   await requireAdmin();
-  await prisma.supportTicket.update({ where: { id: ticketId }, data: { status } });
+  if (status === "RESOLVED") {
+    // Closing deletes the ticket's files (see closeTicketAndPurgeFiles).
+    await closeTicketAndPurgeFiles(ticketId);
+  } else {
+    await prisma.supportTicket.update({ where: { id: ticketId }, data: { status } });
+  }
   revalidatePath(`/admin/support/${ticketId}`);
   revalidatePath("/admin/support");
 }

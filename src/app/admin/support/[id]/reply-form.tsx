@@ -23,6 +23,8 @@ export function TicketReplyForm({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const declined = (option: string) =>
+    option === "RESOLVED" && !window.confirm("Close this ticket? Any files sent in it will be deleted. The customer opens a new ticket if they need more help.");
   const bound = replyToTicketAction.bind(null, ticketId);
   const [state, formAction, formPending] = useActionState(bound, initial);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -67,13 +69,14 @@ export function TicketReplyForm({
               variant={status === option ? "primary" : "outline"}
               disabled={isPending || status === option}
               onClick={() =>
+                !declined(option) &&
                 startTransition(async () => {
                   await setTicketStatusAction(ticketId, option);
                   router.refresh();
                 })
               }
             >
-              {option}
+              {option === "RESOLVED" ? "Close ticket" : option}
             </Button>
           ))}
         </div>

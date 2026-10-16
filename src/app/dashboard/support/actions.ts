@@ -6,7 +6,7 @@ import { getActiveUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { sendEmailSafe } from "@/lib/email";
 import { renderEmail } from "@/lib/email-template";
-import { activationIssueEmail, supportReplyEmail, supportRequestEmail } from "@/lib/email-messages";
+import { activationIssueEmail, supportRequestEmail } from "@/lib/email-messages";
 import { formatMoney } from "@/lib/currency";
 import { notifyAdminsOfSupportMessage } from "@/lib/notifications";
 import { SUPPORT_EMAIL as SUPPORT_INBOX } from "@/lib/site";
@@ -135,10 +135,9 @@ export interface ReplyState {
  * to the signed-in customer's own ticket by the query itself, so one
  * customer cannot post into another's thread by guessing an id.
  *
- * A reply naturally means "waiting on us again", the same reasoning
- * replyToTicketAction on the admin side uses for the opposite direction:
- * moves the ticket back to OPEN rather than leaving it RESOLVED while a
- * customer is actively still talking.
+ * A reply means "waiting on us again": it moves the ticket back to OPEN. A
+ * closed ticket takes no reply (its files are already deleted): the customer
+ * opens a new ticket instead.
  */
 export async function replyToTicketAsUserAction(
   ticketId: string,
@@ -159,6 +158,9 @@ export async function replyToTicketAsUserAction(
     where: { id: ticketId, userId: user.id },
   });
   if (!ticket) return { error: "That ticket no longer exists." };
+  if (ticket.status === "RESOLVED") {
+    return { error: "This ticket is closed. Start a new ticket if you still need help." };
+  }
 
   await prisma.$transaction([
     prisma.supportMessage.create({
@@ -177,19 +179,10 @@ export async function replyToTicketAsUserAction(
 
   // What the notification and email say: the text, and the file's name when there is one.
   const summary = [body, attachment ? `[Attached file: ${attachment.fileName}]` : ""].filter(Boolean).join("\n\n");
+  // In-dashboard notification only. The support inbox is emailed once, when
+  // the ticket is opened; later messages on the same ticket are not emailed,
+  // so one conversation never fills the inbox.
   await notifyAdminsOfSupportMessage(ticket, user, summary);
-
-  await sendEmailSafe({
-    to: SUPPORT_INBOX,
-    ...renderEmail(
-      supportReplyEmail({
-        customerEmail: user.email,
-        ticketId: ticket.id,
-        subject: ticket.subject,
-        body: summary,
-      }),
-    ),
-  });
 
   revalidatePath(`/dashboard/support/${ticketId}`);
   revalidatePath("/dashboard/support");
