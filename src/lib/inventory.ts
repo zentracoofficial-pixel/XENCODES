@@ -9,8 +9,8 @@ import {
 import { resolveBrandIcon } from "@/lib/brand-match";
 import {
   loadMarginRules,
-  quoteForCurrency,
-  quoteForPair,
+  quoteForProvider,
+  providerCostMultiplier,
   isUsableUsdCost,
   variantPriceKobo,
   setQuoteToPrice,
@@ -419,7 +419,7 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
     const rows = (
       await prisma.syncedOffer.findMany({
         where: { serviceSlug: { notIn: [...disabled] } },
-        select: { serviceSlug: true, serviceName: true, costUsdCents: true, countrySlug: true },
+        select: { providerId: true, serviceSlug: true, serviceName: true, costUsdCents: true, countrySlug: true },
       })
     ).filter((row) => !isRestrictedService(row.serviceSlug, row.serviceName));
     if (rows.length > 0) {
@@ -428,7 +428,7 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
       for (const row of rows) {
         countrySlugs.add(row.countrySlug);
         if (!isUsableUsdCost(row.costUsdCents)) continue;
-        const quote = quoteForCurrency(rules, row.costUsdCents, row.serviceSlug, defaultCurrency);
+        const quote = quoteForProvider(rules, row.providerId, row.costUsdCents, row.serviceSlug, null, defaultCurrency);
         if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
           startingPriceKobo = quote.customerPriceKobo;
         }
@@ -459,7 +459,7 @@ export async function getCatalogHighlights(): Promise<CatalogHighlights> {
 
     for (const [slug, costUsdCents] of cheapestByService) {
       if (disabled.has(slug) || isRestrictedService(slug) || !isUsableUsdCost(costUsdCents)) continue;
-      const quote = quoteForCurrency(rules, costUsdCents, slug, defaultCurrency);
+      const quote = quoteForProvider(rules, id, costUsdCents, slug, null, defaultCurrency);
       if (startingPriceKobo === null || quote.customerPriceKobo < startingPriceKobo) {
         startingPriceKobo = quote.customerPriceKobo;
       }
@@ -543,6 +543,15 @@ export async function getServiceCountries(
     successRate?: number;
   };
 
+  // What the customer would pay for one provider's offer before any repeat
+  // listing or fixed price: how the provider with the lowest price for a
+  // country is chosen. An unusable cost never wins.
+  const priceFor = (row: { providerId?: string; costUsdCents: number; countrySlug: string }) =>
+    isUsableUsdCost(row.costUsdCents)
+      ? quoteForProvider(rules, row.providerId ?? "", row.costUsdCents, serviceSlug, row.countrySlug, currency)
+          .customerPriceKobo
+      : Number.MAX_SAFE_INTEGER;
+
   let offers: CostOffer[] | null = null;
   // Display-only; used solely for the recommendation reason text below
   // ("... among the available USA options for WhatsApp"). Never affects
@@ -554,13 +563,13 @@ export async function getServiceCountries(
       serviceName = cached[0].serviceName;
       // More than one provider can have a row for the same country; the
       // customer sees one row per country, priced from whichever provider
-      // is cheapest for that country right now, the same rule quotePair()
-      // applies live at purchase time. Cost is always USD here, so this
-      // comparison is currency-agnostic regardless of who is asking.
+      // is cheapest for the customer right now (each provider priced its own
+      // way, see quoteForProvider()), the same rule quotePair() applies live
+      // at purchase time.
       const cheapestByCountry = new Map<string, (typeof cached)[number]>();
       for (const row of cached) {
         const existing = cheapestByCountry.get(row.countrySlug);
-        if (!existing || row.costUsdCents < existing.costUsdCents) {
+        if (!existing || priceFor(row) < priceFor(existing)) {
           cheapestByCountry.set(row.countrySlug, row);
         }
       }
@@ -594,7 +603,12 @@ export async function getServiceCountries(
       }
       for (const offer of rows) {
         const existing = cheapestByCountry.get(offer.country.slug);
-        if (!existing || offer.costUsdCents < existing.costUsdCents) {
+        const asRow = { providerId: id, costUsdCents: offer.costUsdCents, countrySlug: offer.country.slug };
+        if (
+          !existing ||
+          priceFor(asRow) <
+            priceFor({ providerId: existing.providerId, costUsdCents: existing.costUsdCents, countrySlug: existing.country.slug })
+        ) {
           cheapestByCountry.set(offer.country.slug, {
             providerId: id,
             country: offer.country,
@@ -676,7 +690,8 @@ export async function getServiceCountries(
     if (offer.successRate === undefined && baseMeasured?.successRatePercent === 0) continue;
     basePriceByCountry.set(
       variant.baseSlug,
-      quoteForPair(rules, offer.costUsdCents, serviceSlug, offer.country.slug, currency).customerPriceKobo,
+      quoteForProvider(rules, offer.providerId ?? "", offer.costUsdCents, serviceSlug, offer.country.slug, currency)
+        .customerPriceKobo,
     );
   }
 
@@ -684,13 +699,18 @@ export async function getServiceCountries(
     .filter((offer) => offer.stock !== "out_of_stock")
     .flatMap((offer) => {
       if (!isUsableUsdCost(offer.costUsdCents)) return [];
-      let quote = quoteForPair(rules, offer.costUsdCents, serviceSlug, offer.country.slug, currency);
-      const variant = parseCountryVariant(offer.country.name);
-      const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
-      if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice, currency), currency);
-      // A fixed price for this exact pair wins over every rule above.
-      const fixedPrice = pairPriceOverrideKobo(serviceSlug, offer.country.slug, currency);
-      if (fixedPrice !== undefined) quote = setQuoteToPrice(quote, fixedPrice, currency);
+      const providerId = offer.providerId ?? "";
+      let quote = quoteForProvider(rules, providerId, offer.costUsdCents, serviceSlug, offer.country.slug, currency);
+      // A provider with its own multiple of cost (Server II) is sold at
+      // exactly that; the repeat-listing and fixed prices are platform rules.
+      if (providerCostMultiplier(providerId) === undefined) {
+        const variant = parseCountryVariant(offer.country.name);
+        const basePrice = variant.variant > 1 ? basePriceByCountry.get(variant.baseSlug) : undefined;
+        if (basePrice !== undefined) quote = setQuoteToPrice(quote, variantPriceKobo(basePrice, currency), currency);
+        // A fixed price for this exact pair wins over every rule above.
+        const fixedPrice = pairPriceOverrideKobo(serviceSlug, offer.country.slug, currency);
+        if (fixedPrice !== undefined) quote = setQuoteToPrice(quote, fixedPrice, currency);
+      }
       // The provider's own rate wins when it reports one (no provider does
       // today, but the fallback order matters the day one does); otherwise
       // the specific pool's own rate when Xencodes has real evidence to
@@ -795,12 +815,20 @@ export async function quotePair(
   serviceSlug: string,
   countrySlug: string,
   currency: CurrencyConfigEntry,
+  opts: {
+    /** Quote from this one provider only (a customer asking for a specific
+     *  server). Unavailable when that provider is off or cannot sell it. */
+    onlyProvider?: string;
+  } = {},
 ): Promise<QuoteResult> {
-  const [providers, rules, serviceSetting] = await Promise.all([
+  const [enabledProviders, rules, serviceSetting] = await Promise.all([
     getEnabledProviders(),
     loadMarginRules(),
     prisma.serviceSetting.findUnique({ where: { slug: serviceSlug } }),
   ]);
+  const providers = opts.onlyProvider
+    ? enabledProviders.filter((entry) => entry.id === opts.onlyProvider)
+    : enabledProviders;
 
   if (providers.length === 0) return { ok: false, reason: "no_provider" };
   if (serviceSetting?.enabled === false) return { ok: false, reason: "disabled" };
@@ -864,11 +892,7 @@ export async function quotePair(
     return { ok: false, reason: "unavailable" };
   }
 
-  const winner = candidates.reduce((best, candidate) =>
-    candidate.offer.costUsdCents < best.offer.costUsdCents ? candidate : best,
-  );
-
-  // Sell from the pair's real price ladder, best rung first (see
+  // Sell from each provider's real price ladder, best rung first (see
   // src/lib/pool-ladder.ts). The provider's own headline cost is the CHEAPEST
   // rung's price, and a rung that cheap often holds a few dozen numbers: quote
   // and cap the purchase at that price and the pair reads as "out of stock"
@@ -899,19 +923,16 @@ export async function quotePair(
     return { rungs: ranked, quality };
   };
 
-  const { rungs, quality: qualityByPool } = await rankedRungs(winner);
-
-  const primary = rungs[0];
-  const chosenProviderOfferId = primary.providerOfferId;
-  const chosenPoolQuality = chosenProviderOfferId ? qualityByPool.get(chosenProviderOfferId) : undefined;
   // A repeat listing of a country ("USA (2)") is priced from the plain
   // listing's price, the same figure the country list shows (see
   // getServiceCountries()). The plain listing's price is read from that same
   // list so the two cannot disagree. If it cannot be found the repeat
-  // listing keeps its own price.
-  const variantInfo = parseCountryVariant(winner.offer.country.name);
+  // listing keeps its own price. Only for providers on the platform rules: a
+  // provider with its own multiple of cost (Server II) is priced from that.
+  const ruled = candidates.find((candidate) => providerCostMultiplier(candidate.providerId) === undefined);
   let variantTargetKobo: number | null = null;
-  if (variantInfo.variant > 1) {
+  const variantInfo = ruled ? parseCountryVariant(ruled.offer.country.name) : null;
+  if (variantInfo && variantInfo.variant > 1) {
     try {
       const listed = await getServiceCountries(serviceSlug, currency);
       const base = listed.find((row) => {
@@ -920,88 +941,95 @@ export async function quotePair(
       });
       if (base) variantTargetKobo = variantPriceKobo(base.priceKobo, currency);
     } catch (error) {
-      console.error(`[inventory] could not price the plain listing for "${winner.offer.country.name}":`, error);
+      console.error(`[inventory] could not price the plain listing for "${ruled?.offer.country.name}":`, error);
     }
   }
-
   // A fixed price for this exact pair wins over every rule above.
-  const fixedPriceKobo = pairPriceOverrideKobo(serviceSlug, winner.offer.country.slug, currency);
+  const fixedPriceKobo = pairPriceOverrideKobo(serviceSlug, countrySlug, currency);
   const targetKobo = fixedPriceKobo ?? variantTargetKobo;
 
-  const ladder = rungs.map((rung) => {
-    const own = quoteForPair(rules, rung.costUsdCents, serviceSlug, winner.offer.country.slug, currency);
-    return {
-      providerOfferId: rung.providerOfferId,
-      costUsdCents: rung.costUsdCents,
-      quote: targetKobo === null ? own : setQuoteToPrice(own, targetKobo, currency),
-    };
-  });
-
-  // Smart Pickup (see src/lib/smart-pickup.ts): which provider fills the
-  // order when more than one can. The customer's price is the one above,
-  // from the cheapest provider, the same figure the country list shows: who
-  // fills the order never changes it. Another provider is used only at that
-  // price, and only while it still leaves a profit.
+  // Every provider that can sell the pair, each priced its own way: the
+  // platform rules for Server I, its own multiple of cost for Server II
+  // (see quoteForProvider()). The cheapest is the customer's price and is
+  // asked first; the others are tried only when the ones before them
+  // definitely sold nothing, and only at a price the customer agreed to
+  // (purchase-cascade.ts skips any rung above it and asks them to confirm).
   interface Fill {
+    candidate: Candidate;
     provider: string;
     providerServiceId?: string;
     providerCountryId?: string;
     providerOfferId?: string;
-    ladder: typeof ladder;
+    ladder: Array<{ providerOfferId?: string; costUsdCents: number; quote: PriceQuote }>;
+    quality: Map<string, QualityStat>;
   }
-  const fillFrom = (candidate: Candidate, rungLadder: typeof ladder): Fill => ({
-    provider: candidate.providerId,
-    providerServiceId: candidate.service.providerServiceId,
-    providerCountryId: candidate.offer.country.providerCountryId,
-    providerOfferId: rungLadder[0].providerOfferId,
-    ladder: rungLadder,
-  });
-  let fills: Fill[] = [fillFrom(winner, ladder)];
+  const fillsUnordered: Fill[] = [];
+  for (const candidate of candidates) {
+    const { rungs, quality } = await rankedRungs(candidate);
+    const ownMultiple = providerCostMultiplier(candidate.providerId) !== undefined;
+    const ladder = rungs.map((rung) => {
+      const own = quoteForProvider(
+        rules,
+        candidate.providerId,
+        rung.costUsdCents,
+        serviceSlug,
+        candidate.offer.country.slug,
+        currency,
+      );
+      return {
+        providerOfferId: rung.providerOfferId,
+        costUsdCents: rung.costUsdCents,
+        quote: ownMultiple || targetKobo === null ? own : setQuoteToPrice(own, targetKobo, currency),
+      };
+    });
+    fillsUnordered.push({
+      candidate,
+      provider: candidate.providerId,
+      providerServiceId: candidate.service.providerServiceId,
+      providerCountryId: candidate.offer.country.providerCountryId,
+      providerOfferId: ladder[0].providerOfferId,
+      ladder,
+      quality,
+    });
+  }
+
+  // Cheapest first; candidates are already in admin priority order, so a
+  // tie keeps the higher-priority provider first. Between providers at the
+  // same price, Smart Pickup (src/lib/smart-pickup.ts) decides who is asked
+  // first from Xencodes' own delivery record.
+  const priceOf = (fill: Fill) => fill.ladder[0].quote.customerPriceKobo;
+  let fills = [...fillsUnordered].sort((a, b) => priceOf(a) - priceOf(b));
   let pickup: { mode: string; order: string[] } | undefined;
-  if (candidates.length > 1) {
-    const priceKobo = ladder[0].quote.customerPriceKobo;
-    for (const candidate of candidates) {
-      if (candidate === winner) continue;
-      const { rungs: own } = await rankedRungs(candidate);
-      const atPrice = own
-        .map((rung) => ({
-          providerOfferId: rung.providerOfferId,
-          costUsdCents: rung.costUsdCents,
-          quote: setQuoteToPrice(
-            quoteForPair(rules, rung.costUsdCents, serviceSlug, candidate.offer.country.slug, currency),
-            priceKobo,
-            currency,
-          ),
-        }))
-        .filter((rung) => rung.quote.customerPriceKobo === priceKobo && rung.quote.grossProfitKobo > 0);
-      if (atPrice.length > 0) fills.push(fillFrom(candidate, atPrice));
-    }
-    if (fills.length > 1) {
-      try {
-        const settings = await readSmartPickupSettings();
-        const evidence = await loadPickupEvidence(
-          serviceSlug,
-          winner.offer.country.slug,
-          fills.map((fill) => fill.provider),
-          settings,
-        );
-        const decision = rankProviders(
-          fills.map((fill) => ({
-            providerId: fill.provider,
-            evidence: evidence.get(fill.provider) ?? NO_EVIDENCE,
-            marginShare: fill.ladder[0].quote.grossProfitKobo / priceKobo,
-          })),
-          settings,
-        );
-        const ordered = decision.order.flatMap((id) => fills.filter((fill) => fill.provider === id));
-        fills = settings.fallback ? ordered : ordered.slice(0, 1);
-        pickup = { mode: decision.mode, order: decision.order };
-      } catch (error) {
-        // No evidence, no ranking: the cheapest provider first, as before.
-        console.error(`[inventory] Smart Pickup failed for "${serviceSlug}"/"${countrySlug}":`, error);
-      }
+  if (fills.length > 1) {
+    try {
+      const settings = await readSmartPickupSettings();
+      const evidence = await loadPickupEvidence(
+        serviceSlug,
+        countrySlug,
+        fills.map((fill) => fill.provider),
+        settings,
+      );
+      const decision = rankProviders(
+        fills.map((fill) => ({
+          providerId: fill.provider,
+          evidence: evidence.get(fill.provider) ?? NO_EVIDENCE,
+          marginShare: fill.ladder[0].quote.grossProfitKobo / priceOf(fill),
+        })),
+        settings,
+      );
+      const rank = new Map(decision.order.map((id, index) => [id, index]));
+      const placed = (fill: Fill) => rank.get(fill.provider) ?? Number.MAX_SAFE_INTEGER;
+      fills = [...fills].sort((a, b) => priceOf(a) - priceOf(b) || placed(a) - placed(b));
+      if (!settings.fallback) fills = fills.slice(0, 1);
+      pickup = { mode: decision.mode, order: fills.map((fill) => fill.provider) };
+    } catch (error) {
+      // No evidence, no ranking: cheapest first, as above.
+      console.error(`[inventory] Smart Pickup failed for "${serviceSlug}"/"${countrySlug}":`, error);
     }
   }
+  const winner = fills[0].candidate;
+  const chosenProviderOfferId = fills[0].providerOfferId;
+  const chosenPoolQuality = chosenProviderOfferId ? fills[0].quality.get(chosenProviderOfferId) : undefined;
   const primaryFill = fills[0];
   const quote = primaryFill.ladder[0].quote;
 

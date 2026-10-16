@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { GENERIC_SERVICE_COLOR } from "@/lib/brand-match";
 import { getEnabledProviders, getNumberProvider, PROVIDER_UNAVAILABLE_COPY } from "@/lib/provider";
-import { loadMarginRules, resolveMultiplier, quoteForCurrency, quotePrice } from "@/lib/pricing";
+import { loadMarginRules, resolveMultiplier, quoteForProvider, quotePrice } from "@/lib/pricing";
 import { formatMultiplier, multiplierToMarginPercent } from "@/lib/price-multiplier";
 import { brandIcons } from "@/data/brand-icons";
 import { formatMoney } from "@/lib/currency";
@@ -104,6 +104,8 @@ export default async function AdminServicesPage({
       category: string;
       providerServiceId: string | null;
       cheapestCostUsdCents: number | null;
+      /** The provider that cost is from, which decides how it is priced. */
+      cheapestProviderId: string | null;
     }
   >();
   let syncedAt: Date | null = null;
@@ -137,6 +139,7 @@ export default async function AdminServicesPage({
           category: service.category,
           providerServiceId: idLabel,
           cheapestCostUsdCents: cost,
+          cheapestProviderId: cost !== null ? id : null,
         });
       } else {
         if (idLabel && !existing.providerServiceId?.includes(idLabel)) {
@@ -149,6 +152,7 @@ export default async function AdminServicesPage({
           (existing.cheapestCostUsdCents === null || cost < existing.cheapestCostUsdCents)
         ) {
           existing.cheapestCostUsdCents = cost;
+          existing.cheapestProviderId = id;
         }
       }
     }
@@ -166,6 +170,7 @@ export default async function AdminServicesPage({
       category: "Configured, not currently offered",
       providerServiceId: null,
       cheapestCostUsdCents: null,
+      cheapestProviderId: null,
     });
   }
 
@@ -178,7 +183,7 @@ export default async function AdminServicesPage({
     // the country picked at purchase decides the real price in the buyer's
     // own currency.
     const quote = service.cheapestCostUsdCents
-      ? quoteForCurrency(rules, service.cheapestCostUsdCents, service.slug, defaultCurrency)
+      ? quoteForProvider(rules, service.cheapestProviderId ?? "", service.cheapestCostUsdCents, service.slug, null, defaultCurrency)
       : null;
     return {
       ...service,

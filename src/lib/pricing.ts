@@ -74,7 +74,7 @@ export {
  */
 const EXCLUSIVE_SERVICE_SLUGS = new Set(["fiverr"]);
 
-export type PricingRuleId = "default" | "exclusive" | "service";
+export type PricingRuleId = "default" | "exclusive" | "service" | "provider";
 
 export interface PriceQuote {
   /** Exactly what the supplier bills Xencodes, in kobo. */
@@ -349,6 +349,76 @@ export function quoteForPair(
     minimumPriceKobo(serviceSlug, countrySlug),
     currency,
   );
+}
+
+/**
+ * Providers whose numbers are priced at a fixed multiple of their own cost,
+ * set by the owner, instead of the platform's margin rules. Server II
+ * (DogeSMS) sells at 3.5x what it bills, in every currency: the cost is
+ * converted into the currency being priced (Naira at the market rate, the
+ * one a Naira price is shown at in dollars, not the platform's pricing
+ * rate) and multiplied, and the result is
+ * rounded up only to the smallest step that currency is shown in (NGN 1, or
+ * 1 cent), not to the whole-unit step the margin rules use, so the price
+ * stays 3.5x the cost. The owner's minimum prices (NGN 500, TikTok NGN 750,
+ * UK NGN 1,000) still apply on top. No profit band, repeat-listing price or
+ * fixed pair price is applied to these.
+ */
+export const PROVIDER_COST_MULTIPLIERS: Readonly<Record<string, number>> = {
+  dogesms: 3.5,
+};
+
+/** The fixed multiple of cost a provider is priced at, if it has one. */
+export function providerCostMultiplier(providerId: string): number | undefined {
+  return PROVIDER_COST_MULTIPLIERS[providerId];
+}
+
+/**
+ * The price of a number from one specific provider: its fixed multiple of
+ * cost when it has one (see PROVIDER_COST_MULTIPLIERS), otherwise the
+ * platform rules exactly as quoteForPair() / quoteForCurrency() apply them.
+ * Pass a country to include that country's minimum price.
+ */
+export function quoteForProvider(
+  rules: MarginRules,
+  providerId: string,
+  usdCents: number,
+  serviceSlug: string,
+  countrySlug: string | null,
+  currency: CurrencyConfigEntry,
+): PriceQuote {
+  const multiplier = PROVIDER_COST_MULTIPLIERS[providerId];
+  if (multiplier === undefined) {
+    return countrySlug === null
+      ? quoteForCurrency(rules, usdCents, serviceSlug, currency)
+      : quoteForPair(rules, usdCents, serviceSlug, countrySlug, currency);
+  }
+  // Naira at the rate a Naira price is shown in other currencies (the
+  // market rate while fresh), so the price is 3.5x the cost in Naira and
+  // still 3.5x it once shown or charged in dollars.
+  const ratePerUsd = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
+  const costMinor = Math.round((usdCents / 100) * ratePerUsd * minorUnitDivisor(currency.code));
+  if (!isUsableCost(costMinor)) {
+    throw new Error(`Refusing to price from an unusable cost: ${costMinor}`);
+  }
+  // NGN 1 for Naira, as every Naira price; one minor unit (a cent) for any
+  // other currency, so a small dollar price is not pushed up to a whole
+  // dollar and away from 3.5x.
+  const step = currency.code === "NGN" ? PRICE_STEP_KOBO : 1;
+  const exact = costMinor * multiplier;
+  const customerPriceKobo = Math.max(Math.ceil(exact / step - 1e-9) * step, costMinor);
+  const grossProfitKobo = customerPriceKobo - costMinor;
+  const quote: PriceQuote = {
+    providerCostKobo: costMinor,
+    customerPriceKobo,
+    grossProfitKobo,
+    multiplier,
+    targetMarginPercent: Math.round((1 - 1 / multiplier) * 100),
+    realisedMarginPercent: realisedMargin(customerPriceKobo, costMinor),
+    rule: "provider",
+    ruleLabel: `Server price, ${formatMultiplier(multiplier)} cost`,
+  };
+  return withMinimumPrice(quote, minimumPriceKobo(serviceSlug, countrySlug), currency);
 }
 
 /**

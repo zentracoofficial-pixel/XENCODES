@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 /**
  * Smart Pickup inside the live quote, with both servers stubbed at the
  * network edge and evidence in the real database:
- *  - the customer's price is the cheapest server's price, whoever fills it;
- *  - with no history the safe default goes first and the other is the fallback;
- *  - with history, the server that actually delivers for this pair goes first.
+ *  - each server is priced its own way: Server II at 3.5x its cost, in every
+ *    currency; the cheapest server is the customer's price and goes first;
+ *  - a dearer server never jumps ahead, whatever its record;
+ *  - between servers at the same price, the one that delivers goes first;
+ *  - Server II can be quoted on its own (the "try Server II" offer).
  */
 
 process.env.GRIZZLYSMS_API_KEY = "grizzly-test-key";
@@ -16,7 +18,9 @@ process.env.DOGESMS_WEBHOOK_SECRET = "whsec_quote_test";
 const { prisma } = await import("../src/lib/prisma");
 const { SETTING_KEYS } = await import("../src/lib/settings");
 const { quotePair } = await import("../src/lib/inventory");
-const { getDefaultCurrency } = await import("../src/lib/currency-config");
+const { getDefaultCurrency, readCurrencyConfig } = await import("../src/lib/currency-config");
+const { quoteForPair } = await import("../src/lib/pricing");
+const { loadMarginRules } = await import("../src/lib/pricing");
 const { DogeSmsProvider } = await import("../src/lib/provider/dogesms");
 
 const SERVICE = "Quotetest Xyz";
@@ -24,6 +28,8 @@ const SLUG = "quotetest-xyz";
 const realFetch = globalThis.fetch;
 const saved = new Map<string, string | null>();
 const userIds: string[] = [];
+/** What Server II bills for the pair, in US cents. Changed per test. */
+let dogeCents = 100;
 
 before(async () => {
   DogeSmsProvider.resetForTests();
@@ -63,7 +69,7 @@ before(async () => {
       const body =
         url.pathname === "/v1/catalog/services" ? { data: [{ code: "dqx", name: SERVICE }] }
         : url.pathname === "/v1/catalog/countries" ? { data: [{ code: "US", name: "United States", phone_prefix: "1" }] }
-        : url.pathname === "/v1/catalog/prices" ? { data: [{ service_code: "dqx", price_cents: 20 }] }
+        : url.pathname === "/v1/catalog/prices" ? { data: [{ service_code: "dqx", price_cents: dogeCents }] }
         : { error: { code: "NOT_FOUND" } };
       return new Response(JSON.stringify(body), { status: url.pathname.startsWith("/v1/catalog") ? 200 : 404 });
     }
@@ -83,25 +89,58 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-test("no history: the safe default fills the order, the other server is the fallback, and the price is the cheapest server's", async () => {
+/** Server II's price at 3.5x, rounded up to NGN 1 or 1 cent, never under the
+ *  NGN 500 minimum. */
+const expectedServerTwo = (cents: number, currency: Awaited<ReturnType<typeof getDefaultCurrency>>) => {
+  const rate = currency.code === "NGN" ? (currency.ngnPerUsd ?? currency.usdRate) : currency.usdRate;
+  const cost = Math.round((cents / 100) * rate * 100);
+  const step = currency.code === "NGN" ? 100 : 1;
+  const price = Math.ceil((cost * 3.5) / step - 1e-9) * step;
+  return currency.code === "NGN" ? Math.max(price, 50_000) : price;
+};
+
+test("Server II dearer: Server I is the price and goes first; Server II is the fallback at its own 3.5x price", async () => {
+  dogeCents = 100;
+  DogeSmsProvider.resetForTests();
   const currency = await getDefaultCurrency();
   const q = await quotePair(SLUG, "usa", currency);
   assert.equal(q.ok, true);
   if (!q.ok) return;
   assert.equal(q.provider, "grizzlysms");
-  assert.equal(q.pickup?.mode, "default");
+  const rules = await loadMarginRules();
+  assert.equal(q.quote.customerPriceKobo, quoteForPair(rules, 30, SLUG, "usa", currency).customerPriceKobo);
+  assert.equal(q.country.priceKobo, q.quote.customerPriceKobo);
   assert.equal(q.fallbacks?.length, 1);
   const fallback = q.fallbacks![0];
   assert.equal(fallback.provider, "dogesms");
-  // One price, whoever fills it, and a profit either way.
-  assert.equal(q.quote.customerPriceKobo, fallback.quote.customerPriceKobo);
-  assert.equal(q.country.priceKobo, q.quote.customerPriceKobo);
-  assert.ok(q.quote.grossProfitKobo > 0 && fallback.quote.grossProfitKobo > 0);
-  // Each order records its own server's cost.
-  assert.ok(q.quote.providerCostKobo > fallback.quote.providerCostKobo);
+  assert.equal(fallback.quote.customerPriceKobo, expectedServerTwo(100, currency));
+  assert.equal(fallback.quote.rule, "provider");
+  assert.ok(fallback.quote.customerPriceKobo > q.quote.customerPriceKobo);
 });
 
-test("with real history for this pair, the server that delivers goes first", async () => {
+test("Server II on its own, in Naira and in US dollars, is exactly 3.5x its cost", async () => {
+  dogeCents = 37;
+  DogeSmsProvider.resetForTests();
+  for (const code of ["NGN", "USD"]) {
+    const currency = (await readCurrencyConfig()).find((entry) => entry.code === code);
+    assert.ok(currency, code);
+    const q = await quotePair(SLUG, "usa", currency!, { onlyProvider: "dogesms" });
+    assert.equal(q.ok, true, code);
+    if (!q.ok) continue;
+    assert.equal(q.provider, "dogesms");
+    assert.equal(q.fallbacks, undefined);
+    assert.equal(q.quote.customerPriceKobo, expectedServerTwo(37, currency!), code);
+    if (code === "USD") {
+      // 37 cents x 3.5 = 129.5, so $1.30: not pushed up to a whole dollar.
+      assert.equal(q.quote.providerCostKobo, 37);
+      assert.equal(q.quote.customerPriceKobo, 130);
+    }
+  }
+});
+
+test("with real history for this pair, a better-delivering but dearer server still does not jump ahead", async () => {
+  dogeCents = 100;
+  DogeSmsProvider.resetForTests();
   const user = await prisma.user.create({
     data: { email: `pickup-${Date.now()}@test.invalid`, passwordHash: "x", currency: "NGN" },
   });
@@ -121,6 +160,19 @@ test("with real history for this pair, the server that delivers goes first", asy
   assert.equal(q.ok, true);
   if (!q.ok) return;
   assert.equal(q.pickup?.mode, "scored");
-  assert.equal(q.provider, "dogesms");
-  assert.equal(q.fallbacks?.[0].provider, "grizzlysms");
+  assert.equal(q.provider, "grizzlysms");
+  assert.equal(q.fallbacks?.[0].provider, "dogesms");
+});
+
+test("Server II cheaper: it is the customer's price and goes first", async () => {
+  dogeCents = 1;
+  DogeSmsProvider.resetForTests();
+  const currency = await getDefaultCurrency();
+  const q = await quotePair(SLUG, "usa", currency);
+  assert.equal(q.ok, true);
+  if (!q.ok) return;
+  if (expectedServerTwo(1, currency) < quoteForPair(await loadMarginRules(), 30, SLUG, "usa", currency).customerPriceKobo) {
+    assert.equal(q.provider, "dogesms");
+    assert.equal(q.quote.customerPriceKobo, expectedServerTwo(1, currency));
+  }
 });

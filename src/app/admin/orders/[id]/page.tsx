@@ -26,6 +26,7 @@ const PRICING_RULE_LABEL: Record<string, string> = {
   default: "Standard margin",
   exclusive: "Exclusive tier",
   service: "Service override",
+  provider: "Server price (fixed multiple of cost)",
   legacy: "Priced before the current rules",
 };
 

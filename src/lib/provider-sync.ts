@@ -9,7 +9,7 @@ import {
   type ProviderCatalogEntry,
 } from "@/lib/provider";
 import { brandIcons } from "@/data/brand-icons";
-import { loadMarginRules, quoteForCurrency, isUsableUsdCost } from "@/lib/pricing";
+import { loadMarginRules, quoteForProvider, isUsableUsdCost } from "@/lib/pricing";
 import { getDefaultCurrency } from "@/lib/currency-config";
 import { checkProviderBalance } from "@/lib/provider-balance-monitor";
 import { isRestrictedService } from "@/lib/restricted-services";
@@ -349,7 +349,7 @@ async function syncOneProvider(
       // through, converted here into the platform's default currency purely
       // for this browsing/highlight cache; quotePair() always recomputes
       // fresh in the buyer's own currency at purchase time.
-      const quote = quoteForCurrency(rules, entry.costUsdCents, entry.service.slug, defaultCurrency);
+      const quote = quoteForProvider(rules, id, entry.costUsdCents, entry.service.slug, null, defaultCurrency);
       serviceSlugs.add(entry.service.slug);
       countrySlugs.add(entry.country.slug);
 

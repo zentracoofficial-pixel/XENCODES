@@ -75,3 +75,13 @@ test("dearer rungs are offered for confirmation rather than bought", async () =>
   assert.deepEqual(calls, ["grizzlysms:p1"]);
   assert.equal(result.dearerPriceKobo, 1400);
 });
+
+test("a dearer fallback server is never bought at the old price: its price is offered for confirmation", async () => {
+  const { result, calls } = await run(
+    quote("grizzlysms", [rung("p1", 1000)], [quote("dogesms", [rung(undefined, 1750)])]),
+    () => null,
+  );
+  assert.deepEqual(calls, ["grizzlysms:p1"]);
+  assert.equal(result.success, undefined);
+  assert.equal(result.dearerPriceKobo, 1750);
+});
