@@ -3,6 +3,8 @@ import { runProviderSync } from "@/lib/provider-sync";
 import { sweepPendingTopUps } from "@/lib/funding";
 import { refreshDisplayRates } from "@/lib/exchange-rates";
 import { sweepPendingActivations } from "@/lib/activation-lifecycle";
+import { listIndexableUrls } from "@/lib/sitemap-xml";
+import { submitToIndexNow } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 // A full catalog sync reads the supplier's whole catalog in a handful of
@@ -79,6 +81,20 @@ export async function GET(request: Request) {
     await refreshDisplayRates();
   } catch (error) {
     console.error("[cron] display rate refresh failed:", error);
+  }
+
+  // Once a week (or on demand with ?indexnow=1, which still needs the cron secret), tell Bing's IndexNow network about every public URL. Weekly
+  // rather than daily: the protocol is for new and changed pages, and a
+  // daily resubmission of an unchanged list is the kind of noise it asks
+  // callers to avoid. Capped at a few seconds and never throws.
+  const forceIndexNow = new URL(request.url).searchParams.get("indexnow") === "1";
+  if (process.env.VERCEL_ENV === "production" && (forceIndexNow || new Date().getUTCDay() === 0)) {
+    try {
+      const outcome = await submitToIndexNow(await listIndexableUrls());
+      console.log(`[cron] indexnow submitted ${outcome.submitted} urls (${outcome.statuses.join(",") || "no response"})`);
+    } catch (error) {
+      console.error("[cron] indexnow failed:", error);
+    }
   }
 
   // The catalog sync goes last and gets what is left of this request's
