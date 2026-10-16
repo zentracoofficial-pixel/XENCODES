@@ -17,6 +17,11 @@ import { QualityReportCard } from "./quality-report-card";
 import { PoolQualityReportCard } from "./pool-quality-report-card";
 import { SellerDeliveryCard } from "./seller-delivery-card";
 import { PriceTierDiagnosticCard } from "./price-tier-diagnostic-card";
+import { SmartPickupCard } from "./smart-pickup-card";
+import { readSmartPickupSettings, getProviderPerformance, listAmbiguousAttempts } from "@/lib/smart-pickup";
+
+/** Admin-only names for the servers; customers only ever see Xencodes. */
+const SERVER_NAME: Record<string, string> = { grizzlysms: "Server I", dogesms: "Server II" };
 
 export const metadata: Metadata = { title: "Admin: Providers" };
 
@@ -45,14 +50,22 @@ export const maxDuration = 60;
 export default async function AdminProvidersPage() {
   await requireAdmin();
 
-  const [config, statuses, flagged, quality, poolQuality, sellerDelivery] = await Promise.all([
+  const smartPickup = await readSmartPickupSettings();
+  const providerIds = PROVIDER_DEFINITIONS.map((definition) => definition.id);
+  const [config, statuses, flagged, quality, poolQuality, sellerDelivery, performance, ambiguous] = await Promise.all([
     readProviderConfig(),
     getAllProviderSyncStatuses(),
     listFlaggedFailures(),
     getQualityReport(),
     getPoolQualityReport(),
     getSellerDeliveryReport(),
+    getProviderPerformance(providerIds, smartPickup.windowDays),
+    listAmbiguousAttempts(),
   ]);
+  const displayLabel = (id: string) => {
+    const label = PROVIDER_DEFINITIONS.find((definition) => definition.id === id)?.label ?? id;
+    return SERVER_NAME[id] ? `${SERVER_NAME[id]} · ${label}` : label;
+  };
   const configById = new Map(config.map((entry) => [entry.id, entry]));
 
   const rows = await Promise.all(
@@ -71,7 +84,7 @@ export default async function AdminProvidersPage() {
 
       return {
         id: definition.id,
-        label: definition.label,
+        label: displayLabel(definition.id),
         envVarNames: definition.envVarNames,
         enabled: entry.enabled,
         priority: entry.priority,
@@ -106,8 +119,8 @@ export default async function AdminProvidersPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Providers</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Every number supplier Xencodes can buy from. When more than one is enabled for the
-            same service and country, the cheapest available one is used, with priority below as
-            the tie-break; a provider that is down or out of stock for a pair is simply skipped in
+            same service and country, Smart Pickup (below) decides which one fills each order, at
+            the same customer price; a server that is down or out of stock for a pair is skipped in
             favour of the next.{" "}
             {enabledCount > 0
               ? `${enabledCount} provider${enabledCount === 1 ? "" : "s"} live right now.`
@@ -122,6 +135,20 @@ export default async function AdminProvidersPage() {
           <ProviderCard key={row.id} {...row} />
         ))}
       </div>
+
+      <SmartPickupCard
+        settings={smartPickup}
+        providers={PROVIDER_DEFINITIONS.map((definition) => ({ id: definition.id, label: displayLabel(definition.id) }))}
+        performance={performance.map((row) => ({ ...row, label: displayLabel(row.providerId) }))}
+        ambiguous={ambiguous.map((row) => ({
+          id: row.id,
+          providerLabel: displayLabel(row.providerId),
+          serviceSlug: row.serviceSlug,
+          countrySlug: row.countrySlug,
+          detail: row.detail,
+          createdAt: row.createdAt.toISOString(),
+        }))}
+      />
 
       {rows
         .filter((row) => row.supportsPriceDiagnostic)

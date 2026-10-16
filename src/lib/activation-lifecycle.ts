@@ -99,7 +99,9 @@ export type ActivationReconcileTrigger =
   | "CUSTOMER_VIEW"
   | "ADMIN_VIEW"
   | "ADMIN_MANUAL_CHECK"
-  | "SWEEP";
+  | "SWEEP"
+  /** A supplier's own webhook said the order changed: always checked. */
+  | "PROVIDER_WEBHOOK";
 
 const BACKOFF_TRIGGERS = new Set<ActivationReconcileTrigger>(["CUSTOMER_VIEW", "ADMIN_VIEW", "SWEEP"]);
 const PROVIDER_CHECK_BACKOFF_MS = 20_000;

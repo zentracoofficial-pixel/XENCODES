@@ -114,7 +114,10 @@ function flagFromIso2(iso2: string): string {
   );
 }
 
-function resolveIso2(name: string): string | null {
+/** The ISO 3166-1 alpha-2 code a supplier's country name stands for, or null
+ *  when it cannot be placed. Exported so a second supplier's countries can be
+ *  matched to the same country the first one already sells under. */
+export function resolveIso2(name: string): string | null {
   // A "(2)", "(3)" suffix is the label Xencodes itself adds when a supplier
   // lists one country as several separately priced pools; the country is the
   // same one, so its flag and dial code come from the name without it.

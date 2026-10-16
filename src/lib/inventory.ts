@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma";
 import {
   getNumberProvider,
   getEnabledProviders,
-  PROVIDER_UNAVAILABLE_COPY,
   type NumberProvider,
   type ProviderService,
   type ProviderAvailability,
@@ -42,6 +41,7 @@ import {
   getPreferredPoolQualityForService,
 } from "@/lib/provider-pool-quality";
 import { mergePoolQuality, rankPools } from "@/lib/pool-ladder";
+import { readSmartPickupSettings, loadPickupEvidence, rankProviders, NO_EVIDENCE } from "@/lib/smart-pickup";
 
 /**
  * Inventory and pricing: the one service the rest of Xencodes asks about
@@ -202,8 +202,16 @@ export type QuoteResult =
        *  numbers run out between the quote and the purchase, so a pair is
        *  only reported out of stock when every rung is empty. */
       ladder: Array<{ providerOfferId?: string; costUsdCents: number; quote: PriceQuote }>;
+      /** The other providers that can fill this order at the same price, in
+       *  Smart Pickup's order, tried only when the ones before them
+       *  definitely sold nothing. Backend only. */
+      fallbacks?: QuoteOk[];
+      /** How Smart Pickup ordered the providers, for the attempt log. */
+      pickup?: { mode: string; order: string[] };
     }
   | { ok: false; reason: QuoteFailure };
+
+export type QuoteOk = Extract<QuoteResult, { ok: true }>;
 
 /**
  * The single place a service's colour is decided.
@@ -227,14 +235,18 @@ function toInventoryService(service: ProviderService): InventoryService {
   };
 }
 
-/** Whether numbers can be sold at all right now, and what to say if not. */
+/** Whether numbers can be sold at all right now, and what to say if not.
+ *  Customer-facing: says nothing about suppliers or configuration (the admin
+ *  reads PROVIDER_UNAVAILABLE_COPY for that). */
 export async function getInventoryStatus(): Promise<InventoryStatus> {
   const resolved = await getNumberProvider();
   if (!resolved.connected) {
-    return { connected: false, message: PROVIDER_UNAVAILABLE_COPY[resolved.reason] };
+    return { connected: false, message: CUSTOMER_UNAVAILABLE_MESSAGE };
   }
   return { connected: true };
 }
+
+export const CUSTOMER_UNAVAILABLE_MESSAGE = "This service is temporarily unavailable. Please check back soon.";
 
 /**
  * The service catalog to search or browse, from the synced cache when it
@@ -517,6 +529,8 @@ export async function getServiceCountries(
   // minute ago should not wait for the next sync to take effect anywhere it
   // is shown.
   type CostOffer = {
+    /** Which provider this country's figures came from. */
+    providerId?: string;
     country: {
       slug: string;
       name: string;
@@ -551,6 +565,7 @@ export async function getServiceCountries(
         }
       }
       offers = Array.from(cheapestByCountry.values()).map((row) => ({
+        providerId: row.providerId,
         country: {
           slug: row.countrySlug,
           name: row.countryName,
@@ -581,6 +596,7 @@ export async function getServiceCountries(
         const existing = cheapestByCountry.get(offer.country.slug);
         if (!existing || offer.costUsdCents < existing.costUsdCents) {
           cheapestByCountry.set(offer.country.slug, {
+            providerId: id,
             country: offer.country,
             costUsdCents: offer.costUsdCents,
             stock: offer.stock,
@@ -606,8 +622,10 @@ export async function getServiceCountries(
       getPoolQualityByCountryForService(serviceSlug),
       getGlobalPoolQuality(),
     ]);
+    // Keyed by provider too: one provider's ladder only ever re-prices (or
+    // empties) a country whose figures came from that same provider.
     const ladderCost = new Map<string, { costUsdCents: number; inStock: boolean }>();
-    for (const { provider } of providers) {
+    for (const { id: ladderProvider, provider } of providers) {
       if (!provider.getServiceLadder) continue;
       const ladders = await provider.getServiceLadder(serviceSlug).catch((error) => {
         console.error(`[inventory] getServiceLadder failed for "${serviceSlug}":`, error);
@@ -623,17 +641,13 @@ export async function getServiceCountries(
           pools.filter((pool) => isUsableUsdCost(pool.costUsdCents)),
           quality,
         )[0];
-        const existing = ladderCost.get(countrySlug);
-        // Cheapest provider wins, same rule as quotePair().
-        if (first && (!existing || !existing.inStock || first.costUsdCents < existing.costUsdCents)) {
-          ladderCost.set(countrySlug, { costUsdCents: first.costUsdCents, inStock: true });
-        } else if (!first && !existing) {
-          ladderCost.set(countrySlug, { costUsdCents: 0, inStock: false });
-        }
+        const key = `${ladderProvider}:${countrySlug}`;
+        if (first) ladderCost.set(key, { costUsdCents: first.costUsdCents, inStock: true });
+        else ladderCost.set(key, { costUsdCents: 0, inStock: false });
       }
     }
     offers = offers.map((offer) => {
-      const live = ladderCost.get(offer.country.slug);
+      const live = offer.providerId ? ladderCost.get(`${offer.providerId}:${offer.country.slug}`) : undefined;
       if (!live) return offer;
       return live.inStock
         ? { ...offer, costUsdCents: live.costUsdCents }
@@ -861,26 +875,31 @@ export async function quotePair(
   // the moment those run out, with thousands of numbers one rung up.
   // Quality evidence (this pair's own record per pool, else the pool's record
   // everywhere) decides the order; with none yet it is stock depth.
-  let rungs: Array<{ providerOfferId?: string; costUsdCents: number; stockCount?: number }> = [
-    { costUsdCents: winner.offer.costUsdCents, stockCount: winner.offer.stockCount },
-  ];
-  let qualityByPool = new Map<string, QualityStat>();
-  if (winner.offer.pools && winner.offer.pools.length > 0) {
-    const [pairQuality, globalQuality] = await Promise.all([
-      getPoolQualityForPair(serviceSlug, winner.offer.country.slug),
-      getGlobalPoolQuality(),
-    ]).catch((error) => {
-      console.error(`[inventory] pool-quality lookup failed for "${serviceSlug}"/"${countrySlug}":`, error);
-      return [new Map<string, QualityStat>(), new Map<string, QualityStat>()] as const;
-    });
-    qualityByPool = mergePoolQuality(pairQuality, globalQuality);
+  // One provider's rungs, best first, plus the pool quality they were ranked by.
+  const rankedRungs = async (candidate: Candidate) => {
+    let ranked: Array<{ providerOfferId?: string; costUsdCents: number; stockCount?: number }> = [
+      { costUsdCents: candidate.offer.costUsdCents, stockCount: candidate.offer.stockCount },
+    ];
+    let quality = new Map<string, QualityStat>();
+    if (candidate.offer.pools && candidate.offer.pools.length > 0) {
+      const [pairQuality, globalQuality] = await Promise.all([
+        getPoolQualityForPair(serviceSlug, candidate.offer.country.slug),
+        getGlobalPoolQuality(),
+      ]).catch((error) => {
+        console.error(`[inventory] pool-quality lookup failed for "${serviceSlug}"/"${countrySlug}":`, error);
+        return [new Map<string, QualityStat>(), new Map<string, QualityStat>()] as const;
+      });
+      quality = mergePoolQuality(pairQuality, globalQuality);
+      const byQuality = rankPools(
+        candidate.offer.pools.filter((pool) => isUsableUsdCost(pool.costUsdCents)),
+        quality,
+      );
+      if (byQuality.length > 0) ranked = byQuality;
+    }
+    return { rungs: ranked, quality };
+  };
 
-    const ranked = rankPools(
-      winner.offer.pools.filter((pool) => isUsableUsdCost(pool.costUsdCents)),
-      qualityByPool,
-    );
-    if (ranked.length > 0) rungs = ranked;
-  }
+  const { rungs, quality: qualityByPool } = await rankedRungs(winner);
 
   const primary = rungs[0];
   const chosenProviderOfferId = primary.providerOfferId;
@@ -918,7 +937,73 @@ export async function quotePair(
     };
   });
 
-  const quote = ladder[0].quote;
+  // Smart Pickup (see src/lib/smart-pickup.ts): which provider fills the
+  // order when more than one can. The customer's price is the one above,
+  // from the cheapest provider, the same figure the country list shows: who
+  // fills the order never changes it. Another provider is used only at that
+  // price, and only while it still leaves a profit.
+  interface Fill {
+    provider: string;
+    providerServiceId?: string;
+    providerCountryId?: string;
+    providerOfferId?: string;
+    ladder: typeof ladder;
+  }
+  const fillFrom = (candidate: Candidate, rungLadder: typeof ladder): Fill => ({
+    provider: candidate.providerId,
+    providerServiceId: candidate.service.providerServiceId,
+    providerCountryId: candidate.offer.country.providerCountryId,
+    providerOfferId: rungLadder[0].providerOfferId,
+    ladder: rungLadder,
+  });
+  let fills: Fill[] = [fillFrom(winner, ladder)];
+  let pickup: { mode: string; order: string[] } | undefined;
+  if (candidates.length > 1) {
+    const priceKobo = ladder[0].quote.customerPriceKobo;
+    for (const candidate of candidates) {
+      if (candidate === winner) continue;
+      const { rungs: own } = await rankedRungs(candidate);
+      const atPrice = own
+        .map((rung) => ({
+          providerOfferId: rung.providerOfferId,
+          costUsdCents: rung.costUsdCents,
+          quote: setQuoteToPrice(
+            quoteForPair(rules, rung.costUsdCents, serviceSlug, candidate.offer.country.slug, currency),
+            priceKobo,
+            currency,
+          ),
+        }))
+        .filter((rung) => rung.quote.customerPriceKobo === priceKobo && rung.quote.grossProfitKobo > 0);
+      if (atPrice.length > 0) fills.push(fillFrom(candidate, atPrice));
+    }
+    if (fills.length > 1) {
+      try {
+        const settings = await readSmartPickupSettings();
+        const evidence = await loadPickupEvidence(
+          serviceSlug,
+          winner.offer.country.slug,
+          fills.map((fill) => fill.provider),
+          settings,
+        );
+        const decision = rankProviders(
+          fills.map((fill) => ({
+            providerId: fill.provider,
+            evidence: evidence.get(fill.provider) ?? NO_EVIDENCE,
+            marginShare: fill.ladder[0].quote.grossProfitKobo / priceKobo,
+          })),
+          settings,
+        );
+        const ordered = decision.order.flatMap((id) => fills.filter((fill) => fill.provider === id));
+        fills = settings.fallback ? ordered : ordered.slice(0, 1);
+        pickup = { mode: decision.mode, order: decision.order };
+      } catch (error) {
+        // No evidence, no ranking: the cheapest provider first, as before.
+        console.error(`[inventory] Smart Pickup failed for "${serviceSlug}"/"${countrySlug}":`, error);
+      }
+    }
+  }
+  const primaryFill = fills[0];
+  const quote = primaryFill.ladder[0].quote;
 
   // Same fallback order as getServiceCountries(): the provider's own rate
   // when it reports one; otherwise, once a specific pool was chosen above
@@ -936,14 +1021,15 @@ export async function quotePair(
       ? null
       : (chosenPoolQuality ?? (await getPairQuality(serviceSlug, winner.offer.country.slug)));
 
-  return {
+  const result: QuoteOk = {
     ok: true,
     quote,
-    provider: winner.providerId,
-    providerServiceId: winner.service.providerServiceId,
-    providerCountryId: winner.offer.country.providerCountryId,
-    providerOfferId: chosenProviderOfferId,
-    ladder,
+    provider: primaryFill.provider,
+    providerServiceId: primaryFill.providerServiceId,
+    providerCountryId: primaryFill.providerCountryId,
+    providerOfferId: primaryFill.providerOfferId,
+    ladder: primaryFill.ladder,
+    ...(pickup ? { pickup } : {}),
     service: toInventoryService(winner.service),
     country: {
       slug: winner.offer.country.slug,
@@ -963,4 +1049,17 @@ export async function quotePair(
       }),
     },
   };
+  if (fills.length > 1) {
+    result.fallbacks = fills.slice(1).map((fill) => ({
+      ...result,
+      provider: fill.provider,
+      providerServiceId: fill.providerServiceId,
+      providerCountryId: fill.providerCountryId,
+      providerOfferId: fill.providerOfferId,
+      ladder: fill.ladder,
+      quote: fill.ladder[0].quote,
+      fallbacks: undefined,
+    }));
+  }
+  return result;
 }

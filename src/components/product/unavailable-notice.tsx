@@ -26,9 +26,7 @@ export function UnavailableNotice({
     >
       <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <span>
-        Number availability is currently unavailable.{" "}
-        {message ?? "No number provider is connected yet."} Nothing can be
-        purchased until it is.
+        {message ?? "This service is temporarily unavailable. Please check back soon."}
       </span>
     </p>
   );

@@ -185,7 +185,7 @@ export function ActivationPanel({
             {status === "EXPIRED"
               ? "No code arrived"
               : status === "REFUNDED"
-                ? "Refunded by the number provider"
+                ? "Refunded"
                 : "Activation cancelled"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">

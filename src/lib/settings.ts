@@ -28,6 +28,9 @@ export const SETTING_KEYS = {
    *  reader/writer of this key. Not a secret: it never holds credentials,
    *  only which registered providers are switched on and in what order. */
   providerConfig: "provider_config_v2",
+  /** JSON: how Smart Pickup chooses between providers for one pair. See
+   *  src/lib/smart-pickup.ts. */
+  smartPickup: "smart_pickup_v1",
   /** Legacy single-currency rate, from before more than one currency could
    *  be enabled. Read only as a one-time fallback when currencyConfig below
    *  has never been written; see src/lib/currency-config.ts. */

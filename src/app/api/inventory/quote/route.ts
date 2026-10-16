@@ -18,7 +18,7 @@ const UNAVAILABLE: Record<string, string> = {
   disabled: "That combination is not available for purchase.",
   unpriceable:
     "We could not confirm a price for that country, so it is not on sale.",
-  provider_error: "The number provider is not responding. Try again in a moment.",
+  provider_error: "This service is temporarily unavailable. Please try again.",
 };
 
 export async function GET(request: Request) {

@@ -1083,3 +1083,53 @@ model RecoveryEmailLog {
   @@index([createdAt])
   @@map("recovery_email_logs")
 }
+
+/// What a supplier that reports orders by webhook (rather than by a status
+/// call) last said about one of its orders. One row per supplier order,
+/// moved only forward (pending -> active -> completed/expired/cancelled/
+/// failed), so a late or repeated delivery cannot undo a code that already
+/// arrived. Backend only: never read by anything a customer sees directly;
+/// the order's own Activation row is what the customer's pages show.
+model ProviderOrderState {
+  id              String   @id @default(cuid())
+  providerId      String
+  providerOrderId String
+  status          String
+  phoneNumber     String?
+  code            String?
+  text            String?
+  errorCode       String?
+  lastEventType   String
+  eventCount      Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([providerId, providerOrderId])
+  @@map("provider_order_states")
+}
+
+/// One purchase request sent to one supplier, whatever came of it: the
+/// evidence Smart Pickup reads for a supplier's availability, error rate
+/// and response time, and the list an admin reviews for requests whose
+/// outcome was never confirmed ("ambiguous"). Backend only.
+model ProviderAttempt {
+  id               String   @id @default(cuid())
+  providerId       String
+  serviceSlug      String
+  countrySlug      String
+  /// ok | out_of_stock | rejected | error | ambiguous
+  outcome          String
+  latencyMs        Int
+  /// Where this provider stood in Smart Pickup's order for the purchase
+  /// (0 = first choice), so fallbacks can be counted.
+  rank             Int      @default(0)
+  providerOrderRef String?
+  detail           String?
+  userId           String?
+  createdAt        DateTime @default(now())
+
+  @@index([providerId, createdAt])
+  @@index([serviceSlug, countrySlug, createdAt])
+  @@index([outcome, createdAt])
+  @@map("provider_attempts")
+}

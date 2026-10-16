@@ -9,7 +9,7 @@ import { Section, SectionHeading } from "@/components/ui/section";
  * - No code, no charge: reconcileActivation() refunds an activation that
  *   settles without a code (src/lib/activation-lifecycle.ts), and a cron
  *   sweep settles abandoned ones.
- * - Sellers chosen by delivery: every Activation records the GrizzlySMS
+ * - Sellers chosen by delivery: every Activation records the supplier
  *   seller that served it (providerOfferId), and rankPools() in
  *   src/lib/pool-ladder.ts moves sellers with a poor record to the back.
  * - Delivery history: src/lib/deliverability.ts measures each service and

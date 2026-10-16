@@ -10,6 +10,7 @@ import {
   setProviderPriority,
 } from "@/lib/provider";
 import { runProviderSync, type ProviderSyncResult } from "@/lib/provider-sync";
+import { parseSmartPickupSettings, readSmartPickupSettings, writeSmartPickupSettings } from "@/lib/smart-pickup";
 
 function refresh() {
   revalidatePath("/admin/providers");
@@ -212,4 +213,59 @@ export async function debugProviderPriceTiersAction(
   } catch (error) {
     return { ok: false, text: error instanceof Error ? error.message : "Diagnostic failed." };
   }
+}
+
+/**
+ * Saves Smart Pickup's settings (see src/lib/smart-pickup.ts). Every number
+ * is clamped to a safe range on the way in, whatever the form sent.
+ */
+export async function saveSmartPickupAction(
+  _previous: ProviderActionResult | null,
+  formData: FormData,
+): Promise<ProviderActionResult> {
+  const admin = await requireAdmin();
+  const n = (key: string) => {
+    const raw = formData.get(key);
+    const value = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const percent = (key: string) => {
+    const value = n(key);
+    return value === undefined ? undefined : value / 100;
+  };
+  const before = await readSmartPickupSettings();
+  const next = parseSmartPickupSettings(
+    JSON.stringify({
+      enabled: formData.get("enabled") === "on",
+      fallback: formData.get("fallback") === "on",
+      windowDays: n("windowDays"),
+      minSample: n("minSample"),
+      priorStrength: n("priorStrength"),
+      riskAversion: n("riskAversion"),
+      explorationPercent: n("explorationPercent"),
+      defaultProvider: typeof formData.get("defaultProvider") === "string" ? formData.get("defaultProvider") : undefined,
+      weights: {
+        success: percent("wSuccess"),
+        availability: percent("wAvailability"),
+        speed: percent("wSpeed"),
+        cost: percent("wCost"),
+      },
+      health: {
+        windowHours: n("healthWindowHours"),
+        minAttempts: n("healthMinAttempts"),
+        maxFailurePercent: n("healthMaxFailurePercent"),
+      },
+    }),
+  );
+  if (!getProviderDefinition(next.defaultProvider)) return { ok: false, error: "Unknown default provider." };
+  await writeSmartPickupSettings(next);
+  await recordAudit({
+    actor: admin,
+    action: "provider.smart_pickup",
+    targetType: "setting",
+    targetId: "smart_pickup_v1",
+    metadata: JSON.parse(JSON.stringify({ before, after: next })),
+  });
+  refresh();
+  return { ok: true };
 }
